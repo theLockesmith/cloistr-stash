@@ -1,0 +1,41 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+*.coverprofile
+
+# Dependency directories
+vendor/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+/bin/
+/dist/
+
+# Local environment files
+.env
+.env.local
+config.local.yml
+
+# Storage
+data/
+uploads/
+
+# .claude should not be committed (it's a symlink to shared agents)
+.claude

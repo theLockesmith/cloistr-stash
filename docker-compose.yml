@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  coldforge-files:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: coldforge-files
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./config/config.example.yml:/app/config.yml
+    environment:
+      BLOSSOM_HOST: "0.0.0.0"
+      BLOSSOM_PORT: "8080"
+      BLOSSOM_STORAGE_PATH: "/app/data"
+      BLOSSOM_RELAY_URL: "wss://relay.damus.io"
+      BLOSSOM_PUBLIC_URL: "http://localhost:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # Optional: Add more services as needed (relay, auth, etc.)

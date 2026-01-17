@@ -1,0 +1,15 @@
+.git
+.gitignore
+.gitlab-ci.yml
+.env
+.env.local
+config.local.yml
+data/
+bin/
+dist/
+*.md
+*.test
+*.out
+.idea/
+.vscode/
+.claude
