@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/coldforge/coldforge-files/internal/config"
 	"github.com/coldforge/coldforge-files/internal/server"

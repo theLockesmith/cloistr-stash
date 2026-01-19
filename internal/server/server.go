@@ -5,7 +5,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strings"
 
 	"github.com/coldforge/coldforge-files/internal/auth"
 	"github.com/coldforge/coldforge-files/internal/config"
@@ -38,17 +37,17 @@ func New(cfg *config.Config, store storage.Backend) *Server {
 // registerRoutes registers all HTTP endpoints
 func (s *Server) registerRoutes() {
 	// Health check endpoint
-	s.mux.HandleFunc("/health", s.handleHealth)
+	s.mux.HandleFunc("GET /health", s.handleHealth)
 
 	// Server info endpoint
-	s.mux.HandleFunc("/info", s.handleInfo)
+	s.mux.HandleFunc("GET /info", s.handleInfo)
 
-	// File operations
-	s.mux.HandleFunc("GET /", s.handleFileDownload)
-	s.mux.HandleFunc("HEAD /", s.handleFileHead)
+	// File operations under /blob/ prefix to avoid route conflicts
 	s.mux.HandleFunc("PUT /upload", s.handleFileUpload)
-	s.mux.HandleFunc("DELETE /", s.handleFileDelete)
-	s.mux.HandleFunc("GET /list/", s.handleListFiles)
+	s.mux.HandleFunc("GET /list/{pubkey}", s.handleListFiles)
+	s.mux.HandleFunc("GET /blob/{sha256}", s.handleFileDownload)
+	s.mux.HandleFunc("HEAD /blob/{sha256}", s.handleFileHead)
+	s.mux.HandleFunc("DELETE /blob/{sha256}", s.handleFileDelete)
 }
 
 // ListenAndServe starts the HTTP server
@@ -83,13 +82,8 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 
 // handleFileDownload handles GET requests to download a file
 func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Extract SHA256 from path
-	sha256 := strings.TrimPrefix(r.URL.Path, "/")
+	// Extract SHA256 from path parameter
+	sha256 := r.PathValue("sha256")
 	if sha256 == "" {
 		http.Error(w, "SHA256 hash required", http.StatusBadRequest)
 		return
@@ -119,13 +113,8 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request) {
 
 // handleFileHead handles HEAD requests to check if a file exists
 func (s *Server) handleFileHead(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodHead {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Extract SHA256 from path
-	sha256 := strings.TrimPrefix(r.URL.Path, "/")
+	// Extract SHA256 from path parameter
+	sha256 := r.PathValue("sha256")
 	if sha256 == "" {
 		http.Error(w, "SHA256 hash required", http.StatusBadRequest)
 		return
@@ -160,11 +149,6 @@ func (s *Server) handleFileHead(w http.ResponseWriter, r *http.Request) {
 
 // handleFileUpload handles PUT requests to upload a file
 func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// TODO: Verify NIP-46 authorization from request header
 	// For now, accept uploads without auth (development mode)
 
@@ -179,7 +163,7 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	// Return success response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	url := fmt.Sprintf("%s/%s", s.config.Blossom.PublicURL, sha256)
+	url := fmt.Sprintf("%s/blob/%s", s.config.Blossom.PublicURL, sha256)
 	response := fmt.Sprintf(`{"url":"%s","sha256":"%s","size":%d}`, url, sha256, size)
 	fmt.Fprint(w, response)
 
@@ -188,16 +172,11 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 
 // handleFileDelete handles DELETE requests to remove a file
 func (s *Server) handleFileDelete(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// TODO: Verify NIP-46 authorization from request header
 	// For now, accept deletes without auth (development mode)
 
-	// Extract SHA256 from path
-	sha256 := strings.TrimPrefix(r.URL.Path, "/")
+	// Extract SHA256 from path parameter
+	sha256 := r.PathValue("sha256")
 	if sha256 == "" {
 		http.Error(w, "SHA256 hash required", http.StatusBadRequest)
 		return
@@ -220,13 +199,8 @@ func (s *Server) handleFileDelete(w http.ResponseWriter, r *http.Request) {
 
 // handleListFiles handles GET requests to list files for a pubkey
 func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Extract pubkey from path
-	pubkey := strings.TrimPrefix(r.URL.Path, "/list/")
+	// Extract pubkey from path parameter
+	pubkey := r.PathValue("pubkey")
 	if pubkey == "" {
 		http.Error(w, "Pubkey required", http.StatusBadRequest)
 		return

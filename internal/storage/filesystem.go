@@ -29,7 +29,7 @@ func NewFilesystem(basePath string) (*Filesystem, error) {
 }
 
 // Store saves a file and returns its SHA256 hash
-func (fs *Filesystem) Store(ctx context.Context, data io.Reader) (sha256 string, size int64, err error) {
+func (fs *Filesystem) Store(ctx context.Context, data io.Reader) (hash string, size int64, err error) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
@@ -64,7 +64,7 @@ func (fs *Filesystem) Store(ctx context.Context, data io.Reader) (sha256 string,
 	}
 
 	// Get the SHA256 hash
-	hash := fmt.Sprintf("%x", hasher.Sum(nil))
+	hash = fmt.Sprintf("%x", hasher.Sum(nil))
 
 	// Create directory structure: basePath/xx/yyzzzz...
 	hashDir := filepath.Join(fs.basePath, hash[:2])
