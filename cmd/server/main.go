@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/coldforge/coldforge-files/internal/config"
-	"github.com/coldforge/coldforge-files/internal/server"
-	"github.com/coldforge/coldforge-files/internal/storage"
+	"git.coldforge.xyz/coldforge/coldforge-drive/internal/config"
+	"git.coldforge.xyz/coldforge/coldforge-drive/internal/server"
+	"git.coldforge.xyz/coldforge/coldforge-drive/internal/storage"
 	"github.com/joho/godotenv"
 )
 

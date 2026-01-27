@@ -1,4 +1,4 @@
-module github.com/coldforge/coldforge-files
+module git.coldforge.xyz/coldforge/coldforge-drive
 
 go 1.23.1
 

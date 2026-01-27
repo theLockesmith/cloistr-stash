@@ -6,9 +6,9 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/coldforge/coldforge-files/internal/auth"
-	"github.com/coldforge/coldforge-files/internal/config"
-	"github.com/coldforge/coldforge-files/internal/storage"
+	"git.coldforge.xyz/coldforge/coldforge-drive/internal/auth"
+	"git.coldforge.xyz/coldforge/coldforge-drive/internal/config"
+	"git.coldforge.xyz/coldforge/coldforge-drive/internal/storage"
 )
 
 // Server represents the HTTP server
