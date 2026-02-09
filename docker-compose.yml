@@ -11,9 +11,9 @@ services:
     environment:
       DRIVE_HOST: "0.0.0.0"
       DRIVE_PORT: "8080"
-      DRIVE_PUBLIC_URL: "http://localhost:8080"
-      DRIVE_BLOSSOM_URL: "http://host.docker.internal:8085"
-      DRIVE_RELAY_URL: "wss://relay.damus.io"
+      DRIVE_PUBLIC_URL: "https://drive.coldforge.xyz"
+      DRIVE_BLOSSOM_URL: "https://blossom.coldforge.xyz"
+      DRIVE_RELAY_URL: "wss://relay.coldforge.xyz"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
@@ -21,8 +21,3 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-# Note: This assumes coldforge-blossom is running separately on port 8085
-# If running Blossom in Docker too, add it here and update DRIVE_BLOSSOM_URL

@@ -6,14 +6,14 @@ server:
   # HTTP server port
   port: 8080
   # Public URL for the Drive UI
-  public_url: "http://localhost:8080"
+  public_url: "https://drive.coldforge.xyz"
 
 # Blossom backend server (file storage)
 blossom:
-  # URL of the Blossom server
-  url: "http://localhost:8085"
+  # URL of the hosted Blossom server
+  url: "https://blossom.coldforge.xyz"
 
 # Nostr relay for file/folder metadata
 relay:
   # Relay URL for publishing and querying metadata events
-  url: "wss://relay.damus.io"
+  url: "wss://relay.coldforge.xyz"
