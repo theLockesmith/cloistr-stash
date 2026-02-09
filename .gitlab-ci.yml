@@ -64,8 +64,22 @@ build:binary:
     - make build
   artifacts:
     paths:
-      - bin/coldforge-files
+      - bin/coldforge-drive
     expire_in: 30 days
+
+# Tagged releases (semver only)
+build:release:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $REGISTRY_IMAGE:$CI_COMMIT_TAG .
+    - docker push $REGISTRY_IMAGE:$CI_COMMIT_TAG
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
 
 # Deploy stage
 deploy:staging:
