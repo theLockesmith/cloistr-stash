@@ -4,7 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -16,6 +16,12 @@ import (
 )
 
 func main() {
+	// Initialize structured logger with JSON output to stdout
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
 	// Load environment variables from .env file if it exists
 	_ = godotenv.Load()
 
@@ -27,7 +33,8 @@ func main() {
 	// Load configuration
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		logger.Error("failed to load config", "error", err)
+		os.Exit(1)
 	}
 
 	// Resolve web directory path
@@ -46,7 +53,7 @@ func main() {
 
 	// Verify web directory exists
 	if _, err := os.Stat(webPath); os.IsNotExist(err) {
-		log.Printf("Warning: Web directory not found at %s", webPath)
+		logger.Warn("web directory not found", "path", webPath)
 	}
 
 	// Initialize Blossom client
@@ -56,20 +63,24 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := blossomClient.Health(ctx); err != nil {
-		log.Printf("Warning: Cannot reach Blossom server at %s: %v", cfg.Blossom.URL, err)
-		log.Printf("File uploads will fail until Blossom is available")
+		logger.Warn("cannot reach Blossom server",
+			"url", cfg.Blossom.URL,
+			"error", err,
+		)
+		logger.Warn("file uploads will fail until Blossom is available")
 	} else {
-		log.Printf("Connected to Blossom server at %s", cfg.Blossom.URL)
+		logger.Info("connected to Blossom server", "url", cfg.Blossom.URL)
 	}
 
 	// Create HTTP server
-	srv := server.New(cfg, blossomClient, webPath)
+	srv := server.New(cfg, blossomClient, webPath, logger)
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	log.Printf("Starting Drive server on %s", addr)
-	log.Printf("Web UI available at http://%s", addr)
+	logger.Info("starting Drive server", "address", addr)
+	logger.Info("web UI available", "url", fmt.Sprintf("http://%s", addr))
 	if err := srv.ListenAndServe(addr); err != nil {
-		log.Fatalf("Server error: %v", err)
+		logger.Error("server error", "error", err)
+		os.Exit(1)
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +12,7 @@ import (
 
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/blossom"
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/config"
+	"git.coldforge.xyz/coldforge/coldforge-drive/internal/metrics"
 )
 
 // Server represents the HTTP server
@@ -20,6 +21,7 @@ type Server struct {
 	blossom *blossom.Client
 	mux     *http.ServeMux
 	webDir  string
+	logger  *slog.Logger
 }
 
 // FileMetadata represents file information returned to the frontend
@@ -32,12 +34,13 @@ type FileMetadata struct {
 }
 
 // New creates a new HTTP server
-func New(cfg *config.Config, blossomClient *blossom.Client, webDir string) *Server {
+func New(cfg *config.Config, blossomClient *blossom.Client, webDir string, logger *slog.Logger) *Server {
 	s := &Server{
 		config:  cfg,
 		blossom: blossomClient,
 		mux:     http.NewServeMux(),
 		webDir:  webDir,
+		logger:  logger,
 	}
 
 	s.registerRoutes()
@@ -48,6 +51,9 @@ func New(cfg *config.Config, blossomClient *blossom.Client, webDir string) *Serv
 func (s *Server) registerRoutes() {
 	// Health check
 	s.mux.HandleFunc("GET /health", s.handleHealth)
+
+	// Metrics endpoint
+	s.mux.Handle("GET /metrics", metrics.Handler())
 
 	// API endpoints
 	s.mux.HandleFunc("GET /api/files", s.handleListFiles)
@@ -60,9 +66,14 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/", s.handleStatic)
 }
 
+// Handler returns the HTTP handler with metrics middleware
+func (s *Server) Handler() http.Handler {
+	return metrics.Middleware(s.mux)
+}
+
 // ListenAndServe starts the HTTP server
 func (s *Server) ListenAndServe(addr string) error {
-	return http.ListenAndServe(addr, s.mux)
+	return http.ListenAndServe(addr, s.Handler())
 }
 
 // handleHealth is the health check endpoint
@@ -122,12 +133,14 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	// Parse multipart form
 	if err := r.ParseMultipartForm(100 << 20); err != nil { // 100MB max
+		s.logger.Warn("failed to parse multipart form", "error", err)
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
+		s.logger.Warn("no file in upload request", "error", err)
 		http.Error(w, "No file provided", http.StatusBadRequest)
 		return
 	}
@@ -145,10 +158,18 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	// Upload to Blossom with auth
 	result, err := s.blossom.Upload(r.Context(), file, contentType, authHeader)
 	if err != nil {
-		log.Printf("Failed to upload to Blossom: %v", err)
+		s.logger.Error("failed to upload to blossom",
+			"error", err,
+			"filename", header.Filename,
+			"content_type", contentType,
+		)
+		metrics.RecordUpload(false, 0)
 		http.Error(w, "Upload failed", http.StatusInternalServerError)
 		return
 	}
+
+	// Record successful upload
+	metrics.RecordUpload(true, result.Size)
 
 	// Create response with file metadata
 	metadata := FileMetadata{
@@ -162,7 +183,12 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(metadata)
 
-	log.Printf("File uploaded: %s (%s, %d bytes)", header.Filename, result.SHA256[:16], result.Size)
+	s.logger.Info("file uploaded",
+		"filename", header.Filename,
+		"sha256", result.SHA256[:16],
+		"size", result.Size,
+		"content_type", contentType,
+	)
 }
 
 // handleGetFile returns file metadata
@@ -176,7 +202,10 @@ func (s *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
 	// Check if file exists in Blossom
 	exists, err := s.blossom.Exists(r.Context(), sha256)
 	if err != nil {
-		log.Printf("Failed to check file existence: %v", err)
+		s.logger.Error("failed to check file existence",
+			"error", err,
+			"sha256", sha256,
+		)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
@@ -208,7 +237,10 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 
 	// Delete from Blossom with auth
 	if err := s.blossom.Delete(r.Context(), sha256, authHeader); err != nil {
-		log.Printf("Failed to delete file: %v", err)
+		s.logger.Error("failed to delete file",
+			"error", err,
+			"sha256", sha256,
+		)
 		http.Error(w, "Delete failed", http.StatusInternalServerError)
 		return
 	}
@@ -216,7 +248,7 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprint(w, `{"status":"deleted"}`)
 
-	log.Printf("File deleted: %s", sha256)
+	s.logger.Info("file deleted", "sha256", sha256)
 }
 
 // handleDownloadFile proxies file download from Blossom
@@ -230,11 +262,18 @@ func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request) {
 	// Download from Blossom
 	body, info, err := s.blossom.Download(r.Context(), sha256)
 	if err != nil {
-		log.Printf("Failed to download file: %v", err)
+		s.logger.Warn("failed to download file",
+			"error", err,
+			"sha256", sha256,
+		)
+		metrics.RecordDownload(false)
 		http.Error(w, "File not found", http.StatusNotFound)
 		return
 	}
 	defer body.Close()
+
+	// Record successful download
+	metrics.RecordDownload(true)
 
 	// Set headers
 	if info.MimeType != "" {
@@ -247,6 +286,9 @@ func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request) {
 
 	// Stream file
 	if _, err := io.Copy(w, body); err != nil {
-		log.Printf("Failed to stream file: %v", err)
+		s.logger.Error("failed to stream file",
+			"error", err,
+			"sha256", sha256,
+		)
 	}
 }
