@@ -26,24 +26,36 @@ Blossom handles:
 - Upload/download
 - Content addressing (SHA256)
 
-## Agents
+## Status
 
-This repo has a `.claude` symlink pointing to `~/claude/coldforge/.claude`, which provides access to Coldforge-specific agents:
-- **explore** - Research code and NIPs
-- **docker** - Create/update Dockerfiles
-- **atlas-deploy** - Kubernetes deployment via Atlas
-- **service-init** - Scaffold new services
+**Active development** - Blossom backend is operational, building the Drive UI.
 
-Global agents (reviewer, security, tester, test-writer, debugger, documenter) are always available.
+## Architecture
 
-## Autonomous Work Mode (CRITICAL)
-
-**Work autonomously. Do NOT stop to ask what to do next.**
-
-- Keep working until the task is complete or you hit a genuine blocker
-- Make reasonable decisions - don't ask for permission on obvious choices
-- If tests fail, fix them. If code needs review, use the reviewer agent. Keep going.
-- Update documentation as you make progress
+```
+┌─────────────────────────────────────────┐
+│           Browser (User)                │
+└─────────────────┬───────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────┐
+│         coldforge-drive                 │
+│                                         │
+│  web/          → Frontend UI (HTML/JS)  │
+│  internal/     → Go backend             │
+│    blossom/    → Client SDK for Blossom │
+│    metadata/   → Nostr event handling   │
+└─────────────────┬───────────────────────┘
+                  │
+        ┌─────────┴─────────┐
+        ▼                   ▼
+┌───────────────┐   ┌───────────────┐
+│ coldforge-    │   │ Nostr Relay   │
+│ blossom       │   │               │
+│               │   │ (metadata     │
+│ (file storage)│   │  events)      │
+└───────────────┘   └───────────────┘
+```
 
 ## Quick Reference
 
@@ -64,29 +76,48 @@ docker build -t coldforge-drive .
 coldforge-drive/
 ├── cmd/server/main.go      # Entry point
 ├── internal/
-│   ├── server/             # HTTP server and handlers
-│   ├── storage/            # Blossom client interface
-│   ├── auth/               # NIP-46/NIP-07 auth
+│   ├── server/             # HTTP server (serves UI + API)
+│   ├── blossom/            # Blossom client SDK
 │   ├── metadata/           # File/folder Nostr events
+│   ├── auth/               # NIP-46/NIP-07 auth
 │   └── config/             # Configuration
-├── web/                    # Frontend UI (if embedded)
+├── web/                    # Frontend UI
+│   ├── index.html
+│   ├── css/
+│   └── js/
 └── config/                 # Config files
 ```
 
-## Status
+## Current Roadmap
 
-This project was scaffolded but development focus shifted to coldforge-blossom first. Once Blossom is ready, Drive development will resume.
+1. **Blossom client SDK** - Go client to upload/download from Blossom
+2. **Web frontend** - File browser with upload/download
+3. **File upload flow** - Drag-and-drop → Blossom
+4. **Folder management** - Create, rename, move folders (Nostr events)
+5. **File metadata** - Names, descriptions, tags (Nostr events)
+6. **Sharing** - Share files/folders with other npubs
 
-## Next Steps
+## Agents
 
-1. Wait for coldforge-blossom to have basic functionality
-2. Implement Blossom client SDK
-3. Design folder/metadata Nostr event schema
-4. Build file browser UI
-5. Implement sharing
+This repo has a `.claude` symlink pointing to `~/claude/coldforge/.claude`, which provides access to Coldforge-specific agents:
+- **explore** - Research code and NIPs
+- **docker** - Create/update Dockerfiles
+- **atlas-deploy** - Kubernetes deployment via Atlas
+- **service-init** - Scaffold new services
+
+Global agents (reviewer, security, tester, test-writer, debugger, documenter) are always available.
+
+## Autonomous Work Mode (CRITICAL)
+
+**Work autonomously. Do NOT stop to ask what to do next.**
+
+- Keep working until the task is complete or you hit a genuine blocker
+- Make reasonable decisions - don't ask for permission on obvious choices
+- If tests fail, fix them. If code needs review, use the reviewer agent. Keep going.
+- Update documentation as you make progress
 
 ## See Also
 
-- Blossom (storage): `~/claude/coldforge/services/files/CLAUDE.md`
-- Drive service docs: `~/claude/coldforge/services/drive/CLAUDE.md` (to be created)
+- Blossom (storage): `~/claude/coldforge/services/blossom/CLAUDE.md`
+- Drive service docs: `~/claude/coldforge/services/drive/CLAUDE.md`
 - Coldforge Overview: `~/claude/coldforge/CLAUDE.md`

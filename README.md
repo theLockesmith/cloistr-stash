@@ -1,310 +1,193 @@
-# coldforge-files - Blossom Server
+# coldforge-drive
 
-A Nostr-native file storage server implementing the Blossom protocol. Files are stored with content-addressing (SHA-256 hash) and accessed via Nostr identity (NIP-46 signing).
+Nostr-native file manager UI - a Google Drive replacement built on the Blossom protocol.
 
 ## Overview
 
-Blossom provides a simple HTTP API for file storage with Nostr-based authentication. Key features:
+Drive is the user-facing file management application for Coldforge. It provides:
 
-- **Content-Addressed Storage** - Files identified by SHA-256 hash
-- **Automatic Deduplication** - Identical files stored once
-- **NIP-46 Authentication** - Upload/delete requires signed Nostr events
-- **Simple HTTP API** - GET to download, PUT to upload, DELETE to remove
+- **File Browser** - Browse, search, and organize your files
+- **Upload/Download** - Drag-and-drop uploads, direct downloads
+- **Folder Organization** - Create folders, move files, organize content
+- **Sharing** - Share files with other Nostr users (npubs)
+- **Nostr-Native** - All metadata stored as Nostr events, files in Blossom
+
+## Architecture
+
+```
+┌─────────────────────────────────────────┐
+│              Browser                    │
+│                                         │
+│  ┌───────────────────────────────────┐  │
+│  │     Drive Web UI (web/)           │  │
+│  │     - File browser                │  │
+│  │     - Upload interface            │  │
+│  │     - Folder management           │  │
+│  └───────────────┬───────────────────┘  │
+└──────────────────┼──────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────┐
+│         Drive Backend (Go)              │
+│                                         │
+│  - Serves web UI                        │
+│  - Proxies to Blossom                   │
+│  - Handles Nostr metadata events        │
+└─────────────────┬───────────────────────┘
+                  │
+        ┌─────────┴─────────┐
+        ▼                   ▼
+┌───────────────┐   ┌───────────────┐
+│ coldforge-    │   │ Nostr Relay   │
+│ blossom       │   │               │
+│               │   │ (file/folder  │
+│ (blob storage)│   │  metadata)    │
+└───────────────┘   └───────────────┘
+```
 
 ## Quick Start
 
 ### Prerequisites
 
 - Go 1.22+
-- Docker & Docker Compose (optional)
+- Docker & Docker Compose
+- Running coldforge-blossom instance
 
 ### Run Locally
-
-```bash
-# Build
-make build
-
-# Run with default config
-./bin/coldforge-files
-
-# Run with custom config
-./bin/coldforge-files -config path/to/config.yml
-```
-
-### Run with Docker
 
 ```bash
 # Start with docker-compose
 docker-compose up
 
 # Or build and run manually
-make docker-build
-make docker-run
+make build
+./bin/coldforge-drive
 ```
 
-### Run Tests
+### Configuration
 
-```bash
-# All tests
-make test
+Environment variables:
 
-# With coverage
-make test-coverage
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DRIVE_HOST` | Bind address | `0.0.0.0` |
+| `DRIVE_PORT` | Server port | `8080` |
+| `DRIVE_BLOSSOM_URL` | Blossom server URL | `http://localhost:8085` |
+| `DRIVE_RELAY_URL` | Nostr relay for metadata | `wss://relay.damus.io` |
 
-# With race detector
-make test-race
-```
+## Features
 
-## Configuration
+### File Management
+- Upload files via drag-and-drop or file picker
+- Download files directly from Blossom
+- Delete files (with Nostr auth)
+- View file metadata (size, type, upload date)
 
-Configuration can be set via YAML file or environment variables.
+### Folder Organization
+- Create, rename, delete folders
+- Move files between folders
+- Nested folder structure
+- Folder metadata as Nostr events (kind 30079)
 
-### YAML Configuration
+### File Metadata
+- File names and descriptions
+- Tags for organization
+- File metadata as Nostr events (kind 30078)
+- Content-addressed storage (SHA-256)
 
-```yaml
-server:
-  host: "0.0.0.0"
-  port: 8080
-
-storage:
-  type: "filesystem"
-  filesystem:
-    path: "./data"
-
-auth:
-  relay_url: "wss://relay.example.com"
-
-blossom:
-  public_url: "https://blossom.example.com"
-```
-
-### Environment Variables
-
-All configuration options can be set with environment variables:
-
-- `BLOSSOM_HOST` - Server bind address (default: "0.0.0.0")
-- `BLOSSOM_PORT` - Server port (default: 8080)
-- `BLOSSOM_STORAGE_PATH` - Storage directory (default: "./data")
-- `BLOSSOM_RELAY_URL` - NIP-46 relay URL
-- `BLOSSOM_PUBLIC_URL` - Public URL for file downloads
-
-## API Endpoints
-
-### Health Check
-
-```
-GET /health
-```
-
-Returns server health status.
-
-### Server Info
-
-```
-GET /info
-```
-
-Returns server information and capabilities.
-
-### Upload File
-
-```
-PUT /upload
-Content-Type: application/octet-stream
-Authorization: Bearer <signed-event>
-
-[file data]
-```
-
-Uploads a file. Returns SHA256 hash and public URL.
-
-**Response:**
-```json
-{
-  "url": "https://blossom.example.com/abc123...",
-  "sha256": "abc123...",
-  "size": 1024
-}
-```
-
-### Download File
-
-```
-GET /<sha256>
-```
-
-Downloads a file by its SHA256 hash.
-
-**Response:** File content with headers:
-- `Content-Length` - File size
-- `x-content-sha256` - SHA256 hash
-
-### Check File Exists
-
-```
-HEAD /<sha256>
-```
-
-Check if a file exists without downloading it.
-
-**Response:** 200 OK if exists, 404 if not found.
-
-### Delete File
-
-```
-DELETE /<sha256>
-Authorization: Bearer <signed-event>
-```
-
-Deletes a file. Requires authorization from the uploader.
-
-**Response:**
-```json
-{
-  "status": "deleted"
-}
-```
-
-### List Files by Pubkey
-
-```
-GET /list/<pubkey>
-```
-
-Lists all files uploaded by a specific public key.
-
-**Response:**
-```json
-{
-  "files": [
-    {"sha256": "abc123...", "size": 1024},
-    {"sha256": "def456...", "size": 2048}
-  ]
-}
-```
-
-## Architecture
-
-### Storage Backend
-
-Currently supports:
-- **Filesystem** - Local directory storage (for development)
-- **Ceph** - Planned for production
-
-Files are stored in a content-addressed structure:
-```
-data/
-  ab/cdef123456.../    # First 2 chars of hash as directory
-  xy/zzzzzzzzzzzzz...  # Remaining chars as filename
-```
-
-### Authentication
-
-Uses NIP-46 (Nostr Connect) for authorization:
-
-1. Client creates a Nostr event signing the request
-2. Client includes event in Authorization header
-3. Server verifies signature using Nostr protocol
-4. If valid, request is processed
-
-### Deduplication
-
-Files are content-addressed by SHA256. When the same file is uploaded twice:
-
-1. First upload: File stored with hash as key
-2. Second upload: Hash calculated, same as first, file exists already
-3. No duplicate storage, just return existing hash
+### Sharing (Planned)
+- Share with specific npubs (NIP-44 encrypted)
+- Public shareable links
+- Expiring links
 
 ## Project Structure
 
 ```
-coldforge-files/
-├── cmd/server/
-│   └── main.go              # Entry point
+coldforge-drive/
+├── cmd/server/main.go      # Entry point
 ├── internal/
-│   ├── config/              # Configuration handling
-│   │   └── config.go
-│   ├── server/              # HTTP server and handlers
-│   │   └── server.go
-│   ├── storage/             # Storage interface and backends
-│   │   ├── interface.go
-│   │   ├── filesystem.go
-│   │   └── filesystem_test.go
-│   ├── auth/                # NIP-46 authentication
-│   │   └── nip46.go
-│   └── blossom/             # Blossom protocol types
-│       └── types.go
+│   ├── server/             # HTTP server
+│   ├── blossom/            # Blossom client SDK
+│   ├── metadata/           # Nostr event handling
+│   ├── auth/               # NIP-46/NIP-07 auth
+│   └── config/             # Configuration
+├── web/                    # Frontend UI
+│   ├── index.html
+│   ├── css/
+│   └── js/
 ├── config/
 │   └── config.example.yml
-├── Makefile
 ├── Dockerfile
 ├── docker-compose.yml
-├── go.mod
-├── go.sum
-└── README.md
+└── Makefile
 ```
 
 ## Development
 
-### Adding a New Feature
-
-1. Write tests first (TDD approach)
-2. Implement feature
-3. Run tests: `make test`
-4. Run linter: `make lint`
-5. Commit with meaningful message
-
-### Key Files
-
-- **Storage Interface**: `internal/storage/interface.go` - Defines how storage backends work
-- **HTTP Server**: `internal/server/server.go` - Handles all API endpoints
-- **Authentication**: `internal/auth/nip46.go` - Verifies NIP-46 signatures
-
-## Next Steps
-
-- [ ] Implement full NIP-46 authorization verification
-- [ ] Add Ceph storage backend
-- [ ] Implement file metadata tracking (uploads by pubkey)
-- [ ] Add storage quotas and rate limiting
-- [ ] Support NIP-96 protocol
-- [ ] Kubernetes deployment manifests
-
-## Testing
-
-The project includes unit tests for the filesystem storage backend. Add more tests as features are implemented:
-
 ```bash
-# Run all tests
-go test ./...
+# Run tests
+make test
 
-# Run specific package tests
-go test ./internal/storage
+# Run with hot reload (requires air)
+make dev
 
-# Run with coverage
-go test -cover ./...
+# Build Docker image
+make docker-build
 
-# Run with race detection
-go test -race ./...
+# Lint
+make lint
 ```
 
-## References
+## Nostr Event Schema
 
-- [Blossom Protocol](https://github.com/hzrd149/blossom)
-- [NIP-46: Nostr Connect](https://github.com/nostr-protocol/nips/blob/master/46.md)
-- [NIP-94: File Metadata](https://github.com/nostr-protocol/nips/blob/master/94.md)
+### File Metadata (Kind 30078)
+
+```json
+{
+  "kind": 30078,
+  "content": "",
+  "tags": [
+    ["d", "unique-file-id"],
+    ["name", "document.pdf"],
+    ["folder", "/work/reports/"],
+    ["x", "sha256-hash"],
+    ["url", "https://blossom.example.com/<sha256>"],
+    ["m", "application/pdf"],
+    ["size", "1234567"]
+  ]
+}
+```
+
+### Folder Metadata (Kind 30079)
+
+```json
+{
+  "kind": 30079,
+  "content": "",
+  "tags": [
+    ["d", "folder-id"],
+    ["name", "reports"],
+    ["path", "/work/reports/"],
+    ["parent", "parent-folder-id"]
+  ]
+}
+```
+
+## Roadmap
+
+- [x] Project structure
+- [ ] Blossom client SDK
+- [ ] Basic web UI (file list, upload)
+- [ ] Folder management
+- [ ] File metadata events
+- [ ] Search
+- [ ] Sharing
+
+## Related Projects
+
+- [coldforge-blossom](https://gitlab-coldforge/coldforge/coldforge-blossom) - Blob storage backend
+- [Blossom Protocol](https://github.com/hzrd149/blossom) - Protocol specification
 
 ## License
 
-AGPL-3.0 - See LICENSE file for details
-
-## Development Notes
-
-**Last Updated:** 2026-01-17
-
-This is the initial scaffolding of the Blossom server. Key development areas:
-
-1. NIP-46 authentication is stubbed out - needs integration with relay
-2. File listing by pubkey needs metadata tracking
-3. Storage backends need to be expanded (Ceph support)
-4. Needs proper error handling and validation
-5. Needs rate limiting and DoS protection
+AGPL-3.0

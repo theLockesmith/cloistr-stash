@@ -10,37 +10,26 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Storage  StorageConfig  `yaml:"storage"`
-	Auth     AuthConfig     `yaml:"auth"`
-	Blossom  BlossomConfig  `yaml:"blossom"`
+	Server  ServerConfig  `yaml:"server"`
+	Blossom BlossomConfig `yaml:"blossom"`
+	Relay   RelayConfig   `yaml:"relay"`
 }
 
 // ServerConfig represents HTTP server configuration
 type ServerConfig struct {
-	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
-}
-
-// StorageConfig represents storage backend configuration
-type StorageConfig struct {
-	Type       string             `yaml:"type"`
-	Filesystem FilesystemConfig   `yaml:"filesystem"`
-}
-
-// FilesystemConfig represents filesystem storage configuration
-type FilesystemConfig struct {
-	Path string `yaml:"path"`
-}
-
-// AuthConfig represents authentication configuration
-type AuthConfig struct {
-	RelayURL string `yaml:"relay_url"`
-}
-
-// BlossomConfig represents Blossom protocol configuration
-type BlossomConfig struct {
+	Host      string `yaml:"host"`
+	Port      int    `yaml:"port"`
 	PublicURL string `yaml:"public_url"`
+}
+
+// BlossomConfig represents the Blossom backend configuration
+type BlossomConfig struct {
+	URL string `yaml:"url"`
+}
+
+// RelayConfig represents Nostr relay configuration for metadata
+type RelayConfig struct {
+	URL string `yaml:"url"`
 }
 
 // Load loads configuration from a YAML file with environment variable overrides
@@ -48,20 +37,15 @@ func Load(path string) (*Config, error) {
 	// Default configuration
 	cfg := &Config{
 		Server: ServerConfig{
-			Host: "0.0.0.0",
-			Port: 8080,
-		},
-		Storage: StorageConfig{
-			Type: "filesystem",
-			Filesystem: FilesystemConfig{
-				Path: "./data",
-			},
-		},
-		Auth: AuthConfig{
-			RelayURL: "wss://relay.example.com",
+			Host:      "0.0.0.0",
+			Port:      8080,
+			PublicURL: "http://localhost:8080",
 		},
 		Blossom: BlossomConfig{
-			PublicURL: "https://blossom.example.com",
+			URL: "http://localhost:8085",
+		},
+		Relay: RelayConfig{
+			URL: "wss://relay.damus.io",
 		},
 	}
 
@@ -78,23 +62,23 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Override with environment variables
-	if host := os.Getenv("BLOSSOM_HOST"); host != "" {
+	if host := os.Getenv("DRIVE_HOST"); host != "" {
 		cfg.Server.Host = host
 	}
-	if port := os.Getenv("BLOSSOM_PORT"); port != "" {
+	if port := os.Getenv("DRIVE_PORT"); port != "" {
 		p, err := strconv.Atoi(port)
 		if err == nil {
 			cfg.Server.Port = p
 		}
 	}
-	if storagePath := os.Getenv("BLOSSOM_STORAGE_PATH"); storagePath != "" {
-		cfg.Storage.Filesystem.Path = storagePath
+	if publicURL := os.Getenv("DRIVE_PUBLIC_URL"); publicURL != "" {
+		cfg.Server.PublicURL = publicURL
 	}
-	if relayURL := os.Getenv("BLOSSOM_RELAY_URL"); relayURL != "" {
-		cfg.Auth.RelayURL = relayURL
+	if blossomURL := os.Getenv("DRIVE_BLOSSOM_URL"); blossomURL != "" {
+		cfg.Blossom.URL = blossomURL
 	}
-	if publicURL := os.Getenv("BLOSSOM_PUBLIC_URL"); publicURL != "" {
-		cfg.Blossom.PublicURL = publicURL
+	if relayURL := os.Getenv("DRIVE_RELAY_URL"); relayURL != "" {
+		cfg.Relay.URL = relayURL
 	}
 
 	return cfg, nil

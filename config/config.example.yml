@@ -1,27 +1,19 @@
-# Coldforge Files (Blossom) Server Configuration
+# coldforge-drive configuration
 
 server:
   # HTTP server bind address
   host: "0.0.0.0"
   # HTTP server port
   port: 8080
+  # Public URL for the Drive UI
+  public_url: "http://localhost:8080"
 
-storage:
-  # Storage backend type: "filesystem" or "ceph"
-  type: "filesystem"
-
-  # Filesystem storage configuration
-  filesystem:
-    # Base path for storing files
-    path: "./data"
-
-# Authentication configuration
-auth:
-  # NIP-46 relay URL for verifying signatures
-  relay_url: "wss://relay.example.com"
-
-# Blossom protocol configuration
+# Blossom backend server (file storage)
 blossom:
-  # Public URL where users can download files
-  # Used in upload responses and event tags
-  public_url: "https://blossom.coldforge.xyz"
+  # URL of the Blossom server
+  url: "http://localhost:8085"
+
+# Nostr relay for file/folder metadata
+relay:
+  # Relay URL for publishing and querying metadata events
+  url: "wss://relay.damus.io"

@@ -1,0 +1,82 @@
+// API client for communicating with the Drive backend
+
+const API = {
+    baseURL: '',
+
+    // Upload a file to the server with Blossom auth
+    async uploadFile(file, authHeader) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const headers = {};
+        if (authHeader) {
+            headers['X-Blossom-Auth'] = authHeader;
+        }
+
+        const response = await fetch(`${this.baseURL}/api/files`, {
+            method: 'POST',
+            headers: headers,
+            body: formData,
+        });
+
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(error || `Upload failed: ${response.status}`);
+        }
+
+        return response.json();
+    },
+
+    // List all files for the current user
+    async listFiles() {
+        const response = await fetch(`${this.baseURL}/api/files`);
+
+        if (!response.ok) {
+            throw new Error(`Failed to list files: ${response.status}`);
+        }
+
+        return response.json();
+    },
+
+    // Get file metadata by ID
+    async getFile(id) {
+        const response = await fetch(`${this.baseURL}/api/files/${id}`);
+
+        if (!response.ok) {
+            throw new Error(`Failed to get file: ${response.status}`);
+        }
+
+        return response.json();
+    },
+
+    // Delete a file with Blossom auth
+    async deleteFile(sha256, authHeader) {
+        const headers = {};
+        if (authHeader) {
+            headers['X-Blossom-Auth'] = authHeader;
+        }
+
+        const response = await fetch(`${this.baseURL}/api/files/${sha256}`, {
+            method: 'DELETE',
+            headers: headers,
+        });
+
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(error || `Failed to delete file: ${response.status}`);
+        }
+
+        return response.json();
+    },
+
+    // Get download URL for a file
+    getDownloadURL(sha256) {
+        return `${this.baseURL}/api/files/${sha256}/download`;
+    },
+
+    // Check server health
+    async health() {
+        const response = await fetch(`${this.baseURL}/health`);
+        return response.ok;
+    },
+};

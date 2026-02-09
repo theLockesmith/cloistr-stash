@@ -1,75 +1,114 @@
-# Development Guide - coldforge-files
+# Development Guide - coldforge-drive
 
-This document provides guidance for developing the coldforge-files (Blossom) service.
+This document provides guidance for developing the coldforge-drive file manager UI.
 
 ## Architecture Overview
 
-The service is structured in packages following Go best practices:
+Drive is a web application with a Go backend that:
+1. Serves the frontend UI
+2. Proxies file operations to coldforge-blossom
+3. Manages file/folder metadata as Nostr events
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    coldforge-drive                       │
+│                                                          │
+│  ┌──────────────────┐    ┌─────────────────────────┐    │
+│  │   web/           │    │   internal/             │    │
+│  │                  │    │                         │    │
+│  │  - index.html    │◄──►│  server/   HTTP routes  │    │
+│  │  - js/app.js     │    │  blossom/  Client SDK   │    │
+│  │  - css/style.css │    │  metadata/ Nostr events │    │
+│  └──────────────────┘    │  auth/     NIP-46/07    │    │
+│                          │  config/   Settings     │    │
+│                          └──────────┬──────────────┘    │
+└─────────────────────────────────────┼───────────────────┘
+                                      │
+                    ┌─────────────────┼─────────────────┐
+                    ▼                 ▼                 ▼
+           ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+           │   Blossom    │  │ Nostr Relay  │  │  Browser     │
+           │   Server     │  │  (metadata)  │  │  Extension   │
+           │              │  │              │  │  (NIP-07)    │
+           └──────────────┘  └──────────────┘  └──────────────┘
+```
+
+## Package Structure
 
 ### cmd/server/
-Entry point for the application. Handles:
-- Environment variable loading (.env file)
-- Configuration loading (YAML file)
-- Storage backend initialization
+Entry point for the application:
+- Configuration loading
+- Service initialization
 - HTTP server startup
+
+### internal/server/
+HTTP server and request handlers:
+- Serve static files from `web/`
+- API endpoints for file operations
+- Proxy requests to Blossom
+
+### internal/blossom/
+Blossom client SDK:
+- Upload files to Blossom server
+- Download files from Blossom
+- List files, check existence
+- Handle auth headers
+
+### internal/metadata/
+Nostr event handling for file/folder metadata:
+- Create file metadata events (kind 30078)
+- Create folder events (kind 30079)
+- Query relay for user's files
+- Parse and validate events
+
+### internal/auth/
+Authentication handling:
+- NIP-07 browser extension integration
+- NIP-46 remote signing support
+- Session management
 
 ### internal/config/
 Configuration management:
 - YAML file parsing
 - Environment variable overrides
-- Sensible defaults
-- Validation
+- Blossom URL, relay URL settings
 
-### internal/storage/
-Storage abstraction layer:
-- `interface.go` - Backend interface contract
-- `filesystem.go` - Filesystem implementation
-- `filesystem_test.go` - Unit tests
-
-Key design: All storage backends must implement the `Backend` interface, allowing pluggable storage (filesystem, Ceph, S3, etc.)
-
-### internal/server/
-HTTP server and request handlers:
-- Route registration
-- HTTP endpoint implementations
-- Request validation
-- Response formatting
-
-### internal/auth/
-NIP-46 authentication:
-- Signature verification
-- Token caching
-- Authorization checking
-
-### internal/blossom/
-Blossom protocol types:
-- Data structures for protocol compliance
-- Request/response types
+### web/
+Frontend UI:
+- `index.html` - Main page
+- `js/` - JavaScript application
+- `css/` - Styles
 
 ## Development Workflow
 
-### 1. Writing Tests First
+### 1. Running Locally
 
-Always write tests before implementing features:
+```bash
+# Start Blossom backend first
+cd ../coldforge-blossom
+docker-compose up -d
 
-```go
-// In internal/storage/filesystem_test.go
-func TestMyNewFeature(t *testing.T) {
-    // Setup
-    tmpDir := t.TempDir()
-    fs, _ := NewFilesystem(tmpDir)
+# Then start Drive
+cd ../coldforge-drive
+make run
 
-    // Test
-    result, err := fs.MyNewFeature()
-
-    // Assert
-    if err != nil {
-        t.Fatalf("Expected success, got error: %v", err)
-    }
-}
+# Or with Docker
+docker-compose up
 ```
 
-### 2. Running Tests
+### 2. Frontend Development
+
+The frontend is served from `web/`. For rapid iteration:
+
+```bash
+# Run Go server with file watching (if using air)
+make dev
+
+# Or just rebuild on changes
+make build && ./bin/coldforge-drive
+```
+
+### 3. Testing
 
 ```bash
 # Run all tests
@@ -78,292 +117,221 @@ make test
 # Run with coverage
 make test-coverage
 
-# Run with race detector
-make test-race
-
-# Run specific package
-go test ./internal/storage -v
+# Test specific package
+go test ./internal/blossom -v
 ```
 
-### 3. Building and Running
+## Key Interfaces
 
-```bash
-# Build binary
-make build
+### Blossom Client
 
-# Run server
-./bin/coldforge-files -config config/config.example.yml
-
-# Or with Docker
-make docker-build
-docker-compose up
-```
-
-## Key Design Decisions
-
-### Content-Addressed Storage
-
-Files are addressed by SHA-256 hash, not filename:
-- Same file uploaded twice = stored once (deduplication)
-- File integrity verified by hash
-- Portable across storage backends
-
-### NIP-46 Authentication
-
-Uses Nostr signing for all state-changing operations:
-- Upload requires signed event
-- Delete requires signed event from original uploader
-- Server verifies signatures using Nostr protocol
-- No centralized password storage
-
-### Interface-Based Design
-
-Storage backend is an interface:
 ```go
-type Backend interface {
-    Store(ctx context.Context, data io.Reader) (sha256 string, size int64, err error)
-    Retrieve(ctx context.Context, sha256 string) (io.ReadCloser, *FileInfo, error)
-    Delete(ctx context.Context, sha256 string) error
+type Client interface {
+    // Upload sends a file to Blossom, returns SHA256 hash
+    Upload(ctx context.Context, reader io.Reader, contentType string) (*UploadResult, error)
+
+    // Download retrieves a file by hash
+    Download(ctx context.Context, sha256 string) (io.ReadCloser, error)
+
+    // Delete removes a file (requires auth)
+    Delete(ctx context.Context, sha256 string, authEvent *nostr.Event) error
+
+    // Exists checks if a file exists
     Exists(ctx context.Context, sha256 string) (bool, error)
-    List(ctx context.Context, pubkey string) ([]FileInfo, error)
-    GetSize(ctx context.Context, sha256 string) (int64, error)
 }
 ```
 
-This allows:
-- Swapping implementations without changing API
-- Testing with mock backends
-- Multiple backend support (filesystem, Ceph, S3)
+### Metadata Store
+
+```go
+type MetadataStore interface {
+    // SaveFile creates/updates a file metadata event
+    SaveFile(ctx context.Context, file *FileMetadata) error
+
+    // GetFile retrieves file metadata by ID
+    GetFile(ctx context.Context, id string) (*FileMetadata, error)
+
+    // ListFiles returns all files for a pubkey
+    ListFiles(ctx context.Context, pubkey string) ([]*FileMetadata, error)
+
+    // SaveFolder creates/updates a folder event
+    SaveFolder(ctx context.Context, folder *FolderMetadata) error
+
+    // ListFolders returns all folders for a pubkey
+    ListFolders(ctx context.Context, pubkey string) ([]*FolderMetadata, error)
+}
+```
+
+## API Endpoints
+
+### File Operations
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/files` | List user's files |
+| POST | `/api/files` | Upload a file |
+| GET | `/api/files/:id` | Get file metadata |
+| DELETE | `/api/files/:id` | Delete a file |
+| GET | `/api/files/:id/download` | Download file content |
+
+### Folder Operations
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/folders` | List user's folders |
+| POST | `/api/folders` | Create a folder |
+| PUT | `/api/folders/:id` | Update folder |
+| DELETE | `/api/folders/:id` | Delete folder |
+
+### Auth
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/auth/challenge` | Get auth challenge |
+| POST | `/api/auth/verify` | Verify signed event |
+
+## Frontend Architecture
+
+The frontend is vanilla JavaScript (no framework) for simplicity:
+
+```
+web/
+├── index.html          # Main HTML
+├── css/
+│   └── style.css       # Styles
+└── js/
+    ├── app.js          # Main application
+    ├── api.js          # API client
+    ├── auth.js         # NIP-07 integration
+    ├── upload.js       # File upload handling
+    └── ui.js           # UI components
+```
+
+### NIP-07 Integration
+
+```javascript
+// Check for extension
+if (window.nostr) {
+    const pubkey = await window.nostr.getPublicKey();
+    const signed = await window.nostr.signEvent(event);
+}
+```
 
 ## Common Tasks
 
-### Adding a New Endpoint
+### Adding a New API Endpoint
 
-1. Add handler method to `internal/server/server.go`:
+1. Add handler in `internal/server/`:
 ```go
-func (s *Server) handleMyEndpoint(w http.ResponseWriter, r *http.Request) {
-    // Validate input
-    // Call storage backend
-    // Write response
-}
-```
-
-2. Register route in `registerRoutes()`:
-```go
-s.mux.HandleFunc("POST /my-endpoint", s.handleMyEndpoint)
-```
-
-3. Test with curl:
-```bash
-curl -X POST http://localhost:8080/my-endpoint
-```
-
-### Adding Storage Backend Support
-
-1. Create new file: `internal/storage/ceph.go`
-2. Implement `Backend` interface
-3. Add instantiation logic to `cmd/server/main.go`
-4. Add tests
-
-Example:
-```go
-type Ceph struct {
-    // Ceph client fields
-}
-
-func NewCeph(endpoint string) (*Ceph, error) {
-    // Connect to Ceph
-}
-
-func (c *Ceph) Store(ctx context.Context, data io.Reader) (string, int64, error) {
+func (s *Server) handleNewEndpoint(w http.ResponseWriter, r *http.Request) {
     // Implementation
 }
-
-// ... other interface methods
 ```
 
-### Adding Configuration Option
-
-1. Add to `internal/config/config.go` struct:
+2. Register route:
 ```go
-type Config struct {
-    MyOption string `yaml:"my_option"`
+mux.HandleFunc("POST /api/new-endpoint", s.handleNewEndpoint)
+```
+
+3. Add frontend API call in `web/js/api.js`:
+```javascript
+async function newEndpoint(data) {
+    return fetch('/api/new-endpoint', {
+        method: 'POST',
+        body: JSON.stringify(data)
+    });
 }
 ```
 
-2. Set default in `Load()`:
-```go
-cfg.MyOption = "default-value"
-```
+### Implementing File Upload
 
-3. Add environment variable override:
-```go
-if val := os.Getenv("BLOSSOM_MY_OPTION"); val != "" {
-    cfg.MyOption = val
-}
-```
+1. Frontend captures file via input or drag-drop
+2. Frontend calls POST /api/files with file data
+3. Backend uploads to Blossom via client SDK
+4. Backend creates file metadata Nostr event
+5. Backend publishes event to relay
+6. Backend returns file info to frontend
 
-4. Use in application:
-```go
-log.Printf("Option: %s", cfg.MyOption)
-```
+### Adding Nostr Event Support
+
+1. Define event structure in `internal/metadata/types.go`
+2. Implement create/parse functions
+3. Add relay publish/query logic
+4. Wire up to API handlers
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DRIVE_HOST` | Bind address | `0.0.0.0` |
+| `DRIVE_PORT` | Server port | `8080` |
+| `DRIVE_BLOSSOM_URL` | Blossom server URL | `http://localhost:8085` |
+| `DRIVE_RELAY_URL` | Nostr relay URL | `wss://relay.damus.io` |
+| `DRIVE_PUBLIC_URL` | Public URL for Drive | `http://localhost:8080` |
 
 ## Testing Strategy
 
 ### Unit Tests
-- Test individual functions in isolation
-- Use table-driven tests for multiple cases
-- Mock external dependencies
+- Test Blossom client with mock HTTP server
+- Test metadata event creation/parsing
+- Test auth verification
 
 ### Integration Tests
-- Test storage backends with real files
-- Test HTTP endpoints end-to-end
-- Test with actual config files
+- Test full upload flow with real Blossom
+- Test metadata persistence on relay
+- Test auth flows
 
-### Test Coverage Goals
-- Aim for >80% coverage
-- Cover happy path and error cases
-- Test boundary conditions
-
-## Error Handling
-
-Follow Go error handling patterns:
-
-```go
-// Do not ignore errors
-if err != nil {
-    return fmt.Errorf("descriptive message: %w", err)
-}
-
-// Log errors at appropriate level
-log.Printf("Warning: %v", err)
-
-// HTTP error responses
-if err != nil {
-    http.Error(w, "User-friendly message", http.StatusInternalServerError)
-    return
-}
-```
-
-## Logging
-
-Log important events but not excessively:
-
-```go
-log.Printf("File uploaded: %s (size: %d bytes)", sha256, size)
-log.Printf("Error storing file: %v", err)
-```
-
-Avoid logging:
-- Sensitive data (private keys, tokens)
-- Excessive debug output
-- Binary data
-
-## Code Style
-
-Follow Go conventions:
-- `gofmt` for formatting
-- Meaningful variable names
-- Comments for exported functions
-- Keep functions small and focused
-
-```go
-// VerifyEvent verifies that a Nostr event is properly signed
-func (v *NIP46Verifier) VerifyEvent(ctx context.Context, event *nostr.Event) (bool, error) {
-    // Implementation
-}
-```
-
-## Dependencies
-
-Current dependencies:
-- `github.com/nbd-wtf/go-nostr` - Nostr protocol implementation
-- `github.com/joho/godotenv` - Environment variable loading
-- `gopkg.in/yaml.v3` - YAML parsing
-
-Keep dependencies minimal. Before adding a new dependency:
-1. Check if Go stdlib provides it
-2. Prefer popular, well-maintained libraries
-3. Check license compatibility (AGPL-3.0)
-
-## Performance Considerations
-
-### File Storage
-- Use buffering for large files
-- Implement streaming to avoid memory exhaustion
-- Consider compression for small files
-
-### Caching
-- Cache validation results (token verification)
-- Implement cache eviction (time-based or LRU)
-- Make cache thread-safe with mutexes
-
-### Concurrency
-- Use context for timeouts and cancellation
-- Protect shared state with mutexes
-- Test with `-race` detector
+### E2E Tests
+- Browser-based tests with Playwright/Cypress
+- Test complete user flows
 
 ## Security Considerations
 
 ### Input Validation
-- Validate SHA256 hashes (length, hex format)
-- Validate file sizes
-- Validate pubkeys (length, format)
+- Validate file sizes (max upload limit)
+- Sanitize file names
+- Validate Nostr event signatures
 
-### NIP-46 Verification
-- Always verify event signatures
-- Check event timestamps (prevent replay)
-- Validate event structure
+### Authentication
+- Verify NIP-07 signatures
+- Check event timestamps
+- Validate pubkey ownership
 
-### Access Control
-- Only pubkey that uploaded can delete
-- Implement rate limiting to prevent abuse
-- Validate CORS headers if serving web clients
+### CORS
+- Configure allowed origins
+- Protect API endpoints
+
+## Debugging
+
+### Check Blossom Connection
+```bash
+curl http://localhost:8085/health
+```
+
+### Test Upload Flow
+```bash
+# Upload via Drive
+curl -X POST -F "file=@test.txt" http://localhost:8080/api/files
+
+# Verify in Blossom
+curl http://localhost:8085/<sha256>
+```
+
+### View Nostr Events
+Use a Nostr client to query the relay for your pubkey's kind 30078/30079 events.
 
 ## Next Development Priorities
 
-1. **NIP-46 Integration** - Full signature verification with relay
-2. **File Metadata Tracking** - Track which pubkey uploaded which files
-3. **Ceph Backend** - Production-grade storage
-4. **Rate Limiting** - Prevent abuse
-5. **Authorization Hooks** - Pluggable auth mechanisms
-6. **Metrics** - Prometheus metrics for monitoring
-
-## Debugging Tips
-
-### Enable Verbose Logging
-```bash
-# In code
-log.SetFlags(log.LstdFlags | log.Lshortfile)
-```
-
-### Test with curl
-```bash
-# Check server health
-curl http://localhost:8080/health
-
-# Upload file
-curl -X PUT --data-binary @file.txt http://localhost:8080/upload
-
-# Download file
-curl http://localhost:8080/abc123... > downloaded.txt
-
-# Check file exists
-curl -I http://localhost:8080/abc123...
-```
-
-### Check Data Directory
-```bash
-# List stored files
-ls -la data/
-
-# Check file size
-ls -lh data/ab/cdef123...
-```
+1. **Blossom Client SDK** - HTTP client for Blossom operations
+2. **Basic Web UI** - File list and upload interface
+3. **Metadata Events** - Nostr event creation/querying
+4. **Folder Support** - Folder CRUD operations
+5. **Auth Integration** - NIP-07 browser extension
+6. **Sharing** - NIP-44 encrypted sharing
 
 ## Resources
 
-- [Blossom Spec](https://github.com/hzrd149/blossom)
-- [NIP-46](https://github.com/nostr-protocol/nips/blob/master/46.md)
-- [Go Best Practices](https://golang.org/doc/effective_go)
-- [Go Error Handling](https://go.dev/blog/error-handling-and-go)
+- [Blossom Protocol](https://github.com/hzrd149/blossom)
+- [NIP-07](https://github.com/nostr-protocol/nips/blob/master/07.md) - Browser Extension
+- [NIP-46](https://github.com/nostr-protocol/nips/blob/master/46.md) - Remote Signing
+- [NIP-44](https://github.com/nostr-protocol/nips/blob/master/44.md) - Encryption

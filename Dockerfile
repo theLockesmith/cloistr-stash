@@ -17,7 +17,7 @@ COPY cmd/ cmd/
 COPY internal/ internal/
 
 # Build the application
-RUN go build -o coldforge-files ./cmd/server
+RUN go build -o coldforge-drive ./cmd/server
 
 # Runtime stage
 FROM alpine:latest
@@ -28,10 +28,10 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates
 
 # Copy binary from builder
-COPY --from=builder /app/coldforge-files .
+COPY --from=builder /app/coldforge-drive .
 
-# Create data directory
-RUN mkdir -p /app/data
+# Copy web UI
+COPY web/ /app/web/
 
 # Expose port
 EXPOSE 8080
@@ -41,4 +41,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
 # Run the application
-CMD ["./coldforge-files", "-config", "/app/config.yml"]
+CMD ["./coldforge-drive", "-config", "/app/config.yml", "-web", "/app/web"]

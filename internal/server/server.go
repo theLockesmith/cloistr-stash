@@ -1,53 +1,63 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
-	"git.coldforge.xyz/coldforge/coldforge-drive/internal/auth"
+	"git.coldforge.xyz/coldforge/coldforge-drive/internal/blossom"
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/config"
-	"git.coldforge.xyz/coldforge/coldforge-drive/internal/storage"
 )
 
 // Server represents the HTTP server
 type Server struct {
 	config  *config.Config
-	storage storage.Backend
-	auth    *auth.NIP46Verifier
+	blossom *blossom.Client
 	mux     *http.ServeMux
+	webDir  string
+}
+
+// FileMetadata represents file information returned to the frontend
+type FileMetadata struct {
+	SHA256    string `json:"sha256"`
+	Name      string `json:"name,omitempty"`
+	Size      int64  `json:"size"`
+	MimeType  string `json:"mime_type,omitempty"`
+	CreatedAt int64  `json:"created_at,omitempty"`
 }
 
 // New creates a new HTTP server
-func New(cfg *config.Config, store storage.Backend) *Server {
+func New(cfg *config.Config, blossomClient *blossom.Client, webDir string) *Server {
 	s := &Server{
 		config:  cfg,
-		storage: store,
-		auth:    auth.NewNIP46Verifier(cfg.Auth.RelayURL),
+		blossom: blossomClient,
 		mux:     http.NewServeMux(),
+		webDir:  webDir,
 	}
 
-	// Register routes
 	s.registerRoutes()
-
 	return s
 }
 
 // registerRoutes registers all HTTP endpoints
 func (s *Server) registerRoutes() {
-	// Health check endpoint
+	// Health check
 	s.mux.HandleFunc("GET /health", s.handleHealth)
 
-	// Server info endpoint
-	s.mux.HandleFunc("GET /info", s.handleInfo)
+	// API endpoints
+	s.mux.HandleFunc("GET /api/files", s.handleListFiles)
+	s.mux.HandleFunc("POST /api/files", s.handleUploadFile)
+	s.mux.HandleFunc("GET /api/files/{sha256}", s.handleGetFile)
+	s.mux.HandleFunc("DELETE /api/files/{sha256}", s.handleDeleteFile)
+	s.mux.HandleFunc("GET /api/files/{sha256}/download", s.handleDownloadFile)
 
-	// File operations under /blob/ prefix to avoid route conflicts
-	s.mux.HandleFunc("PUT /upload", s.handleFileUpload)
-	s.mux.HandleFunc("GET /list/{pubkey}", s.handleListFiles)
-	s.mux.HandleFunc("GET /blob/{sha256}", s.handleFileDownload)
-	s.mux.HandleFunc("HEAD /blob/{sha256}", s.handleFileHead)
-	s.mux.HandleFunc("DELETE /blob/{sha256}", s.handleFileDelete)
+	// Serve static files (web UI)
+	s.mux.HandleFunc("/", s.handleStatic)
 }
 
 // ListenAndServe starts the HTTP server
@@ -62,69 +72,112 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `{"status":"healthy"}`)
 }
 
-// handleInfo returns server information
-func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	info := fmt.Sprintf(`{
-		"blossom_version": "0.1.0",
-		"public_url": "%s",
-		"max_upload_size": 10737418240,
-		"supported_mimes": ["*/*"],
-		"features": {
-			"nip46": true,
-			"content_addressable": true,
-			"deduplication": true
-		}
-	}`, s.config.Blossom.PublicURL)
-	fmt.Fprint(w, info)
-}
+// handleStatic serves the web UI files
+func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
+	// Clean the path
+	path := r.URL.Path
+	if path == "/" {
+		path = "/index.html"
+	}
 
-// handleFileDownload handles GET requests to download a file
-func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request) {
-	// Extract SHA256 from path parameter
-	sha256 := r.PathValue("sha256")
-	if sha256 == "" {
-		http.Error(w, "SHA256 hash required", http.StatusBadRequest)
+	// Prevent directory traversal
+	path = filepath.Clean(path)
+	if strings.Contains(path, "..") {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
 
-	// Retrieve file
-	file, info, err := s.storage.Retrieve(r.Context(), sha256)
+	filePath := filepath.Join(s.webDir, path)
+
+	// Check if file exists
+	info, err := os.Stat(filePath)
+	if os.IsNotExist(err) {
+		// For SPA routing, serve index.html for unknown paths
+		if !strings.Contains(path, ".") {
+			filePath = filepath.Join(s.webDir, "index.html")
+		} else {
+			http.NotFound(w, r)
+			return
+		}
+	} else if err != nil {
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	} else if info.IsDir() {
+		// Try index.html in directory
+		filePath = filepath.Join(filePath, "index.html")
+	}
+
+	http.ServeFile(w, r, filePath)
+}
+
+// handleListFiles returns all files (from Blossom)
+func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
+	// For now, return empty list - we'll add metadata support later
+	// In the future, this will query Nostr relay for file metadata events
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprint(w, `{"files":[]}`)
+}
+
+// handleUploadFile handles file uploads
+func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
+	// Parse multipart form
+	if err := r.ParseMultipartForm(100 << 20); err != nil { // 100MB max
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
 	if err != nil {
-		log.Printf("Failed to retrieve file %s: %v", sha256, err)
-		http.Error(w, "File not found", http.StatusNotFound)
+		http.Error(w, "No file provided", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
-	// Set response headers
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size))
-	if info.MimeType != "" {
-		w.Header().Set("Content-Type", info.MimeType)
-	}
-	w.Header().Set("x-content-sha256", sha256)
+	// Get Blossom auth header from request
+	authHeader := r.Header.Get("X-Blossom-Auth")
 
-	// Stream file
-	if _, err := io.Copy(w, file); err != nil {
-		log.Printf("Failed to write file: %v", err)
+	// Detect content type
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
 	}
-}
 
-// handleFileHead handles HEAD requests to check if a file exists
-func (s *Server) handleFileHead(w http.ResponseWriter, r *http.Request) {
-	// Extract SHA256 from path parameter
-	sha256 := r.PathValue("sha256")
-	if sha256 == "" {
-		http.Error(w, "SHA256 hash required", http.StatusBadRequest)
+	// Upload to Blossom with auth
+	result, err := s.blossom.Upload(r.Context(), file, contentType, authHeader)
+	if err != nil {
+		log.Printf("Failed to upload to Blossom: %v", err)
+		http.Error(w, "Upload failed", http.StatusInternalServerError)
 		return
 	}
 
-	// Check if file exists
-	exists, err := s.storage.Exists(r.Context(), sha256)
+	// Create response with file metadata
+	metadata := FileMetadata{
+		SHA256:   result.SHA256,
+		Name:     header.Filename,
+		Size:     result.Size,
+		MimeType: contentType,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(metadata)
+
+	log.Printf("File uploaded: %s (%s, %d bytes)", header.Filename, result.SHA256[:16], result.Size)
+}
+
+// handleGetFile returns file metadata
+func (s *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
+	sha256 := r.PathValue("sha256")
+	if sha256 == "" {
+		http.Error(w, "SHA256 required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if file exists in Blossom
+	exists, err := s.blossom.Exists(r.Context(), sha256)
 	if err != nil {
 		log.Printf("Failed to check file existence: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
 
@@ -133,98 +186,67 @@ func (s *Server) handleFileHead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get file size
-	size, err := s.storage.GetSize(r.Context(), sha256)
-	if err != nil {
-		log.Printf("Failed to get file size: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+	// Return basic metadata (we'll add more when we have Nostr metadata)
+	metadata := FileMetadata{
+		SHA256: sha256,
 	}
 
-	// Set response headers
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
-	w.Header().Set("x-content-sha256", sha256)
-	w.WriteHeader(http.StatusOK)
-}
-
-// handleFileUpload handles PUT requests to upload a file
-func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request) {
-	// TODO: Verify NIP-46 authorization from request header
-	// For now, accept uploads without auth (development mode)
-
-	// Store file
-	sha256, size, err := s.storage.Store(r.Context(), r.Body)
-	if err != nil {
-		log.Printf("Failed to store file: %v", err)
-		http.Error(w, "Failed to store file", http.StatusInternalServerError)
-		return
-	}
-
-	// Return success response
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	url := fmt.Sprintf("%s/blob/%s", s.config.Blossom.PublicURL, sha256)
-	response := fmt.Sprintf(`{"url":"%s","sha256":"%s","size":%d}`, url, sha256, size)
-	fmt.Fprint(w, response)
-
-	log.Printf("File uploaded: %s (size: %d bytes)", sha256, size)
+	json.NewEncoder(w).Encode(metadata)
 }
 
-// handleFileDelete handles DELETE requests to remove a file
-func (s *Server) handleFileDelete(w http.ResponseWriter, r *http.Request) {
-	// TODO: Verify NIP-46 authorization from request header
-	// For now, accept deletes without auth (development mode)
-
-	// Extract SHA256 from path parameter
+// handleDeleteFile deletes a file
+func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	sha256 := r.PathValue("sha256")
 	if sha256 == "" {
-		http.Error(w, "SHA256 hash required", http.StatusBadRequest)
+		http.Error(w, "SHA256 required", http.StatusBadRequest)
 		return
 	}
 
-	// Delete file
-	err := s.storage.Delete(r.Context(), sha256)
-	if err != nil {
-		log.Printf("Failed to delete file %s: %v", sha256, err)
-		http.Error(w, "File not found", http.StatusNotFound)
+	// Get Blossom auth header from request
+	authHeader := r.Header.Get("X-Blossom-Auth")
+
+	// Delete from Blossom with auth
+	if err := s.blossom.Delete(r.Context(), sha256, authHeader); err != nil {
+		log.Printf("Failed to delete file: %v", err)
+		http.Error(w, "Delete failed", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, `{"status":"deleted"}`)
 
 	log.Printf("File deleted: %s", sha256)
 }
 
-// handleListFiles handles GET requests to list files for a pubkey
-func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
-	// Extract pubkey from path parameter
-	pubkey := r.PathValue("pubkey")
-	if pubkey == "" {
-		http.Error(w, "Pubkey required", http.StatusBadRequest)
+// handleDownloadFile proxies file download from Blossom
+func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request) {
+	sha256 := r.PathValue("sha256")
+	if sha256 == "" {
+		http.Error(w, "SHA256 required", http.StatusBadRequest)
 		return
 	}
 
-	// TODO: Verify that requester is the pubkey or has permission to list
-
-	// List files
-	files, err := s.storage.List(r.Context(), pubkey)
+	// Download from Blossom
+	body, info, err := s.blossom.Download(r.Context(), sha256)
 	if err != nil {
-		log.Printf("Failed to list files for %s: %v", pubkey, err)
-		http.Error(w, "Failed to list files", http.StatusInternalServerError)
+		log.Printf("Failed to download file: %v", err)
+		http.Error(w, "File not found", http.StatusNotFound)
 		return
 	}
+	defer body.Close()
 
-	// Return list as JSON
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, `{"files":[`)
-	for i, file := range files {
-		if i > 0 {
-			fmt.Fprint(w, ",")
-		}
-		fmt.Fprintf(w, `{"sha256":"%s","size":%d}`, file.SHA256, file.Size)
+	// Set headers
+	if info.MimeType != "" {
+		w.Header().Set("Content-Type", info.MimeType)
 	}
-	fmt.Fprint(w, `]}`)
+	if info.Size > 0 {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size))
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", sha256))
+
+	// Stream file
+	if _, err := io.Copy(w, body); err != nil {
+		log.Printf("Failed to stream file: %v", err)
+	}
 }
