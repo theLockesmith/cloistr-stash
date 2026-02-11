@@ -1,25 +1,23 @@
 #!/bin/bash
-# Copy icons from assets submodule to web directory
-# Run this after cloning or when icons are updated
+# Copy icons from icons directory to web directory
+# Run this after updating icons
 
 set -e
 
 cd "$(dirname "$0")/.."
 
-# Ensure submodule is initialized
-if [ ! -d "assets/generated" ]; then
-    echo "Initializing submodules..."
-    git submodule update --init --recursive
+# Ensure icons directory exists
+if [ ! -d "icons" ]; then
+    echo "Error: icons directory not found"
+    exit 1
 fi
 
 # Create target directory if needed
 mkdir -p web
 
-# Copy generated icons
-cp assets/generated/drive/favicon.ico web/
-cp assets/generated/drive/favicon.svg web/
-cp assets/generated/drive/apple-touch-icon.png web/
-cp assets/generated/drive/icon-192.png web/
-cp assets/generated/drive/icon-512.png web/
+# Copy icons (SVG-based)
+cp icons/cloistr-drive.svg web/favicon.svg
+cp icons/favicon/cloistr-drive-16.svg web/favicon-16.svg
+cp icons/cloistr-base.svg web/icon.svg
 
 echo "Icons copied to web/"
