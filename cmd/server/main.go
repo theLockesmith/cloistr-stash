@@ -11,6 +11,7 @@ import (
 
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/blossom"
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/config"
+	"git.coldforge.xyz/coldforge/coldforge-drive/internal/metadata"
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/server"
 	"github.com/joho/godotenv"
 )
@@ -72,8 +73,26 @@ func main() {
 		logger.Info("connected to Blossom server", "url", cfg.Blossom.URL)
 	}
 
+	// Initialize metadata store (connects to Nostr relay)
+	var metadataStore *metadata.Store
+	if cfg.Relay.URL != "" {
+		metadataStore = metadata.NewStore(cfg.Relay.URL, logger)
+		relayCtx, relayCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer relayCancel()
+		if err := metadataStore.Connect(relayCtx); err != nil {
+			logger.Warn("cannot connect to relay",
+				"url", cfg.Relay.URL,
+				"error", err,
+			)
+			logger.Warn("file metadata will not be persisted")
+			metadataStore = nil
+		} else {
+			logger.Info("connected to relay", "url", cfg.Relay.URL)
+		}
+	}
+
 	// Create HTTP server
-	srv := server.New(cfg, blossomClient, webPath, logger)
+	srv := server.New(cfg, blossomClient, metadataStore, webPath, logger)
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

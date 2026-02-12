@@ -97,6 +97,36 @@ const Auth = {
         return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     },
 
+    // Create a file metadata event (kind 30078)
+    async createFileMetadataEvent(fileInfo) {
+        const now = Math.floor(Date.now() / 1000);
+
+        const content = JSON.stringify({
+            name: fileInfo.name,
+            size: fileInfo.size,
+            mime_type: fileInfo.mimeType,
+        });
+
+        const event = {
+            kind: 30078,  // File metadata kind
+            created_at: now,
+            tags: [
+                ['d', fileInfo.sha256],                    // Identifier (makes it replaceable)
+                ['x', fileInfo.sha256],                    // File hash
+                ['m', fileInfo.mimeType || 'application/octet-stream'],
+                ['size', fileInfo.size.toString()],
+            ],
+            content: content,
+        };
+
+        // Add URL tag if provided
+        if (fileInfo.url) {
+            event.tags.push(['url', fileInfo.url]);
+        }
+
+        return this.signEvent(event);
+    },
+
     // Disconnect
     disconnect() {
         this.pubkey = null;

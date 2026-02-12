@@ -156,6 +156,88 @@ func testDriveUpload(driveURL string, content []byte, contentType string, authEv
 	respBody, _ := io.ReadAll(resp.Body)
 	fmt.Printf("Status: %d\n", resp.StatusCode)
 	fmt.Printf("Response: %s\n", string(respBody))
+
+	if resp.StatusCode == http.StatusOK {
+		// Parse response to get SHA256
+		var uploadResult struct {
+			SHA256   string `json:"sha256"`
+			Name     string `json:"name"`
+			Size     int64  `json:"size"`
+			MimeType string `json:"mime_type"`
+		}
+		if err := json.Unmarshal(respBody, &uploadResult); err == nil {
+			// Test publishing metadata
+			fmt.Printf("\n--- Testing metadata publish ---\n")
+			testPublishMetadata(driveURL, uploadResult.SHA256, "test.png", uploadResult.Size, uploadResult.MimeType, privateKey, authEvent.PubKey)
+
+			// Test listing files
+			fmt.Printf("\n--- Testing file list ---\n")
+			testListFiles(driveURL, authEvent.PubKey)
+		}
+	}
+}
+
+func testPublishMetadata(driveURL, sha256, name string, size int64, mimeType, privateKey, pubkey string) {
+	// Create file metadata event (kind 30078)
+	content, _ := json.Marshal(map[string]interface{}{
+		"name":      name,
+		"size":      size,
+		"mime_type": mimeType,
+	})
+
+	metadataEvent := nostr.Event{
+		Kind:      30078,
+		PubKey:    pubkey,
+		CreatedAt: nostr.Timestamp(time.Now().Unix()),
+		Tags: nostr.Tags{
+			{"d", sha256},
+			{"x", sha256},
+			{"m", mimeType},
+			{"size", fmt.Sprintf("%d", size)},
+		},
+		Content: string(content),
+	}
+
+	// Sign the event
+	if err := metadataEvent.Sign(privateKey); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to sign metadata event: %v\n", err)
+		return
+	}
+	fmt.Printf("Metadata event ID: %s\n", metadataEvent.ID)
+
+	// Publish to Drive
+	eventJSON, _ := json.Marshal(metadataEvent)
+	req, err := http.NewRequest(http.MethodPost, driveURL+"/api/metadata", bytes.NewReader(eventJSON))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create request: %v\n", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Request failed: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	fmt.Printf("Status: %d\n", resp.StatusCode)
+	fmt.Printf("Response: %s\n", string(respBody))
+}
+
+func testListFiles(driveURL, pubkey string) {
+	resp, err := http.Get(driveURL + "/api/files?pubkey=" + pubkey)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Request failed: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	fmt.Printf("Status: %d\n", resp.StatusCode)
+	fmt.Printf("Response: %s\n", string(respBody))
 }
 
 func base64EncodeJSON(event nostr.Event) string {

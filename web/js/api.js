@@ -27,12 +27,34 @@ const API = {
         return response.json();
     },
 
-    // List all files for the current user
-    async listFiles() {
-        const response = await fetch(`${this.baseURL}/api/files`);
+    // List all files for a pubkey
+    async listFiles(pubkey) {
+        const url = pubkey
+            ? `${this.baseURL}/api/files?pubkey=${pubkey}`
+            : `${this.baseURL}/api/files`;
+
+        const response = await fetch(url);
 
         if (!response.ok) {
             throw new Error(`Failed to list files: ${response.status}`);
+        }
+
+        return response.json();
+    },
+
+    // Publish file metadata event to relay
+    async publishMetadata(signedEvent) {
+        const response = await fetch(`${this.baseURL}/api/metadata`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(signedEvent),
+        });
+
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(error || `Failed to publish metadata: ${response.status}`);
         }
 
         return response.json();

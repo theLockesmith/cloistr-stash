@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,16 +13,19 @@ import (
 
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/blossom"
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/config"
+	"git.coldforge.xyz/coldforge/coldforge-drive/internal/metadata"
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/metrics"
+	"github.com/nbd-wtf/go-nostr"
 )
 
 // Server represents the HTTP server
 type Server struct {
-	config  *config.Config
-	blossom *blossom.Client
-	mux     *http.ServeMux
-	webDir  string
-	logger  *slog.Logger
+	config   *config.Config
+	blossom  *blossom.Client
+	metadata *metadata.Store
+	mux      *http.ServeMux
+	webDir   string
+	logger   *slog.Logger
 }
 
 // FileMetadata represents file information returned to the frontend
@@ -34,13 +38,14 @@ type FileMetadata struct {
 }
 
 // New creates a new HTTP server
-func New(cfg *config.Config, blossomClient *blossom.Client, webDir string, logger *slog.Logger) *Server {
+func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metadata.Store, webDir string, logger *slog.Logger) *Server {
 	s := &Server{
-		config:  cfg,
-		blossom: blossomClient,
-		mux:     http.NewServeMux(),
-		webDir:  webDir,
-		logger:  logger,
+		config:   cfg,
+		blossom:  blossomClient,
+		metadata: metadataStore,
+		mux:      http.NewServeMux(),
+		webDir:   webDir,
+		logger:   logger,
 	}
 
 	s.registerRoutes()
@@ -55,12 +60,15 @@ func (s *Server) registerRoutes() {
 	// Metrics endpoint
 	s.mux.Handle("GET /metrics", metrics.Handler())
 
-	// API endpoints
+	// API endpoints - file operations
 	s.mux.HandleFunc("GET /api/files", s.handleListFiles)
 	s.mux.HandleFunc("POST /api/files", s.handleUploadFile)
 	s.mux.HandleFunc("GET /api/files/{sha256}", s.handleGetFile)
 	s.mux.HandleFunc("DELETE /api/files/{sha256}", s.handleDeleteFile)
 	s.mux.HandleFunc("GET /api/files/{sha256}/download", s.handleDownloadFile)
+
+	// API endpoints - metadata operations
+	s.mux.HandleFunc("POST /api/metadata", s.handlePublishMetadata)
 
 	// Serve static files (web UI)
 	s.mux.HandleFunc("/", s.handleStatic)
@@ -121,12 +129,55 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filePath)
 }
 
-// handleListFiles returns all files (from Blossom)
+// handleListFiles returns all files for a given pubkey from Nostr relay
 func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
-	// For now, return empty list - we'll add metadata support later
-	// In the future, this will query Nostr relay for file metadata events
+	pubkey := r.URL.Query().Get("pubkey")
+	if pubkey == "" {
+		// Return empty list if no pubkey specified
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"files":[]}`)
+		return
+	}
+
+	// Query metadata from relay
+	if s.metadata == nil {
+		s.logger.Warn("metadata store not configured")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"files":[]}`)
+		return
+	}
+
+	files, err := s.metadata.ListFiles(r.Context(), pubkey)
+	if err != nil {
+		s.logger.Error("failed to list files from relay",
+			"error", err,
+			"pubkey", pubkey[:16],
+		)
+		// Return empty list on error rather than failing
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"files":[]}`)
+		return
+	}
+
+	// Convert to response format
+	response := struct {
+		Files []FileMetadata `json:"files"`
+	}{
+		Files: make([]FileMetadata, 0, len(files)),
+	}
+
+	for _, f := range files {
+		response.Files = append(response.Files, FileMetadata{
+			SHA256:    f.SHA256,
+			Name:      f.Name,
+			Size:      f.Size,
+			MimeType:  f.MimeType,
+			CreatedAt: f.CreatedAt.Unix(),
+		})
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, `{"files":[]}`)
+	json.NewEncoder(w).Encode(response)
 }
 
 // handleUploadFile handles file uploads
@@ -291,4 +342,79 @@ func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request) {
 			"sha256", sha256,
 		)
 	}
+}
+
+// handlePublishMetadata publishes a signed file metadata event to the relay
+func (s *Server) handlePublishMetadata(w http.ResponseWriter, r *http.Request) {
+	if s.metadata == nil {
+		http.Error(w, "Metadata storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse the signed event from request body
+	var event nostr.Event
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+		s.logger.Warn("failed to decode metadata event", "error", err)
+		http.Error(w, "Invalid event format", http.StatusBadRequest)
+		return
+	}
+
+	// Validate event kind
+	if event.Kind != metadata.KindFileMetadata {
+		http.Error(w, fmt.Sprintf("Invalid event kind: expected %d", metadata.KindFileMetadata), http.StatusBadRequest)
+		return
+	}
+
+	// Verify signature
+	ok, err := event.CheckSignature()
+	if err != nil || !ok {
+		s.logger.Warn("invalid event signature",
+			"event_id", event.ID,
+			"error", err,
+		)
+		http.Error(w, "Invalid signature", http.StatusUnauthorized)
+		return
+	}
+
+	// Publish to relay
+	if err := s.metadata.PublishFile(r.Context(), &event); err != nil {
+		s.logger.Error("failed to publish metadata",
+			"error", err,
+			"event_id", event.ID,
+		)
+		http.Error(w, "Failed to publish metadata", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":   "published",
+		"event_id": event.ID,
+	})
+
+	s.logger.Info("metadata published",
+		"event_id", event.ID[:16],
+		"pubkey", event.PubKey[:16],
+	)
+}
+
+// extractPubkeyFromAuth extracts the pubkey from a Blossom auth header
+// Format: "Nostr <base64-encoded-signed-event>"
+func extractPubkeyFromAuth(authHeader string) string {
+	if !strings.HasPrefix(authHeader, "Nostr ") {
+		return ""
+	}
+
+	eventB64 := strings.TrimPrefix(authHeader, "Nostr ")
+	eventJSON, err := base64.StdEncoding.DecodeString(eventB64)
+	if err != nil {
+		return ""
+	}
+
+	var event nostr.Event
+	if err := json.Unmarshal(eventJSON, &event); err != nil {
+		return ""
+	}
+
+	return event.PubKey
 }

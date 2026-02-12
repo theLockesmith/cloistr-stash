@@ -139,7 +139,9 @@ const App = {
 
     async loadFiles() {
         try {
-            const response = await API.listFiles();
+            // Pass pubkey to get files for the connected user
+            const pubkey = Auth.isConnected ? Auth.pubkey : null;
+            const response = await API.listFiles(pubkey);
             this.files = response.files || [];
             UI.renderFileList(this.files);
         } catch (err) {

@@ -71,6 +71,22 @@ const Upload = {
                 // Step 3: Upload with auth
                 const result = await API.uploadFile(item.file, authHeader);
 
+                // Step 4: Publish metadata to relay (if connected)
+                if (Auth.isConnected) {
+                    try {
+                        const metadataEvent = await Auth.createFileMetadataEvent({
+                            sha256: result.sha256,
+                            name: item.file.name,
+                            size: result.size,
+                            mimeType: result.mime_type,
+                        });
+                        await API.publishMetadata(metadataEvent);
+                    } catch (metaErr) {
+                        console.warn('Failed to publish metadata:', metaErr);
+                        // Continue even if metadata fails - file is still uploaded
+                    }
+                }
+
                 item.status = 'success';
                 item.result = result;
                 item.progress = 100;
