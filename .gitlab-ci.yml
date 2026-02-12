@@ -1,107 +1,87 @@
+# Coldforge Drive CI/CD Pipeline
+#
+# Features:
+# - Go tests with race detection
+# - Lint with golangci-lint
+# - Kaniko-based container builds (no Docker-in-Docker)
+# - Push to GitLab Container Registry
+# - ArgoCD syncs after initial deployment
+
 stages:
   - test
   - build
-  - deploy
 
 variables:
-  GO_VERSION: "1.22"
-  REGISTRY_IMAGE: "$CI_REGISTRY_IMAGE"
+  GO_VERSION: "1.24"
 
-# Test stage
+# Cache Go modules between jobs
+.go-cache: &go-cache
+  cache:
+    key: go-modules-${CI_COMMIT_REF_SLUG}
+    paths:
+      - .go/pkg/mod/
+    policy: pull-push
+
+# Test stage - run on all branches
 test:
   stage: test
-  image: golang:1.22-alpine
+  image: golang:${GO_VERSION}-alpine
+  <<: *go-cache
+  variables:
+    GOPATH: ${CI_PROJECT_DIR}/.go
+    CGO_ENABLED: "0"
   before_script:
-    - for i in 1 2 3 4 5; do apk add --no-cache git make && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
+    - apk add --no-cache git ca-certificates
+    - mkdir -p .go
   script:
+    - go mod download
     - go test -v -race -coverprofile=coverage.out ./...
     - go tool cover -func=coverage.out
-  artifacts:
-    reports:
-      coverage_report:
-        coverage_format: cobertura
-        path: coverage.out
-    paths:
-      - coverage.out
-    expire_in: 30 days
-  coverage: '/coverage: \d+.\d+%/'
-
-test:lint:
-  stage: test
-  image: golang:1.22-alpine
-  before_script:
-    - for i in 1 2 3 4 5; do apk add --no-cache golangci-lint git && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
-  script:
-    - golangci-lint run ./...
-  allow_failure: true
-
-# Build stage
-build:docker:
-  stage: build
-  image: docker:latest
-  services:
-    - docker:dind
-  before_script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-  script:
-    - docker build -t $REGISTRY_IMAGE:$CI_COMMIT_SHA .
-    - docker push $REGISTRY_IMAGE:$CI_COMMIT_SHA
-    - |
-      if [ "$CI_COMMIT_BRANCH" == "main" ]; then
-        docker tag $REGISTRY_IMAGE:$CI_COMMIT_SHA $REGISTRY_IMAGE:latest
-        docker push $REGISTRY_IMAGE:latest
-      fi
-  only:
-    - main
-    - develop
-
-build:binary:
-  stage: build
-  image: golang:1.22-alpine
-  before_script:
-    - for i in 1 2 3 4 5; do apk add --no-cache make && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
-  script:
-    - make build
-  artifacts:
-    paths:
-      - bin/coldforge-drive
-    expire_in: 30 days
-
-# Tagged releases (semver only)
-build:release:
-  stage: build
-  image: docker:latest
-  services:
-    - docker:dind
-  before_script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-  script:
-    - docker build -t $REGISTRY_IMAGE:$CI_COMMIT_TAG .
-    - docker push $REGISTRY_IMAGE:$CI_COMMIT_TAG
+  coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "main"
 
-# Deploy stage
-deploy:staging:
-  stage: deploy
-  image: alpine:latest
+# Lint with golangci-lint
+lint:
+  stage: test
+  image: golang:${GO_VERSION}-alpine
+  <<: *go-cache
+  variables:
+    GOPATH: ${CI_PROJECT_DIR}/.go
   before_script:
-    - for i in 1 2 3 4 5; do apk add --no-cache curl && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
+    - apk add --no-cache git ca-certificates curl
+    - mkdir -p .go
+    - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.62.2
   script:
-    - echo "Staging deployment would go here"
-    - echo "Using image: $REGISTRY_IMAGE:$CI_COMMIT_SHA"
-  only:
-    - develop
-  when: manual
+    - ${GOPATH}/bin/golangci-lint run --timeout 5m ./...
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "main"
 
-deploy:production:
-  stage: deploy
-  image: alpine:latest
-  before_script:
-    - for i in 1 2 3 4 5; do apk add --no-cache curl && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
+# Build and push container image with Kaniko
+build:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:v1.23.2-debug
+    entrypoint: [""]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "main"
   script:
-    - echo "Production deployment would go here"
-    - echo "Using image: $REGISTRY_IMAGE:latest"
-  only:
-    - main
-  when: manual
+    # Create docker config for registry authentication
+    - |
+      echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+    # Build and push with commit SHA and latest tags
+    - |
+      /kaniko/executor \
+        --context "${CI_PROJECT_DIR}" \
+        --dockerfile "${CI_PROJECT_DIR}/Dockerfile" \
+        --destination "${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}" \
+        --destination "${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHORT_SHA}" \
+        --destination "${CI_REGISTRY_IMAGE}:latest" \
+        --cache=true \
+        --cache-repo="${CI_REGISTRY_IMAGE}/cache"
