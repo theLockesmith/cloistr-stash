@@ -1,12 +1,3 @@
-# Coldforge Drive CI/CD Pipeline
-#
-# Features:
-# - Go tests with race detection
-# - Lint with golangci-lint
-# - Kaniko-based container builds (no Docker-in-Docker)
-# - Push to GitLab Container Registry
-# - ArgoCD syncs after initial deployment
-
 stages:
   - test
   - build
@@ -14,7 +5,6 @@ stages:
 variables:
   GO_VERSION: "1.24"
 
-# Cache Go modules between jobs
 .go-cache: &go-cache
   cache:
     key: go-modules-${CI_COMMIT_REF_SLUG}
@@ -22,7 +12,6 @@ variables:
       - .go/pkg/mod/
     policy: pull-push
 
-# Test stage - run on all branches
 test:
   stage: test
   image: golang:${GO_VERSION}-alpine
@@ -38,12 +27,7 @@ test:
     - go test -v -race -coverprofile=coverage.out ./...
     - go tool cover -func=coverage.out
   coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == "master"
-    - if: $CI_COMMIT_BRANCH == "main"
 
-# Lint with golangci-lint
 lint:
   stage: test
   image: golang:${GO_VERSION}-alpine
@@ -57,31 +41,11 @@ lint:
   script:
     - ${GOPATH}/bin/golangci-lint run --timeout 5m ./...
   allow_failure: true
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == "master"
-    - if: $CI_COMMIT_BRANCH == "main"
 
-# Build and push container image with Kaniko
 build:
   stage: build
   image:
-    name: gcr.io/kaniko-project/executor:v1.23.2-debug
+    name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
-  rules:
-    - if: $CI_COMMIT_BRANCH == "master"
-    - if: $CI_COMMIT_BRANCH == "main"
   script:
-    # Create docker config for registry authentication
-    - |
-      echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
-    # Build and push with commit SHA and latest tags
-    - |
-      /kaniko/executor \
-        --context "${CI_PROJECT_DIR}" \
-        --dockerfile "${CI_PROJECT_DIR}/Dockerfile" \
-        --destination "${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}" \
-        --destination "${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHORT_SHA}" \
-        --destination "${CI_REGISTRY_IMAGE}:latest" \
-        --cache=true \
-        --cache-repo="${CI_REGISTRY_IMAGE}/cache"
+    - /kaniko/executor --context ${CI_PROJECT_DIR} --dockerfile ${CI_PROJECT_DIR}/Dockerfile --no-push
