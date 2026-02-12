@@ -12,7 +12,7 @@ test:
   stage: test
   image: golang:1.22-alpine
   before_script:
-    - apk add --no-cache git make
+    - for i in 1 2 3 4 5; do apk add --no-cache git make && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
   script:
     - go test -v -race -coverprofile=coverage.out ./...
     - go tool cover -func=coverage.out
@@ -30,7 +30,7 @@ test:lint:
   stage: test
   image: golang:1.22-alpine
   before_script:
-    - apk add --no-cache golangci-lint git
+    - for i in 1 2 3 4 5; do apk add --no-cache golangci-lint git && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
   script:
     - golangci-lint run ./...
   allow_failure: true
@@ -59,7 +59,7 @@ build:binary:
   stage: build
   image: golang:1.22-alpine
   before_script:
-    - apk add --no-cache make
+    - for i in 1 2 3 4 5; do apk add --no-cache make && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
   script:
     - make build
   artifacts:
@@ -86,7 +86,7 @@ deploy:staging:
   stage: deploy
   image: alpine:latest
   before_script:
-    - apk add --no-cache curl
+    - for i in 1 2 3 4 5; do apk add --no-cache curl && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
   script:
     - echo "Staging deployment would go here"
     - echo "Using image: $REGISTRY_IMAGE:$CI_COMMIT_SHA"
@@ -98,7 +98,7 @@ deploy:production:
   stage: deploy
   image: alpine:latest
   before_script:
-    - apk add --no-cache curl
+    - for i in 1 2 3 4 5; do apk add --no-cache curl && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
   script:
     - echo "Production deployment would go here"
     - echo "Using image: $REGISTRY_IMAGE:latest"
