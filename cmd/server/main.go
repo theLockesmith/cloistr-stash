@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"git.coldforge.xyz/coldforge/coldforge-drive/internal/auth"
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/blossom"
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/config"
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/metadata"
@@ -91,8 +92,32 @@ func main() {
 		}
 	}
 
+	// Initialize whitelist for authorization
+	whitelist := auth.NewWhitelist(cfg.Auth.Pubkeys)
+
+	// Load additional pubkeys from file if configured
+	if cfg.Auth.WhitelistFile != "" {
+		if err := whitelist.LoadFromFile(cfg.Auth.WhitelistFile); err != nil {
+			logger.Warn("failed to load whitelist file",
+				"path", cfg.Auth.WhitelistFile,
+				"error", err,
+			)
+		} else {
+			logger.Info("loaded whitelist file", "path", cfg.Auth.WhitelistFile)
+		}
+	}
+
+	// Load additional pubkeys from environment
+	whitelist.LoadFromEnv("DRIVE_WHITELIST")
+
+	if whitelist.IsEmpty() {
+		logger.Warn("no pubkeys in whitelist - all authenticated users will be denied access")
+	} else {
+		logger.Info("whitelist initialized", "count", whitelist.Count())
+	}
+
 	// Create HTTP server
-	srv := server.New(cfg, blossomClient, metadataStore, webPath, logger)
+	srv := server.New(cfg, blossomClient, metadataStore, whitelist, webPath, logger)
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

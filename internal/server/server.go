@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"git.coldforge.xyz/coldforge/coldforge-drive/internal/auth"
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/blossom"
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/config"
 	"git.coldforge.xyz/coldforge/coldforge-drive/internal/metadata"
@@ -20,12 +21,14 @@ import (
 
 // Server represents the HTTP server
 type Server struct {
-	config   *config.Config
-	blossom  *blossom.Client
-	metadata *metadata.Store
-	mux      *http.ServeMux
-	webDir   string
-	logger   *slog.Logger
+	config     *config.Config
+	blossom    *blossom.Client
+	metadata   *metadata.Store
+	whitelist  *auth.Whitelist
+	authMiddle *auth.AuthMiddleware
+	mux        *http.ServeMux
+	webDir     string
+	logger     *slog.Logger
 }
 
 // FileMetadata represents file information returned to the frontend
@@ -38,14 +41,16 @@ type FileMetadata struct {
 }
 
 // New creates a new HTTP server
-func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metadata.Store, webDir string, logger *slog.Logger) *Server {
+func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metadata.Store, whitelist *auth.Whitelist, webDir string, logger *slog.Logger) *Server {
 	s := &Server{
-		config:   cfg,
-		blossom:  blossomClient,
-		metadata: metadataStore,
-		mux:      http.NewServeMux(),
-		webDir:   webDir,
-		logger:   logger,
+		config:     cfg,
+		blossom:    blossomClient,
+		metadata:   metadataStore,
+		whitelist:  whitelist,
+		authMiddle: auth.NewAuthMiddleware(whitelist, logger),
+		mux:        http.NewServeMux(),
+		webDir:     webDir,
+		logger:     logger,
 	}
 
 	s.registerRoutes()
@@ -60,15 +65,27 @@ func (s *Server) registerRoutes() {
 	// Metrics endpoint
 	s.mux.Handle("GET /metrics", metrics.Handler())
 
+	// Auth status endpoint (public)
+	s.mux.HandleFunc("GET /api/auth/status", s.authMiddle.HandleAuthStatus)
+
 	// API endpoints - file operations
+	// List files is public (filtered by pubkey query param)
 	s.mux.HandleFunc("GET /api/files", s.handleListFiles)
-	s.mux.HandleFunc("POST /api/files", s.handleUploadFile)
+
+	// Upload requires whitelist authorization
+	s.mux.Handle("POST /api/files", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleUploadFile)))
+
+	// Get file metadata is public
 	s.mux.HandleFunc("GET /api/files/{sha256}", s.handleGetFile)
-	s.mux.HandleFunc("DELETE /api/files/{sha256}", s.handleDeleteFile)
+
+	// Delete requires whitelist authorization
+	s.mux.Handle("DELETE /api/files/{sha256}", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleDeleteFile)))
+
+	// Download is public
 	s.mux.HandleFunc("GET /api/files/{sha256}/download", s.handleDownloadFile)
 
-	// API endpoints - metadata operations
-	s.mux.HandleFunc("POST /api/metadata", s.handlePublishMetadata)
+	// Metadata publish requires whitelist authorization
+	s.mux.Handle("POST /api/metadata", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handlePublishMetadata)))
 
 	// Serve static files (web UI)
 	s.mux.HandleFunc("/", s.handleStatic)
@@ -124,6 +141,22 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	} else if info.IsDir() {
 		// Try index.html in directory
 		filePath = filepath.Join(filePath, "index.html")
+	}
+
+	// Set correct MIME type for certain files
+	switch {
+	case strings.HasSuffix(filePath, ".svg"):
+		w.Header().Set("Content-Type", "image/svg+xml")
+	case strings.HasSuffix(filePath, ".js"):
+		w.Header().Set("Content-Type", "application/javascript")
+	case strings.HasSuffix(filePath, ".css"):
+		w.Header().Set("Content-Type", "text/css")
+	case strings.HasSuffix(filePath, ".json"):
+		w.Header().Set("Content-Type", "application/json")
+	case strings.HasSuffix(filePath, ".png"):
+		w.Header().Set("Content-Type", "image/png")
+	case strings.HasSuffix(filePath, ".ico"):
+		w.Header().Set("Content-Type", "image/x-icon")
 	}
 
 	http.ServeFile(w, r, filePath)

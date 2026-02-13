@@ -527,7 +527,426 @@ body {
     }
 }
 
-/* Responsive */
+/* Hidden utility */
+.hidden {
+    display: none !important;
+}
+
+/* ============================================
+   Landing Page
+   ============================================ */
+.landing {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+}
+
+.landing-hero {
+    text-align: center;
+    max-width: 800px;
+}
+
+.landing-logo {
+    width: 80px;
+    height: 80px;
+    margin-bottom: 1.5rem;
+}
+
+.landing-title {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+}
+
+.landing-tagline {
+    font-size: 1.25rem;
+    color: var(--text-secondary);
+    margin-bottom: 3rem;
+}
+
+.landing-features {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2rem;
+    margin-bottom: 3rem;
+}
+
+.feature {
+    padding: 1.5rem;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.feature-icon {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+}
+
+.feature h3 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.feature p {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.landing-auth {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.btn-large {
+    padding: 0.75rem 2rem;
+    font-size: 1rem;
+}
+
+.btn-secondary {
+    background-color: transparent;
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background-color: var(--bg-tertiary);
+}
+
+.auth-help {
+    margin-top: 1rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.auth-help a {
+    color: var(--accent-primary);
+    text-decoration: none;
+}
+
+.auth-help a:hover {
+    text-decoration: underline;
+}
+
+/* ============================================
+   Access Denied Page
+   ============================================ */
+.access-denied {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+}
+
+.access-denied-content {
+    text-align: center;
+    max-width: 400px;
+}
+
+.access-denied-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+}
+
+.access-denied-content h2 {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+    color: var(--error);
+}
+
+.access-denied-content p {
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.pubkey-display {
+    font-family: monospace;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    background-color: var(--bg-secondary);
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    margin: 1rem 0;
+    word-break: break-all;
+}
+
+.access-denied-help {
+    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+/* ============================================
+   File Explorer
+   ============================================ */
+.explorer {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.header-logo {
+    width: 32px;
+    height: 32px;
+    margin-right: 0.75rem;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+}
+
+/* Toolbar improvements */
+.toolbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.toolbar-left {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.toolbar-center {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+}
+
+.toolbar-right {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.btn-icon {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+}
+
+.btn-icon.active {
+    background-color: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+/* Breadcrumb improvements */
+.breadcrumb {
+    display: flex;
+    align-items: center;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.breadcrumb-item {
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+}
+
+.breadcrumb-item:hover {
+    background-color: var(--bg-tertiary);
+    color: var(--accent-primary);
+}
+
+.breadcrumb-item.active {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.breadcrumb-sep {
+    color: var(--border-color);
+    margin: 0 0.25rem;
+}
+
+/* ============================================
+   Context Menu
+   ============================================ */
+.context-menu {
+    position: fixed;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.5rem 0;
+    min-width: 160px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 3000;
+}
+
+.context-menu-item {
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.context-menu-item:hover {
+    background-color: var(--bg-tertiary);
+}
+
+.context-menu-item.danger {
+    color: var(--error);
+}
+
+.context-menu-item.danger:hover {
+    background-color: rgba(248, 81, 73, 0.1);
+}
+
+.context-menu-separator {
+    height: 1px;
+    background-color: var(--border-color);
+    margin: 0.5rem 0;
+}
+
+/* ============================================
+   Grid View
+   ============================================ */
+.file-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 1rem;
+    padding: 1rem;
+}
+
+.grid-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1rem;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+.grid-item:hover {
+    background-color: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+}
+
+.grid-item-icon {
+    font-size: 3rem;
+    margin-bottom: 0.75rem;
+}
+
+.grid-item-name {
+    font-size: 0.875rem;
+    text-align: center;
+    word-break: break-word;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.grid-item-size {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+/* Folder styling */
+.folder-item {
+    cursor: pointer;
+}
+
+.folder-item .file-icon,
+.folder-item .grid-item-icon {
+    color: var(--warning);
+}
+
+.folder-drop-target {
+    outline: 2px dashed var(--accent-primary);
+    outline-offset: -2px;
+    background-color: rgba(88, 166, 255, 0.1) !important;
+}
+
+/* ============================================
+   Modal improvements
+   ============================================ */
+.modal-small {
+    max-width: 400px;
+}
+
+.modal-description {
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+}
+
+.modal-help {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 0.75rem;
+}
+
+.modal-help a {
+    color: var(--accent-primary);
+    text-decoration: none;
+}
+
+.modal-help a:hover {
+    text-decoration: underline;
+}
+
+/* Input styling */
+.input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+}
+
+.input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.input::placeholder {
+    color: var(--text-secondary);
+}
+
+/* ============================================
+   Drag and Drop Styling
+   ============================================ */
+.file-list.drag-over {
+    background-color: rgba(88, 166, 255, 0.05);
+}
+
+.file-list.drag-over::after {
+    content: 'Drop files to upload';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 1.25rem;
+    color: var(--accent-primary);
+    pointer-events: none;
+}
+
+/* ============================================
+   Responsive
+   ============================================ */
 @media (max-width: 768px) {
     .header {
         padding: 1rem;
@@ -541,9 +960,10 @@ body {
         flex-wrap: wrap;
     }
 
-    .breadcrumb {
+    .toolbar-center {
+        order: 3;
         width: 100%;
-        margin-left: 0;
+        justify-content: flex-start;
         margin-top: 0.5rem;
     }
 
@@ -553,5 +973,25 @@ body {
 
     .file-list-header .file-date {
         display: none;
+    }
+
+    .landing-features {
+        grid-template-columns: 1fr;
+    }
+
+    .landing-title {
+        font-size: 2rem;
+    }
+
+    .landing-tagline {
+        font-size: 1rem;
+    }
+
+    .landing-auth {
+        width: 100%;
+    }
+
+    .btn-large {
+        width: 100%;
     }
 }

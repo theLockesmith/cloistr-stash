@@ -82,6 +82,25 @@ const Auth = {
         return this.encodeAuthHeader(signed);
     },
 
+    // Create auth event for status check (kind 24242)
+    async createStatusAuth() {
+        const now = Math.floor(Date.now() / 1000);
+        const expiration = now + 300; // 5 minutes
+
+        const event = {
+            kind: 24242,
+            created_at: now,
+            tags: [
+                ['t', 'list'],
+                ['expiration', expiration.toString()],
+            ],
+            content: 'Auth status check',
+        };
+
+        const signed = await this.signEvent(event);
+        return this.encodeAuthHeader(signed);
+    },
+
     // Encode signed event as Authorization header value
     encodeAuthHeader(signedEvent) {
         const json = JSON.stringify(signedEvent);

@@ -24,10 +24,21 @@ const UI = {
         document.getElementById(id).classList.add('hidden');
     },
 
-    // Render file list
+    // Render file list (supports grid and list views)
     renderFileList(files) {
+        const fileList = document.getElementById('file-list');
         const body = document.getElementById('file-list-body');
         const emptyState = document.getElementById('empty-state');
+        const header = document.querySelector('.file-list-header');
+
+        // Toggle class for view mode
+        fileList.classList.toggle('view-grid', this.viewMode === 'grid');
+        fileList.classList.toggle('view-list', this.viewMode === 'list');
+
+        // Show/hide header based on view mode
+        if (header) {
+            header.style.display = this.viewMode === 'list' ? '' : 'none';
+        }
 
         if (files.length === 0) {
             body.innerHTML = '';
@@ -37,10 +48,20 @@ const UI = {
         }
 
         emptyState.style.display = 'none';
-        body.innerHTML = files.map(file => this.renderFileItem(file)).join('');
+
+        if (this.viewMode === 'grid') {
+            body.innerHTML = files.map(file => this.renderFileGridItem(file)).join('');
+        } else {
+            body.innerHTML = files.map(file => this.renderFileListItem(file)).join('');
+        }
 
         // Add event listeners
-        body.querySelectorAll('.file-item').forEach(item => {
+        this.attachFileEventListeners(body);
+    },
+
+    // Attach event listeners to file items
+    attachFileEventListeners(container) {
+        container.querySelectorAll('.file-item, .grid-item').forEach(item => {
             const sha256 = item.dataset.sha256;
 
             item.querySelector('.download-btn')?.addEventListener('click', (e) => {
@@ -54,11 +75,20 @@ const UI = {
                     App.deleteFile(sha256);
                 }
             });
+
+            // Context menu on right-click
+            item.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                this.showContextMenu(e.clientX, e.clientY, [
+                    { label: 'Download', action: () => window.open(API.getDownloadURL(sha256), '_blank') },
+                    { label: 'Delete', action: () => { if (confirm('Delete this file?')) App.deleteFile(sha256); } },
+                ]);
+            });
         });
     },
 
-    // Render a single file item
-    renderFileItem(file) {
+    // Render file as list item
+    renderFileListItem(file) {
         const icon = Upload.getFileIcon(file.mime_type);
         const size = Upload.formatSize(file.size);
         const date = file.created_at ? new Date(file.created_at * 1000).toLocaleDateString() : '-';
@@ -77,6 +107,58 @@ const UI = {
                 </div>
             </div>
         `;
+    },
+
+    // Render file as grid item
+    renderFileGridItem(file) {
+        const icon = Upload.getFileIcon(file.mime_type);
+        const name = file.name || file.sha256.slice(0, 12) + '...';
+
+        return `
+            <div class="grid-item" data-sha256="${file.sha256}">
+                <div class="grid-item-icon">${icon}</div>
+                <div class="grid-item-name">${this.escapeHtml(name)}</div>
+                <div class="grid-item-actions">
+                    <button class="action-btn download-btn" title="Download">↓</button>
+                    <button class="action-btn delete delete-btn" title="Delete">✕</button>
+                </div>
+            </div>
+        `;
+    },
+
+    // Show context menu
+    showContextMenu(x, y, items) {
+        const menu = document.getElementById('context-menu');
+        menu.innerHTML = items.map(item =>
+            `<div class="context-menu-item">${item.label}</div>`
+        ).join('');
+
+        // Position menu
+        menu.style.left = `${x}px`;
+        menu.style.top = `${y}px`;
+        menu.classList.remove('hidden');
+
+        // Attach click handlers
+        menu.querySelectorAll('.context-menu-item').forEach((el, i) => {
+            el.addEventListener('click', () => {
+                items[i].action();
+                this.hideContextMenu();
+            });
+        });
+
+        // Hide on click outside
+        const hideOnClick = (e) => {
+            if (!menu.contains(e.target)) {
+                this.hideContextMenu();
+                document.removeEventListener('click', hideOnClick);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', hideOnClick), 0);
+    },
+
+    // Hide context menu
+    hideContextMenu() {
+        document.getElementById('context-menu').classList.add('hidden');
     },
 
     // Render upload list in modal
@@ -145,23 +227,23 @@ const UI = {
         btn.disabled = !hasPending || Upload.isUploading;
     },
 
-    // Set connected state
+    // View mode (list or grid)
+    viewMode: 'list',
+
+    // Set connected state in file explorer header
     setConnectedState(pubkey) {
-        const loginBtn = document.getElementById('login-btn');
         const pubkeySpan = document.getElementById('user-pubkey');
         const uploadBtn = document.getElementById('upload-btn');
         const newFolderBtn = document.getElementById('new-folder-btn');
 
         if (pubkey) {
-            loginBtn.textContent = 'Disconnect';
             pubkeySpan.textContent = Auth.formatPubkey(pubkey);
-            uploadBtn.disabled = false;
-            newFolderBtn.disabled = false;
+            if (uploadBtn) uploadBtn.disabled = false;
+            if (newFolderBtn) newFolderBtn.disabled = false;
         } else {
-            loginBtn.textContent = 'Connect';
             pubkeySpan.textContent = '';
-            uploadBtn.disabled = true;
-            newFolderBtn.disabled = true;
+            if (uploadBtn) uploadBtn.disabled = true;
+            if (newFolderBtn) newFolderBtn.disabled = true;
         }
     },
 

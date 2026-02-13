@@ -11,34 +11,91 @@
 </head>
 <body>
     <div id="app">
-        <header class="header">
-            <div class="header-left">
-                <h1 class="logo">Drive</h1>
-            </div>
-            <div class="header-right">
-                <span id="user-pubkey" class="user-pubkey"></span>
-                <button id="login-btn" class="btn btn-primary">Connect</button>
-            </div>
-        </header>
+        <!-- Landing Page (shown when not authenticated) -->
+        <div id="landing-page" class="landing">
+            <div class="landing-hero">
+                <img src="/favicon.svg" alt="Drive" class="landing-logo">
+                <h1 class="landing-title">Coldforge Drive</h1>
+                <p class="landing-tagline">Nostr-native file storage. Own your data.</p>
 
-        <main class="main">
-            <div class="toolbar">
-                <button id="upload-btn" class="btn btn-primary" disabled>
-                    <span class="icon">+</span> Upload
-                </button>
-                <button id="new-folder-btn" class="btn" disabled>
-                    <span class="icon">+</span> New Folder
-                </button>
-                <div class="breadcrumb" id="breadcrumb">
-                    <span class="breadcrumb-item" data-path="/">/</span>
+                <div class="landing-features">
+                    <div class="feature">
+                        <div class="feature-icon">🔐</div>
+                        <h3>Self-Sovereign</h3>
+                        <p>Files signed with your Nostr identity. No accounts, no passwords.</p>
+                    </div>
+                    <div class="feature">
+                        <div class="feature-icon">📁</div>
+                        <h3>Organized</h3>
+                        <p>Folders, drag-and-drop, and familiar file management.</p>
+                    </div>
+                    <div class="feature">
+                        <div class="feature-icon">🔗</div>
+                        <h3>Decentralized</h3>
+                        <p>Your files, stored on Blossom servers you choose.</p>
+                    </div>
+                </div>
+
+                <div class="landing-auth">
+                    <button id="connect-nip07" class="btn btn-primary btn-large">
+                        Connect with Extension
+                    </button>
+                    <button id="connect-nip46" class="btn btn-secondary btn-large">
+                        Connect with Remote Signer
+                    </button>
+                    <p class="auth-help">
+                        Need a Nostr identity?
+                        <a href="https://signer.cloistr.xyz" target="_blank" rel="noopener">Get one at signer.cloistr.xyz</a>
+                    </p>
                 </div>
             </div>
+        </div>
 
-            <div class="content">
-                <div id="drop-zone" class="drop-zone">
-                    <div class="drop-zone-content">
-                        <p class="drop-zone-text">Drag and drop files here</p>
-                        <p class="drop-zone-subtext">or click Upload to select files</p>
+        <!-- Access Denied (shown when authenticated but not whitelisted) -->
+        <div id="access-denied" class="access-denied hidden">
+            <div class="access-denied-content">
+                <div class="access-denied-icon">🚫</div>
+                <h2>Access Denied</h2>
+                <p>Your Nostr identity is not authorized to use this service.</p>
+                <p class="pubkey-display" id="denied-pubkey"></p>
+                <p class="access-denied-help">
+                    Want access? Contact the administrator via Nostr.
+                </p>
+                <button id="disconnect-btn" class="btn btn-secondary">Disconnect</button>
+            </div>
+        </div>
+
+        <!-- File Explorer (shown when authenticated and whitelisted) -->
+        <div id="file-explorer" class="explorer hidden">
+            <header class="header">
+                <div class="header-left">
+                    <img src="/favicon.svg" alt="Drive" class="header-logo">
+                    <h1 class="logo">Drive</h1>
+                </div>
+                <div class="header-right">
+                    <span id="user-pubkey" class="user-pubkey"></span>
+                    <button id="logout-btn" class="btn">Disconnect</button>
+                </div>
+            </header>
+
+            <main class="main">
+                <div class="toolbar">
+                    <div class="toolbar-left">
+                        <button id="upload-btn" class="btn btn-primary">
+                            <span class="icon">↑</span> Upload
+                        </button>
+                        <button id="new-folder-btn" class="btn">
+                            <span class="icon">+</span> New Folder
+                        </button>
+                    </div>
+                    <div class="toolbar-center">
+                        <div class="breadcrumb" id="breadcrumb">
+                            <span class="breadcrumb-item active" data-id="">My Drive</span>
+                        </div>
+                    </div>
+                    <div class="toolbar-right">
+                        <button id="view-grid" class="btn btn-icon" title="Grid view">▦</button>
+                        <button id="view-list" class="btn btn-icon active" title="List view">≡</button>
                     </div>
                 </div>
 
@@ -52,13 +109,35 @@
                     <div id="file-list-body" class="file-list-body">
                         <div class="empty-state" id="empty-state">
                             <p>No files yet</p>
-                            <p class="empty-state-subtext">Upload files to get started</p>
+                            <p class="empty-state-subtext">Drag files here or click Upload to get started</p>
                         </div>
                     </div>
                 </div>
-            </div>
-        </main>
+            </main>
+        </div>
 
+        <!-- NIP-46 Connection Modal -->
+        <div id="nip46-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Connect with Remote Signer</h2>
+                    <button class="modal-close" id="nip46-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-description">Enter your bunker connection string:</p>
+                    <input type="text" id="bunker-url" class="input" placeholder="bunker://..." autocomplete="off">
+                    <p class="modal-help">
+                        Get a bunker URL from <a href="https://signer.cloistr.xyz" target="_blank" rel="noopener">signer.cloistr.xyz</a>
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="nip46-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="nip46-connect">Connect</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Modal -->
         <div id="upload-modal" class="modal hidden">
             <div class="modal-content">
                 <div class="modal-header">
@@ -79,6 +158,10 @@
             </div>
         </div>
 
+        <!-- Context Menu (created dynamically) -->
+        <div id="context-menu" class="context-menu hidden"></div>
+
+        <!-- Toast Container -->
         <div id="toast-container" class="toast-container"></div>
     </div>
 

@@ -3,6 +3,7 @@
 const Upload = {
     files: [],
     isUploading: false,
+    targetFolderId: null,  // For uploading to specific folder
 
     // Add files to the upload queue
     addFiles(fileList) {

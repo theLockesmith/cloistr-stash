@@ -101,4 +101,22 @@ const API = {
         const response = await fetch(`${this.baseURL}/health`);
         return response.ok;
     },
+
+    // Check authentication and authorization status
+    async checkAuthStatus(authHeader) {
+        const headers = {};
+        if (authHeader) {
+            headers['Authorization'] = authHeader;
+        }
+
+        const response = await fetch(`${this.baseURL}/api/auth/status`, {
+            headers: headers,
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to check auth status: ${response.status}`);
+        }
+
+        return response.json();
+    },
 };

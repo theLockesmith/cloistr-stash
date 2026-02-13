@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -13,6 +14,13 @@ type Config struct {
 	Server  ServerConfig  `yaml:"server"`
 	Blossom BlossomConfig `yaml:"blossom"`
 	Relay   RelayConfig   `yaml:"relay"`
+	Auth    AuthConfig    `yaml:"auth"`
+}
+
+// AuthConfig represents authentication and authorization configuration
+type AuthConfig struct {
+	WhitelistFile string   `yaml:"whitelist_file"` // Path to file with one pubkey per line
+	Pubkeys       []string `yaml:"pubkeys"`        // Inline list of allowed pubkeys
 }
 
 // ServerConfig represents HTTP server configuration
@@ -79,6 +87,20 @@ func Load(path string) (*Config, error) {
 	}
 	if relayURL := os.Getenv("DRIVE_RELAY_URL"); relayURL != "" {
 		cfg.Relay.URL = relayURL
+	}
+
+	// Auth configuration from environment
+	if whitelistFile := os.Getenv("DRIVE_WHITELIST_FILE"); whitelistFile != "" {
+		cfg.Auth.WhitelistFile = whitelistFile
+	}
+	if whitelist := os.Getenv("DRIVE_WHITELIST"); whitelist != "" {
+		// Comma-separated pubkeys
+		for _, pk := range strings.Split(whitelist, ",") {
+			pk = strings.TrimSpace(pk)
+			if pk != "" {
+				cfg.Auth.Pubkeys = append(cfg.Auth.Pubkeys, pk)
+			}
+		}
 	}
 
 	return cfg, nil
