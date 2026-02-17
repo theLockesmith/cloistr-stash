@@ -25,7 +25,7 @@ const UI = {
     },
 
     // Render file list (supports grid and list views)
-    renderFileList(files) {
+    renderFileList(files, folders = []) {
         const fileList = document.getElementById('file-list');
         const body = document.getElementById('file-list-body');
         const emptyState = document.getElementById('empty-state');
@@ -40,7 +40,9 @@ const UI = {
             header.style.display = this.viewMode === 'list' ? '' : 'none';
         }
 
-        if (files.length === 0) {
+        const hasContent = files.length > 0 || folders.length > 0;
+
+        if (!hasContent) {
             body.innerHTML = '';
             body.appendChild(emptyState);
             emptyState.style.display = 'block';
@@ -50,19 +52,25 @@ const UI = {
         emptyState.style.display = 'none';
 
         if (this.viewMode === 'grid') {
-            body.innerHTML = files.map(file => this.renderFileGridItem(file)).join('');
+            const folderHtml = folders.map(folder => this.renderFolderGridItem(folder)).join('');
+            const fileHtml = files.map(file => this.renderFileGridItem(file)).join('');
+            body.innerHTML = folderHtml + fileHtml;
         } else {
-            body.innerHTML = files.map(file => this.renderFileListItem(file)).join('');
+            const folderHtml = folders.map(folder => this.renderFolderListItem(folder)).join('');
+            const fileHtml = files.map(file => this.renderFileListItem(file)).join('');
+            body.innerHTML = folderHtml + fileHtml;
         }
 
         // Add event listeners
         this.attachFileEventListeners(body);
+        this.attachFolderEventListeners(body);
     },
 
     // Attach event listeners to file items
     attachFileEventListeners(container) {
-        container.querySelectorAll('.file-item, .grid-item').forEach(item => {
+        container.querySelectorAll('.file-item:not(.folder-item), .grid-item:not(.folder-grid-item)').forEach(item => {
             const sha256 = item.dataset.sha256;
+            if (!sha256) return;
 
             item.querySelector('.download-btn')?.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -85,6 +93,73 @@ const UI = {
                 ]);
             });
         });
+    },
+
+    // Attach event listeners to folder items
+    attachFolderEventListeners(container) {
+        container.querySelectorAll('.folder-item, .folder-grid-item').forEach(item => {
+            const folderId = item.dataset.folderId;
+            const folderName = item.dataset.folderName;
+            if (!folderId) return;
+
+            // Double-click to open folder
+            item.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                App.openFolder(folderId, folderName);
+            });
+
+            // Single click also opens (for usability)
+            item.addEventListener('click', (e) => {
+                if (e.target.closest('.action-btn')) return; // Ignore if clicking action button
+                App.openFolder(folderId, folderName);
+            });
+
+            item.querySelector('.delete-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                App.deleteFolder(folderId, folderName);
+            });
+
+            // Context menu on right-click
+            item.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                this.showContextMenu(e.clientX, e.clientY, [
+                    { label: 'Open', action: () => App.openFolder(folderId, folderName) },
+                    { label: 'Delete', action: () => App.deleteFolder(folderId, folderName) },
+                ]);
+            });
+        });
+    },
+
+    // Render folder as list item
+    renderFolderListItem(folder) {
+        const date = folder.created_at ? new Date(folder.created_at * 1000).toLocaleDateString() : '-';
+
+        return `
+            <div class="file-item folder-item" data-folder-id="${folder.id}" data-folder-name="${this.escapeHtml(folder.name)}">
+                <div class="file-col file-name">
+                    <span class="file-icon folder-icon">&#128193;</span>
+                    <span class="file-name-text">${this.escapeHtml(folder.name)}</span>
+                </div>
+                <div class="file-col file-size">-</div>
+                <div class="file-col file-date">${date}</div>
+                <div class="file-col file-actions">
+                    <button class="action-btn delete delete-btn">Delete</button>
+                </div>
+            </div>
+        `;
+    },
+
+    // Render folder as grid item
+    renderFolderGridItem(folder) {
+        return `
+            <div class="grid-item folder-grid-item" data-folder-id="${folder.id}" data-folder-name="${this.escapeHtml(folder.name)}">
+                <div class="grid-item-icon folder-icon">&#128193;</div>
+                <div class="grid-item-name">${this.escapeHtml(folder.name)}</div>
+                <div class="grid-item-actions">
+                    <button class="action-btn delete delete-btn" title="Delete">✕</button>
+                </div>
+            </div>
+        `;
     },
 
     // Render file as list item

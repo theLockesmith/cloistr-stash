@@ -37,6 +37,15 @@ type FileMetadata struct {
 	Name      string `json:"name,omitempty"`
 	Size      int64  `json:"size"`
 	MimeType  string `json:"mime_type,omitempty"`
+	FolderID  string `json:"folder_id,omitempty"`
+	CreatedAt int64  `json:"created_at,omitempty"`
+}
+
+// FolderMetadataResponse represents folder information returned to the frontend
+type FolderMetadataResponse struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	ParentID  string `json:"parent_id,omitempty"`
 	CreatedAt int64  `json:"created_at,omitempty"`
 }
 
@@ -86,6 +95,19 @@ func (s *Server) registerRoutes() {
 
 	// Metadata publish requires whitelist authorization
 	s.mux.Handle("POST /api/metadata", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handlePublishMetadata)))
+
+	// API endpoints - folder operations
+	// List folders is public (filtered by pubkey query param)
+	s.mux.HandleFunc("GET /api/folders", s.handleListFolders)
+
+	// Create folder requires whitelist authorization
+	s.mux.Handle("POST /api/folders", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleCreateFolder)))
+
+	// Get folder is public
+	s.mux.HandleFunc("GET /api/folders/{id}", s.handleGetFolder)
+
+	// Delete folder requires whitelist authorization
+	s.mux.Handle("DELETE /api/folders/{id}", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleDeleteFolder)))
 
 	// Serve static files (web UI)
 	s.mux.HandleFunc("/", s.handleStatic)
@@ -163,6 +185,7 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleListFiles returns all files for a given pubkey from Nostr relay
+// Supports optional folder query param to filter by folder
 func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	pubkey := r.URL.Query().Get("pubkey")
 	if pubkey == "" {
@@ -180,7 +203,19 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	files, err := s.metadata.ListFiles(r.Context(), pubkey)
+	// Check if folder filter is specified
+	folderID := r.URL.Query().Get("folder")
+	var files []*metadata.FileMetadata
+	var err error
+
+	if r.URL.Query().Has("folder") {
+		// Filter by folder (empty string = root folder)
+		files, err = s.metadata.ListFilesInFolder(r.Context(), pubkey, folderID)
+	} else {
+		// List all files
+		files, err = s.metadata.ListFiles(r.Context(), pubkey)
+	}
+
 	if err != nil {
 		s.logger.Error("failed to list files from relay",
 			"error", err,
@@ -205,6 +240,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 			Name:      f.Name,
 			Size:      f.Size,
 			MimeType:  f.MimeType,
+			FolderID:  f.FolderID,
 			CreatedAt: f.CreatedAt.Unix(),
 		})
 	}
@@ -450,4 +486,212 @@ func extractPubkeyFromAuth(authHeader string) string {
 	}
 
 	return event.PubKey
+}
+
+// handleListFolders returns all folders for a given pubkey
+func (s *Server) handleListFolders(w http.ResponseWriter, r *http.Request) {
+	pubkey := r.URL.Query().Get("pubkey")
+	if pubkey == "" {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"folders":[]}`)
+		return
+	}
+
+	if s.metadata == nil {
+		s.logger.Warn("metadata store not configured")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"folders":[]}`)
+		return
+	}
+
+	// Optional parent filter
+	parentID := r.URL.Query().Get("parent")
+
+	folders, err := s.metadata.ListFolders(r.Context(), pubkey)
+	if err != nil {
+		s.logger.Error("failed to list folders from relay",
+			"error", err,
+			"pubkey", pubkey[:16],
+		)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"folders":[]}`)
+		return
+	}
+
+	// Convert to response format, filtering by parent if specified
+	response := struct {
+		Folders []FolderMetadataResponse `json:"folders"`
+	}{
+		Folders: make([]FolderMetadataResponse, 0, len(folders)),
+	}
+
+	for _, f := range folders {
+		// Filter by parent if specified
+		if r.URL.Query().Has("parent") && f.ParentID != parentID {
+			continue
+		}
+
+		response.Folders = append(response.Folders, FolderMetadataResponse{
+			ID:        f.Identifier,
+			Name:      f.Name,
+			ParentID:  f.ParentID,
+			CreatedAt: f.CreatedAt.Unix(),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleCreateFolder creates a new folder by publishing a signed folder metadata event
+func (s *Server) handleCreateFolder(w http.ResponseWriter, r *http.Request) {
+	if s.metadata == nil {
+		http.Error(w, "Metadata storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse the signed event from request body
+	var event nostr.Event
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+		s.logger.Warn("failed to decode folder event", "error", err)
+		http.Error(w, "Invalid event format", http.StatusBadRequest)
+		return
+	}
+
+	// Validate event kind
+	if event.Kind != metadata.KindFolderMetadata {
+		http.Error(w, fmt.Sprintf("Invalid event kind: expected %d", metadata.KindFolderMetadata), http.StatusBadRequest)
+		return
+	}
+
+	// Verify signature
+	ok, err := event.CheckSignature()
+	if err != nil || !ok {
+		s.logger.Warn("invalid folder event signature",
+			"event_id", event.ID,
+			"error", err,
+		)
+		http.Error(w, "Invalid signature", http.StatusUnauthorized)
+		return
+	}
+
+	// Publish to relay
+	if err := s.metadata.PublishFolder(r.Context(), &event); err != nil {
+		s.logger.Error("failed to publish folder metadata",
+			"error", err,
+			"event_id", event.ID,
+		)
+		http.Error(w, "Failed to create folder", http.StatusInternalServerError)
+		return
+	}
+
+	// Parse the event to return folder info
+	folder, _ := metadata.ParseFolderEvent(&event)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(FolderMetadataResponse{
+		ID:        folder.Identifier,
+		Name:      folder.Name,
+		ParentID:  folder.ParentID,
+		CreatedAt: folder.CreatedAt.Unix(),
+	})
+
+	s.logger.Info("folder created",
+		"event_id", event.ID[:16],
+		"pubkey", event.PubKey[:16],
+		"name", folder.Name,
+	)
+}
+
+// handleGetFolder returns a specific folder's metadata
+func (s *Server) handleGetFolder(w http.ResponseWriter, r *http.Request) {
+	folderID := r.PathValue("id")
+	if folderID == "" {
+		http.Error(w, "Folder ID required", http.StatusBadRequest)
+		return
+	}
+
+	pubkey := r.URL.Query().Get("pubkey")
+	if pubkey == "" {
+		http.Error(w, "Pubkey required", http.StatusBadRequest)
+		return
+	}
+
+	if s.metadata == nil {
+		http.Error(w, "Metadata storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	folder, err := s.metadata.GetFolder(r.Context(), pubkey, folderID)
+	if err != nil {
+		s.logger.Warn("folder not found",
+			"folder_id", folderID,
+			"pubkey", pubkey[:16],
+			"error", err,
+		)
+		http.Error(w, "Folder not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(FolderMetadataResponse{
+		ID:        folder.Identifier,
+		Name:      folder.Name,
+		ParentID:  folder.ParentID,
+		CreatedAt: folder.CreatedAt.Unix(),
+	})
+}
+
+// handleDeleteFolder deletes a folder by publishing a deletion event
+func (s *Server) handleDeleteFolder(w http.ResponseWriter, r *http.Request) {
+	folderID := r.PathValue("id")
+	if folderID == "" {
+		http.Error(w, "Folder ID required", http.StatusBadRequest)
+		return
+	}
+
+	if s.metadata == nil {
+		http.Error(w, "Metadata storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse the signed deletion event from request body
+	var event nostr.Event
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+		s.logger.Warn("failed to decode deletion event", "error", err)
+		http.Error(w, "Invalid event format", http.StatusBadRequest)
+		return
+	}
+
+	// Validate event kind (should be deletion event kind 5)
+	if event.Kind != 5 {
+		http.Error(w, "Invalid event kind: expected 5 (deletion)", http.StatusBadRequest)
+		return
+	}
+
+	// Verify signature
+	ok, err := event.CheckSignature()
+	if err != nil || !ok {
+		s.logger.Warn("invalid deletion event signature",
+			"event_id", event.ID,
+			"error", err,
+		)
+		http.Error(w, "Invalid signature", http.StatusUnauthorized)
+		return
+	}
+
+	// Publish deletion event to relay
+	if err := s.metadata.DeleteFile(r.Context(), &event); err != nil {
+		s.logger.Error("failed to publish folder deletion",
+			"error", err,
+			"folder_id", folderID,
+		)
+		http.Error(w, "Failed to delete folder", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprint(w, `{"status":"deleted"}`)
+
+	s.logger.Info("folder deleted", "folder_id", folderID)
 }

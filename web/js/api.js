@@ -119,4 +119,80 @@ const API = {
 
         return response.json();
     },
+
+    // List all folders for a pubkey
+    async listFolders(pubkey, parentId = null) {
+        let url = `${this.baseURL}/api/folders?pubkey=${pubkey}`;
+        if (parentId !== null) {
+            url += `&parent=${parentId}`;
+        }
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`Failed to list folders: ${response.status}`);
+        }
+
+        return response.json();
+    },
+
+    // Create a folder by publishing a signed folder event
+    async createFolder(signedEvent) {
+        const response = await fetch(`${this.baseURL}/api/folders`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(signedEvent),
+        });
+
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(error || `Failed to create folder: ${response.status}`);
+        }
+
+        return response.json();
+    },
+
+    // Get folder by ID
+    async getFolder(id, pubkey) {
+        const response = await fetch(`${this.baseURL}/api/folders/${id}?pubkey=${pubkey}`);
+
+        if (!response.ok) {
+            throw new Error(`Failed to get folder: ${response.status}`);
+        }
+
+        return response.json();
+    },
+
+    // Delete a folder by publishing a signed deletion event
+    async deleteFolder(id, signedEvent) {
+        const response = await fetch(`${this.baseURL}/api/folders/${id}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(signedEvent),
+        });
+
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(error || `Failed to delete folder: ${response.status}`);
+        }
+
+        return response.json();
+    },
+
+    // List files in a specific folder (or root if folderId is empty)
+    async listFilesInFolder(pubkey, folderId = '') {
+        const url = `${this.baseURL}/api/files?pubkey=${pubkey}&folder=${folderId}`;
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`Failed to list files: ${response.status}`);
+        }
+
+        return response.json();
+    },
 };

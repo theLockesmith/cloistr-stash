@@ -38,6 +38,7 @@ const Upload = {
     // Clear all files
     clear() {
         this.files = [];
+        this.targetFolderId = null;
     },
 
     // Upload all pending files with Blossom auth
@@ -80,6 +81,7 @@ const Upload = {
                             name: item.file.name,
                             size: result.size,
                             mimeType: result.mime_type,
+                            folderId: this.targetFolderId || App.currentFolderId || null,
                         });
                         await API.publishMetadata(metadataEvent);
                     } catch (metaErr) {

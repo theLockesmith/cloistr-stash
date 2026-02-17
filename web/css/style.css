@@ -219,6 +219,18 @@ body {
     overflow-y: auto;
 }
 
+/* Grid view mode */
+.file-list.view-grid .file-list-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 1rem;
+    padding: 1rem;
+}
+
+.file-list.view-list .file-list-body {
+    display: block;
+}
+
 /* File item */
 .file-item {
     display: flex;
@@ -864,19 +876,65 @@ body {
 }
 
 /* Folder styling */
-.folder-item {
+.folder-item,
+.folder-grid-item {
     cursor: pointer;
 }
 
 .folder-item .file-icon,
-.folder-item .grid-item-icon {
+.folder-item .grid-item-icon,
+.folder-grid-item .grid-item-icon,
+.folder-icon {
     color: var(--warning);
+}
+
+.folder-grid-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1rem;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+.folder-grid-item:hover {
+    background-color: var(--bg-tertiary);
+    border-color: var(--warning);
+}
+
+.folder-grid-item .grid-item-actions {
+    margin-top: 0.5rem;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.folder-grid-item:hover .grid-item-actions {
+    opacity: 1;
+}
+
+.grid-item .grid-item-actions {
+    margin-top: 0.5rem;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.grid-item:hover .grid-item-actions {
+    opacity: 1;
 }
 
 .folder-drop-target {
     outline: 2px dashed var(--accent-primary);
     outline-offset: -2px;
     background-color: rgba(88, 166, 255, 0.1) !important;
+}
+
+/* Breadcrumb separator */
+.breadcrumb-separator {
+    color: var(--border-color);
+    margin: 0 0.25rem;
 }
 
 /* ============================================

@@ -2,6 +2,9 @@
 
 const App = {
     files: [],
+    folders: [],
+    currentFolderId: '',  // Empty string = root folder
+    folderPath: [],       // Array of {id, name} for breadcrumb navigation
     authState: 'unauthenticated', // 'unauthenticated' | 'authenticated' | 'denied'
 
     async init() {
@@ -242,6 +245,9 @@ const App = {
         Auth.disconnect();
         this.authState = 'unauthenticated';
         this.files = [];
+        this.folders = [];
+        this.currentFolderId = '';
+        this.folderPath = [];
         this.updateAuthUI();
         UI.toast('Disconnected', 'info');
     },
@@ -274,12 +280,73 @@ const App = {
     async loadFiles() {
         try {
             const pubkey = Auth.isConnected ? Auth.pubkey : null;
-            const response = await API.listFiles(pubkey);
-            this.files = response.files || [];
-            UI.renderFileList(this.files);
+            if (!pubkey) return;
+
+            // Load folders and files for current folder
+            const [foldersResponse, filesResponse] = await Promise.all([
+                API.listFolders(pubkey, this.currentFolderId),
+                API.listFilesInFolder(pubkey, this.currentFolderId),
+            ]);
+
+            this.folders = foldersResponse.folders || [];
+            this.files = filesResponse.files || [];
+
+            UI.renderFileList(this.files, this.folders);
+            this.renderBreadcrumbs();
         } catch (err) {
             console.error('Failed to load files:', err);
         }
+    },
+
+    renderBreadcrumbs() {
+        const breadcrumbContainer = document.getElementById('breadcrumb');
+        if (!breadcrumbContainer) return;
+
+        breadcrumbContainer.innerHTML = '';
+
+        // Root folder link
+        const rootLink = document.createElement('span');
+        rootLink.className = 'breadcrumb-item';
+        rootLink.textContent = 'My Drive';
+        rootLink.addEventListener('click', () => this.navigateToFolder('', 'My Drive'));
+        breadcrumbContainer.appendChild(rootLink);
+
+        // Add path items
+        for (let i = 0; i < this.folderPath.length; i++) {
+            const separator = document.createElement('span');
+            separator.className = 'breadcrumb-separator';
+            separator.textContent = ' / ';
+            breadcrumbContainer.appendChild(separator);
+
+            const pathItem = this.folderPath[i];
+            const link = document.createElement('span');
+            link.className = 'breadcrumb-item';
+            link.textContent = pathItem.name;
+            link.addEventListener('click', () => {
+                // Navigate to this folder and truncate path
+                this.folderPath = this.folderPath.slice(0, i + 1);
+                this.currentFolderId = pathItem.id;
+                this.loadFiles();
+            });
+            breadcrumbContainer.appendChild(link);
+        }
+    },
+
+    async navigateToFolder(folderId, folderName) {
+        if (folderId === '') {
+            // Going to root
+            this.currentFolderId = '';
+            this.folderPath = [];
+        } else {
+            // Add to path
+            this.folderPath.push({ id: folderId, name: folderName });
+            this.currentFolderId = folderId;
+        }
+        await this.loadFiles();
+    },
+
+    async openFolder(folderId, folderName) {
+        await this.navigateToFolder(folderId, folderName);
     },
 
     async uploadToFolder(files, folderId) {
@@ -335,11 +402,55 @@ const App = {
         );
     },
 
-    promptNewFolder() {
+    async promptNewFolder() {
         const name = prompt('Folder name:');
-        if (name && name.trim()) {
-            // TODO: Implement folder creation
-            UI.toast('Folders coming soon', 'info');
+        if (!name || !name.trim()) {
+            return;
+        }
+
+        try {
+            // Generate a unique folder ID
+            const folderId = Auth.generateFolderId();
+
+            // Create and sign the folder event
+            const signedEvent = await Auth.createFolderEvent({
+                id: folderId,
+                name: name.trim(),
+                parentId: this.currentFolderId || null,
+            });
+
+            // Publish to server
+            await API.createFolder(signedEvent);
+
+            UI.toast(`Created folder "${name.trim()}"`, 'success');
+
+            // Reload to show new folder
+            await this.loadFiles();
+        } catch (err) {
+            console.error('Failed to create folder:', err);
+            UI.toast(`Failed to create folder: ${err.message}`, 'error');
+        }
+    },
+
+    async deleteFolder(folderId, folderName) {
+        if (!confirm(`Delete folder "${folderName}"? Files inside will not be deleted but will move to root.`)) {
+            return;
+        }
+
+        try {
+            // Create and sign the deletion event
+            const signedEvent = await Auth.createFolderDeleteEvent(folderId);
+
+            // Send to server
+            await API.deleteFolder(folderId, signedEvent);
+
+            UI.toast(`Deleted folder "${folderName}"`, 'success');
+
+            // Reload to update view
+            await this.loadFiles();
+        } catch (err) {
+            console.error('Failed to delete folder:', err);
+            UI.toast(`Failed to delete folder: ${err.message}`, 'error');
         }
     },
 

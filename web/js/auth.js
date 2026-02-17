@@ -143,7 +143,65 @@ const Auth = {
             event.tags.push(['url', fileInfo.url]);
         }
 
+        // Add folder tag if provided
+        if (fileInfo.folderId) {
+            event.tags.push(['folder', fileInfo.folderId]);
+        }
+
         return this.signEvent(event);
+    },
+
+    // Create a folder metadata event (kind 30079)
+    async createFolderEvent(folderInfo) {
+        const now = Math.floor(Date.now() / 1000);
+
+        const content = JSON.stringify({
+            name: folderInfo.name,
+            description: folderInfo.description || '',
+        });
+
+        const event = {
+            kind: 30079,  // Folder metadata kind
+            created_at: now,
+            tags: [
+                ['d', folderInfo.id],  // Identifier (makes it replaceable)
+            ],
+            content: content,
+        };
+
+        // Add parent folder tag if specified
+        if (folderInfo.parentId) {
+            event.tags.push(['parent', folderInfo.parentId]);
+        }
+
+        return this.signEvent(event);
+    },
+
+    // Create a folder deletion event (kind 5 - NIP-09)
+    async createFolderDeleteEvent(folderId) {
+        if (!this.isConnected || !this.pubkey) {
+            throw new Error('Not connected');
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+
+        const event = {
+            kind: 5,  // Deletion event
+            created_at: now,
+            tags: [
+                ['a', `30079:${this.pubkey}:${folderId}`],
+            ],
+            content: 'deleted',
+        };
+
+        return this.signEvent(event);
+    },
+
+    // Generate a random folder ID
+    generateFolderId() {
+        const array = new Uint8Array(16);
+        crypto.getRandomValues(array);
+        return Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
     },
 
     // Disconnect

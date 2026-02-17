@@ -265,3 +265,235 @@ func CreateDeleteEvent(pubkey, fileIdentifier string) *nostr.Event {
 		Content: "deleted",
 	}
 }
+
+// CreateFolderEvent creates a Nostr event for folder metadata (unsigned)
+func CreateFolderEvent(folder *FolderMetadata) *nostr.Event {
+	content, _ := json.Marshal(map[string]interface{}{
+		"name":        folder.Name,
+		"description": folder.Description,
+	})
+
+	event := &nostr.Event{
+		Kind:      KindFolderMetadata,
+		PubKey:    folder.Pubkey,
+		CreatedAt: nostr.Timestamp(folder.CreatedAt.Unix()),
+		Tags: nostr.Tags{
+			{"d", folder.Identifier}, // Parameterized replaceable event identifier
+		},
+		Content: string(content),
+	}
+
+	// Add parent folder tag if specified
+	if folder.ParentID != "" {
+		event.Tags = append(event.Tags, nostr.Tag{"parent", folder.ParentID})
+	}
+
+	return event
+}
+
+// ParseFolderEvent parses a Nostr event into FolderMetadata
+func ParseFolderEvent(event *nostr.Event) (*FolderMetadata, error) {
+	if event.Kind != KindFolderMetadata {
+		return nil, fmt.Errorf("invalid event kind: %d", event.Kind)
+	}
+
+	folder := &FolderMetadata{
+		Pubkey:    event.PubKey,
+		CreatedAt: time.Unix(int64(event.CreatedAt), 0),
+		UpdatedAt: time.Unix(int64(event.CreatedAt), 0),
+	}
+
+	// Parse tags
+	for _, tag := range event.Tags {
+		if len(tag) < 2 {
+			continue
+		}
+		switch tag[0] {
+		case "d":
+			folder.Identifier = tag[1]
+		case "parent":
+			folder.ParentID = tag[1]
+		}
+	}
+
+	// Parse content for additional fields
+	if event.Content != "" {
+		var content map[string]interface{}
+		if err := json.Unmarshal([]byte(event.Content), &content); err == nil {
+			if name, ok := content["name"].(string); ok {
+				folder.Name = name
+			}
+			if desc, ok := content["description"].(string); ok {
+				folder.Description = desc
+			}
+		}
+	}
+
+	return folder, nil
+}
+
+// PublishFolder publishes folder metadata to the relay
+// The event must be signed by the caller before passing to this function
+func (s *Store) PublishFolder(ctx context.Context, event *nostr.Event) error {
+	if s.relay == nil {
+		return fmt.Errorf("not connected to relay")
+	}
+
+	if err := s.relay.Publish(ctx, *event); err != nil {
+		return fmt.Errorf("failed to publish folder event: %w", err)
+	}
+
+	s.logger.Info("published folder metadata",
+		"event_id", event.ID[:16],
+		"pubkey", event.PubKey[:16],
+	)
+
+	return nil
+}
+
+// ListFolders queries the relay for all folders owned by a pubkey
+func (s *Store) ListFolders(ctx context.Context, pubkey string) ([]*FolderMetadata, error) {
+	if s.relay == nil {
+		return nil, fmt.Errorf("not connected to relay")
+	}
+
+	filter := nostr.Filter{
+		Kinds:   []int{KindFolderMetadata},
+		Authors: []string{pubkey},
+		Limit:   500,
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	events, err := s.relay.QuerySync(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query folder events: %w", err)
+	}
+
+	// Parse events into folder metadata
+	// Use map to deduplicate by identifier (parameterized replaceable events)
+	folderMap := make(map[string]*FolderMetadata)
+	for _, event := range events {
+		folder, err := ParseFolderEvent(event)
+		if err != nil {
+			s.logger.Warn("failed to parse folder event",
+				"event_id", event.ID[:16],
+				"error", err,
+			)
+			continue
+		}
+
+		// Keep the most recent version (by created_at)
+		existing, exists := folderMap[folder.Identifier]
+		if !exists || folder.CreatedAt.After(existing.CreatedAt) {
+			folderMap[folder.Identifier] = folder
+		}
+	}
+
+	// Convert map to slice
+	folders := make([]*FolderMetadata, 0, len(folderMap))
+	for _, folder := range folderMap {
+		folders = append(folders, folder)
+	}
+
+	s.logger.Info("listed folders",
+		"pubkey", pubkey[:16],
+		"count", len(folders),
+	)
+
+	return folders, nil
+}
+
+// GetFolder retrieves a specific folder's metadata
+func (s *Store) GetFolder(ctx context.Context, pubkey, identifier string) (*FolderMetadata, error) {
+	if s.relay == nil {
+		return nil, fmt.Errorf("not connected to relay")
+	}
+
+	filter := nostr.Filter{
+		Kinds:   []int{KindFolderMetadata},
+		Authors: []string{pubkey},
+		Tags:    map[string][]string{"d": {identifier}},
+		Limit:   1,
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	events, err := s.relay.QuerySync(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query folder event: %w", err)
+	}
+
+	if len(events) == 0 {
+		return nil, fmt.Errorf("folder not found: %s", identifier)
+	}
+
+	return ParseFolderEvent(events[0])
+}
+
+// CreateDeleteFolderEvent creates a kind 5 deletion event for a folder
+func CreateDeleteFolderEvent(pubkey, folderIdentifier string) *nostr.Event {
+	return &nostr.Event{
+		Kind:      5, // NIP-09 deletion event
+		PubKey:    pubkey,
+		CreatedAt: nostr.Timestamp(time.Now().Unix()),
+		Tags: nostr.Tags{
+			{"a", fmt.Sprintf("%d:%s:%s", KindFolderMetadata, pubkey, folderIdentifier)},
+		},
+		Content: "deleted",
+	}
+}
+
+// ListFilesInFolder queries files in a specific folder
+func (s *Store) ListFilesInFolder(ctx context.Context, pubkey, folderID string) ([]*FileMetadata, error) {
+	if s.relay == nil {
+		return nil, fmt.Errorf("not connected to relay")
+	}
+
+	filter := nostr.Filter{
+		Kinds:   []int{KindFileMetadata},
+		Authors: []string{pubkey},
+		Limit:   500,
+	}
+
+	// If folderID is specified, filter by folder tag
+	if folderID != "" {
+		filter.Tags = map[string][]string{"folder": {folderID}}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	events, err := s.relay.QuerySync(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query file events: %w", err)
+	}
+
+	// Parse and deduplicate
+	fileMap := make(map[string]*FileMetadata)
+	for _, event := range events {
+		file, err := ParseFileEvent(event)
+		if err != nil {
+			continue
+		}
+
+		// For root folder (empty folderID), only include files without a folder
+		if folderID == "" && file.FolderID != "" {
+			continue
+		}
+
+		existing, exists := fileMap[file.Identifier]
+		if !exists || file.CreatedAt.After(existing.CreatedAt) {
+			fileMap[file.Identifier] = file
+		}
+	}
+
+	files := make([]*FileMetadata, 0, len(fileMap))
+	for _, file := range fileMap {
+		files = append(files, file)
+	}
+
+	return files, nil
+}
