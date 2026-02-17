@@ -1,4 +1,4 @@
-# coldforge-files - Complete Project Index
+# coldforge-drive - Complete Project Index
 
 ## Start Here
 
@@ -23,7 +23,7 @@ New to this project? Follow this order:
 ## Code Organization
 
 ```
-coldforge-files/
+coldforge-drive/
 ├── cmd/
 │   └── server/main.go           Entry point - Start here to understand flow
 │
@@ -101,7 +101,7 @@ Files are identified by SHA-256 hash, not filename:
 ### 1. Understand the Current State
 ```bash
 # Read the code to understand structure
-cd /home/forgemaster/Development/coldforge-files
+cd /home/forgemaster/Development/coldforge-drive
 cat QUICKSTART.md      # Quick start
 cat README.md          # API docs
 cat DEVELOPMENT.md     # Architecture
@@ -113,7 +113,7 @@ cat DEVELOPMENT.md     # Architecture
 make build
 
 # Run locally
-./bin/coldforge-files -config config/config.example.yml
+./bin/coldforge-drive -config config/config.example.yml
 
 # Or with Docker
 docker-compose up
