@@ -9,7 +9,7 @@ Successfully scaffolded a complete Blossom protocol server in Go following Coldf
 ## Directory Structure
 
 ```
-coldforge-files/
+coldforge-drive/
 ├── .claude                          # Symlink to Coldforge agents
 ├── .git/                            # Git repository
 ├── .dockerignore                    # Docker build ignore patterns
@@ -161,7 +161,7 @@ Run tests with: `make test` or `go test ./...`
 make build
 
 # Run locally
-./bin/coldforge-files -config config/config.example.yml
+./bin/coldforge-drive -config config/config.example.yml
 
 # Run tests
 make test
@@ -352,7 +352,7 @@ tree -L 3
 
 ## Summary
 
-The coldforge-files service is fully scaffolded and ready for development. All core infrastructure is in place:
+The coldforge-drive service is fully scaffolded and ready for development. All core infrastructure is in place:
 
 ✓ Project structure following Coldforge standards
 ✓ HTTP server with complete Blossom API

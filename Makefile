@@ -1,7 +1,7 @@
 .PHONY: help build run test clean lint docker-build docker-run
 
 help:
-	@echo "coldforge-files Makefile targets:"
+	@echo "coldforge-drive Makefile targets:"
 	@echo "  build          - Build the binary"
 	@echo "  run            - Run the server locally"
 	@echo "  test           - Run all tests"
@@ -12,12 +12,12 @@ help:
 	@echo "  docker-run     - Run Docker container"
 
 build:
-	@echo "Building coldforge-files..."
-	go build -o bin/coldforge-files ./cmd/server
+	@echo "Building coldforge-drive..."
+	go build -o bin/coldforge-drive ./cmd/server
 
 run: build
-	@echo "Running coldforge-files..."
-	./bin/coldforge-files -config config/config.example.yml
+	@echo "Running coldforge-drive..."
+	./bin/coldforge-drive -config config/config.example.yml
 
 test:
 	@echo "Running tests..."
@@ -43,10 +43,10 @@ lint:
 
 docker-build:
 	@echo "Building Docker image..."
-	docker build -t coldforge-files:latest .
+	docker build -t coldforge-drive:latest .
 
 docker-run: docker-build
 	@echo "Running Docker container..."
-	docker run -p 8080:8080 -v $(PWD)/data:/data coldforge-files:latest
+	docker run -p 8080:8080 -v $(PWD)/data:/data coldforge-drive:latest
 
 .DEFAULT_GOAL := help

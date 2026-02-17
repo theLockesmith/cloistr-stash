@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"git.coldforge.xyz/coldforge/coldforge-drive/internal/auth"
-	"git.coldforge.xyz/coldforge/coldforge-drive/internal/blossom"
-	"git.coldforge.xyz/coldforge/coldforge-drive/internal/config"
-	"git.coldforge.xyz/coldforge/coldforge-drive/internal/metadata"
-	"git.coldforge.xyz/coldforge/coldforge-drive/internal/server"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/auth"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/blossom"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/config"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/metadata"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/server"
 	"github.com/joho/godotenv"
 )
 

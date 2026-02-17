@@ -1,4 +1,4 @@
-# Quick Start Guide - coldforge-files
+# Quick Start Guide - coldforge-drive
 
 ## Prerequisites
 
@@ -9,7 +9,7 @@
 ## Clone and Setup
 
 ```bash
-cd /home/forgemaster/Development/coldforge-files
+cd /home/forgemaster/Development/coldforge-drive
 
 # Already initialized, just review structure:
 ls -la
@@ -27,7 +27,7 @@ git log --oneline
 make build
 
 # Run with example config
-./bin/coldforge-files -config config/config.example.yml
+./bin/coldforge-drive -config config/config.example.yml
 
 # Server starts on http://localhost:8080
 ```
@@ -42,7 +42,7 @@ docker-compose up
 curl http://localhost:8080/health
 
 # View logs
-docker-compose logs -f coldforge-files
+docker-compose logs -f coldforge-drive
 
 # Stop
 docker-compose down
@@ -134,7 +134,7 @@ export BLOSSOM_STORAGE_PATH=/app/data
 export BLOSSOM_RELAY_URL=wss://relay.damus.io
 export BLOSSOM_PUBLIC_URL=http://localhost:8080
 
-./bin/coldforge-files
+./bin/coldforge-drive
 ```
 
 ## Configuration File
@@ -163,7 +163,7 @@ blossom:
 ### View Build Artifacts
 ```bash
 ls -la bin/
-# Binary is at: bin/coldforge-files
+# Binary is at: bin/coldforge-drive
 ```
 
 ### Check Stored Files
@@ -213,7 +213,7 @@ make lint
 ### Port Already in Use
 ```bash
 # Use a different port
-BLOSSOM_PORT=8081 ./bin/coldforge-files
+BLOSSOM_PORT=8081 ./bin/coldforge-drive
 ```
 
 ### Permission Denied on Data Directory

@@ -1,4 +1,4 @@
-module git.coldforge.xyz/coldforge/coldforge-drive
+module git.coldforge.xyz/coldforge/cloistr-drive
 
 go 1.24.1
 

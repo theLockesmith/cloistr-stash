@@ -11,11 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"git.coldforge.xyz/coldforge/coldforge-drive/internal/auth"
-	"git.coldforge.xyz/coldforge/coldforge-drive/internal/blossom"
-	"git.coldforge.xyz/coldforge/coldforge-drive/internal/config"
-	"git.coldforge.xyz/coldforge/coldforge-drive/internal/metadata"
-	"git.coldforge.xyz/coldforge/coldforge-drive/internal/metrics"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/auth"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/blossom"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/config"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/metadata"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/metrics"
 	"github.com/nbd-wtf/go-nostr"
 )
 
