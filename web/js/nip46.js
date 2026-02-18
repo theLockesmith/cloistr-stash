@@ -1,0 +1,429 @@
+// NIP-46 Remote Signer Client
+// Implements Nostr Connect protocol for remote signing via bunker
+
+const NIP46 = {
+    // Connection state
+    connected: false,
+    userPubkey: null,
+    remotePubkey: null,
+    relayUrl: null,
+    secret: null,
+
+    // Client keypair (ephemeral)
+    clientPrivkey: null,
+    clientPubkey: null,
+
+    // WebSocket connection
+    ws: null,
+
+    // Pending requests
+    pendingRequests: new Map(),
+    requestId: 0,
+
+    // Parse bunker:// URL
+    // Format: bunker://<remote-pubkey>?relay=<relay-url>&secret=<secret>
+    parseBunkerUrl(url) {
+        try {
+            // Handle both bunker:// and nostrconnect:// formats
+            const normalizedUrl = url.replace('nostrconnect://', 'bunker://');
+
+            if (!normalizedUrl.startsWith('bunker://')) {
+                throw new Error('Invalid bunker URL format');
+            }
+
+            const withoutProtocol = normalizedUrl.slice('bunker://'.length);
+            const [pubkeyPart, queryString] = withoutProtocol.split('?');
+
+            if (!pubkeyPart || pubkeyPart.length !== 64) {
+                throw new Error('Invalid remote pubkey in bunker URL');
+            }
+
+            const params = new URLSearchParams(queryString || '');
+            const relay = params.get('relay');
+            const secret = params.get('secret');
+
+            if (!relay) {
+                throw new Error('Missing relay parameter in bunker URL');
+            }
+
+            return {
+                remotePubkey: pubkeyPart,
+                relayUrl: relay,
+                secret: secret || '',
+            };
+        } catch (err) {
+            throw new Error(`Failed to parse bunker URL: ${err.message}`);
+        }
+    },
+
+    // Generate random bytes
+    randomBytes(length) {
+        const bytes = new Uint8Array(length);
+        crypto.getRandomValues(bytes);
+        return bytes;
+    },
+
+    // Convert bytes to hex
+    bytesToHex(bytes) {
+        return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    },
+
+    // Convert hex to bytes
+    hexToBytes(hex) {
+        const bytes = new Uint8Array(hex.length / 2);
+        for (let i = 0; i < hex.length; i += 2) {
+            bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+        }
+        return bytes;
+    },
+
+    // Wait for secp256k1 library to load
+    async waitForSecp256k1() {
+        if (typeof nobleSecp256k1 !== 'undefined') {
+            return;
+        }
+
+        return new Promise((resolve) => {
+            window.addEventListener('secp256k1-loaded', resolve, { once: true });
+            // Timeout after 5 seconds
+            setTimeout(resolve, 5000);
+        });
+    },
+
+    // Generate ephemeral client keypair
+    async generateClientKeypair() {
+        await this.waitForSecp256k1();
+
+        if (typeof nobleSecp256k1 === 'undefined') {
+            throw new Error('secp256k1 library not loaded');
+        }
+
+        // Generate 32 random bytes for private key
+        const privkeyBytes = this.randomBytes(32);
+        this.clientPrivkey = this.bytesToHex(privkeyBytes);
+
+        // Derive public key using noble-secp256k1 v2 API
+        // getPublicKey returns compressed pubkey by default
+        const pubkeyBytes = nobleSecp256k1.getPublicKey(privkeyBytes);
+        // For Nostr, we need x-only pubkey (32 bytes, no prefix)
+        // Compressed pubkey is 33 bytes with 02/03 prefix
+        this.clientPubkey = this.bytesToHex(pubkeyBytes.slice(1));
+    },
+
+    // Compute shared secret for NIP-04 encryption
+    async computeSharedSecret(theirPubkey) {
+        await this.waitForSecp256k1();
+
+        if (typeof nobleSecp256k1 === 'undefined') {
+            throw new Error('secp256k1 library not loaded');
+        }
+
+        // Add 02 prefix for compressed pubkey (assume even y-coordinate)
+        const theirPubkeyBytes = this.hexToBytes('02' + theirPubkey);
+        const privkeyBytes = this.hexToBytes(this.clientPrivkey);
+
+        // getSharedSecret returns the full point (33 bytes compressed)
+        const sharedPoint = nobleSecp256k1.getSharedSecret(privkeyBytes, theirPubkeyBytes);
+
+        // Use x-coordinate as shared secret (skip first byte which is prefix)
+        return sharedPoint.slice(1, 33);
+    },
+
+    // NIP-04 encrypt
+    async nip04Encrypt(plaintext, theirPubkey) {
+        const sharedSecret = await this.computeSharedSecret(theirPubkey);
+
+        // Import shared secret as AES key
+        const key = await crypto.subtle.importKey(
+            'raw',
+            sharedSecret,
+            { name: 'AES-CBC' },
+            false,
+            ['encrypt']
+        );
+
+        // Generate random IV
+        const iv = this.randomBytes(16);
+
+        // Encrypt
+        const encoder = new TextEncoder();
+        const data = encoder.encode(plaintext);
+        const ciphertext = await crypto.subtle.encrypt(
+            { name: 'AES-CBC', iv },
+            key,
+            data
+        );
+
+        // Format: base64(ciphertext)?iv=base64(iv)
+        const ciphertextB64 = btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
+        const ivB64 = btoa(String.fromCharCode(...iv));
+
+        return `${ciphertextB64}?iv=${ivB64}`;
+    },
+
+    // NIP-04 decrypt
+    async nip04Decrypt(encrypted, theirPubkey) {
+        const sharedSecret = await this.computeSharedSecret(theirPubkey);
+
+        // Parse format: base64(ciphertext)?iv=base64(iv)
+        const [ciphertextB64, ivPart] = encrypted.split('?iv=');
+        if (!ivPart) {
+            throw new Error('Invalid encrypted format');
+        }
+
+        const ciphertext = Uint8Array.from(atob(ciphertextB64), c => c.charCodeAt(0));
+        const iv = Uint8Array.from(atob(ivPart), c => c.charCodeAt(0));
+
+        // Import shared secret as AES key
+        const key = await crypto.subtle.importKey(
+            'raw',
+            sharedSecret,
+            { name: 'AES-CBC' },
+            false,
+            ['decrypt']
+        );
+
+        // Decrypt
+        const plaintext = await crypto.subtle.decrypt(
+            { name: 'AES-CBC', iv },
+            key,
+            ciphertext
+        );
+
+        const decoder = new TextDecoder();
+        return decoder.decode(plaintext);
+    },
+
+    // Connect to relay via WebSocket
+    connectRelay(url) {
+        return new Promise((resolve, reject) => {
+            const ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                this.ws = ws;
+                resolve();
+            };
+
+            ws.onerror = (err) => {
+                reject(new Error('WebSocket connection failed'));
+            };
+
+            ws.onclose = () => {
+                this.ws = null;
+                if (this.connected) {
+                    this.connected = false;
+                    console.log('NIP-46: Relay connection closed');
+                }
+            };
+
+            ws.onmessage = (msg) => {
+                this.handleRelayMessage(msg.data);
+            };
+        });
+    },
+
+    // Handle incoming relay messages
+    async handleRelayMessage(data) {
+        try {
+            const message = JSON.parse(data);
+
+            if (message[0] === 'EVENT') {
+                const event = message[2];
+
+                // Check if this is a response to us (kind 24133)
+                if (event.kind === 24133 && event.pubkey === this.remotePubkey) {
+                    // Decrypt the content
+                    const decrypted = await this.nip04Decrypt(event.content, this.remotePubkey);
+                    const response = JSON.parse(decrypted);
+
+                    // Find pending request
+                    const pending = this.pendingRequests.get(response.id);
+                    if (pending) {
+                        this.pendingRequests.delete(response.id);
+
+                        if (response.error) {
+                            pending.reject(new Error(response.error));
+                        } else {
+                            pending.resolve(response.result);
+                        }
+                    }
+                }
+            } else if (message[0] === 'OK') {
+                // Event published successfully
+            } else if (message[0] === 'EOSE') {
+                // End of stored events
+            }
+        } catch (err) {
+            console.error('NIP-46: Failed to handle relay message:', err);
+        }
+    },
+
+    // Subscribe to responses from remote signer
+    subscribeToResponses() {
+        if (!this.ws) return;
+
+        const subId = 'nip46-' + Date.now();
+        const filter = {
+            kinds: [24133],
+            authors: [this.remotePubkey],
+            '#p': [this.clientPubkey],
+            since: Math.floor(Date.now() / 1000) - 60,
+        };
+
+        this.ws.send(JSON.stringify(['REQ', subId, filter]));
+    },
+
+    // Send a request to the remote signer
+    async sendRequest(method, params = []) {
+        if (!this.ws || !this.connected) {
+            throw new Error('Not connected to remote signer');
+        }
+
+        const id = String(++this.requestId);
+
+        // Create request payload
+        const request = {
+            id,
+            method,
+            params,
+        };
+
+        // Encrypt the request
+        const encrypted = await this.nip04Encrypt(JSON.stringify(request), this.remotePubkey);
+
+        // Create NIP-46 event (kind 24133)
+        const event = {
+            kind: 24133,
+            pubkey: this.clientPubkey,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [['p', this.remotePubkey]],
+            content: encrypted,
+        };
+
+        // Serialize and hash for event ID
+        const serialized = JSON.stringify([
+            0,
+            event.pubkey,
+            event.created_at,
+            event.kind,
+            event.tags,
+            event.content,
+        ]);
+
+        const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(serialized));
+        event.id = this.bytesToHex(new Uint8Array(hashBuffer));
+
+        // Sign the event
+        await this.waitForSecp256k1();
+
+        if (typeof nobleSecp256k1 === 'undefined') {
+            throw new Error('secp256k1 library not loaded');
+        }
+
+        const privkeyBytes = this.hexToBytes(this.clientPrivkey);
+        const msgBytes = this.hexToBytes(event.id);
+
+        // noble/secp256k1 v2 sign() returns a Signature object
+        const sig = nobleSecp256k1.sign(msgBytes, privkeyBytes);
+        // Get compact signature (64 bytes, no recovery byte)
+        event.sig = this.bytesToHex(sig.toCompactRawBytes());
+
+        // Create promise for response
+        const responsePromise = new Promise((resolve, reject) => {
+            this.pendingRequests.set(id, { resolve, reject });
+
+            // Timeout after 60 seconds
+            setTimeout(() => {
+                if (this.pendingRequests.has(id)) {
+                    this.pendingRequests.delete(id);
+                    reject(new Error('Request timed out'));
+                }
+            }, 60000);
+        });
+
+        // Publish event to relay
+        this.ws.send(JSON.stringify(['EVENT', event]));
+
+        return responsePromise;
+    },
+
+    // Connect to bunker
+    async connect(bunkerUrl) {
+        // Wait for secp256k1 library
+        await this.waitForSecp256k1();
+
+        // Parse bunker URL
+        const { remotePubkey, relayUrl, secret } = this.parseBunkerUrl(bunkerUrl);
+
+        this.remotePubkey = remotePubkey;
+        this.relayUrl = relayUrl;
+        this.secret = secret;
+
+        // Generate client keypair
+        await this.generateClientKeypair();
+
+        // Connect to relay
+        await this.connectRelay(relayUrl);
+
+        // Subscribe to responses
+        this.subscribeToResponses();
+
+        // Send connect request
+        const result = await this.sendRequest('connect', [this.clientPubkey, secret]);
+
+        // Get user's public key
+        this.userPubkey = await this.sendRequest('get_public_key', []);
+        this.connected = true;
+
+        return this.userPubkey;
+    },
+
+    // Disconnect from bunker
+    disconnect() {
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
+
+        this.connected = false;
+        this.userPubkey = null;
+        this.remotePubkey = null;
+        this.clientPrivkey = null;
+        this.clientPubkey = null;
+        this.pendingRequests.clear();
+    },
+
+    // Sign an event (mimics window.nostr.signEvent)
+    async signEvent(event) {
+        if (!this.connected) {
+            throw new Error('Not connected to remote signer');
+        }
+
+        // Add pubkey if not present
+        if (!event.pubkey) {
+            event.pubkey = this.userPubkey;
+        }
+
+        // Send sign_event request
+        const signedEvent = await this.sendRequest('sign_event', [JSON.stringify(event)]);
+
+        // Parse the result (some signers return string, some return object)
+        if (typeof signedEvent === 'string') {
+            return JSON.parse(signedEvent);
+        }
+
+        return signedEvent;
+    },
+
+    // Get public key (mimics window.nostr.getPublicKey)
+    async getPublicKey() {
+        if (!this.connected) {
+            throw new Error('Not connected to remote signer');
+        }
+
+        return this.userPubkey;
+    },
+};
+
+// Export for use in other modules
+window.NIP46 = NIP46;

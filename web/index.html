@@ -128,7 +128,12 @@
                     <input type="text" id="bunker-url" class="input" placeholder="bunker://..." autocomplete="off">
                     <p class="modal-help">
                         Get a bunker URL from <a href="https://signer.cloistr.xyz" target="_blank" rel="noopener">signer.cloistr.xyz</a>
+                        or any NIP-46 compatible signer like <a href="https://nsec.app" target="_blank" rel="noopener">nsec.app</a>
                     </p>
+                    <div id="nip46-status" class="nip46-status hidden">
+                        <div class="spinner"></div>
+                        <span>Connecting to remote signer...</span>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button class="btn" id="nip46-cancel">Cancel</button>
@@ -165,8 +170,16 @@
         <div id="toast-container" class="toast-container"></div>
     </div>
 
+    <!-- Secp256k1 library for NIP-46 crypto operations -->
+    <script type="module">
+        import * as secp from 'https://esm.sh/@noble/secp256k1@2.1.0';
+        window.nobleSecp256k1 = secp;
+        window.dispatchEvent(new Event('secp256k1-loaded'));
+    </script>
+
     <script src="/js/api.js"></script>
     <script src="/js/auth.js"></script>
+    <script src="/js/nip46.js"></script>
     <script src="/js/upload.js"></script>
     <script src="/js/ui.js"></script>
     <script src="/js/app.js"></script>

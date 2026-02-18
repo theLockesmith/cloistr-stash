@@ -1,8 +1,9 @@
-// Authentication module for NIP-07 browser extension integration
+// Authentication module for NIP-07 and NIP-46 integration
 
 const Auth = {
     pubkey: null,
     isConnected: false,
+    connectionType: null, // 'nip07' | 'nip46'
 
     // Check if NIP-07 extension is available
     hasExtension() {
@@ -18,16 +19,37 @@ const Auth = {
         try {
             this.pubkey = await window.nostr.getPublicKey();
             this.isConnected = true;
+            this.connectionType = 'nip07';
             return this.pubkey;
         } catch (err) {
             throw new Error(`Failed to connect: ${err.message}`);
         }
     },
 
-    // Sign a Nostr event
+    // Connect via NIP-46 remote signer (bunker)
+    async connectNIP46(bunkerUrl) {
+        if (typeof NIP46 === 'undefined') {
+            throw new Error('NIP-46 module not loaded');
+        }
+
+        try {
+            this.pubkey = await NIP46.connect(bunkerUrl);
+            this.isConnected = true;
+            this.connectionType = 'nip46';
+            return this.pubkey;
+        } catch (err) {
+            throw new Error(`Failed to connect to bunker: ${err.message}`);
+        }
+    },
+
+    // Sign a Nostr event (works with both NIP-07 and NIP-46)
     async signEvent(event) {
         if (!this.isConnected) {
             throw new Error('Not connected. Call connect() first.');
+        }
+
+        if (this.connectionType === 'nip46') {
+            return NIP46.signEvent(event);
         }
 
         if (!this.hasExtension()) {
@@ -206,8 +228,14 @@ const Auth = {
 
     // Disconnect
     disconnect() {
+        // Disconnect NIP-46 if connected
+        if (this.connectionType === 'nip46' && typeof NIP46 !== 'undefined') {
+            NIP46.disconnect();
+        }
+
         this.pubkey = null;
         this.isConnected = false;
+        this.connectionType = null;
     },
 
     // Format pubkey for display (shortened)

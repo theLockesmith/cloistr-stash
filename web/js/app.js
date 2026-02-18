@@ -199,22 +199,49 @@ const App = {
 
     async connectNIP46() {
         const bunkerUrl = document.getElementById('bunker-url').value.trim();
+        const statusEl = document.getElementById('nip46-status');
+        const connectBtn = document.getElementById('nip46-connect');
 
         if (!bunkerUrl) {
             UI.toast('Please enter a bunker URL', 'error');
             return;
         }
 
+        // Validate URL format
+        if (!bunkerUrl.startsWith('bunker://') && !bunkerUrl.startsWith('nostrconnect://')) {
+            UI.toast('Invalid bunker URL. Must start with bunker:// or nostrconnect://', 'error');
+            return;
+        }
+
+        // Show connecting status
+        statusEl.classList.remove('hidden', 'error', 'success');
+        statusEl.innerHTML = '<div class="spinner"></div><span>Connecting to remote signer...</span>';
+        connectBtn.disabled = true;
+
         try {
+            // Connect via NIP-46
+            await Auth.connectNIP46(bunkerUrl);
+
+            // Show success
+            statusEl.classList.add('success');
+            statusEl.innerHTML = '<span>Connected! Verifying authorization...</span>';
+
+            // Verify authorization
+            await this.verifyAuthorization();
+
+            // Close modal on success
             UI.hideModal('nip46-modal');
-            UI.toast('Connecting to remote signer...', 'info');
-
-            // TODO: Implement NIP-46 connection
-            // For now, show a placeholder message
-            UI.toast('NIP-46 support coming soon', 'info');
-
+            statusEl.classList.add('hidden');
         } catch (err) {
-            UI.toast(err.message, 'error');
+            console.error('NIP-46 connection failed:', err);
+
+            // Show error in modal
+            statusEl.classList.add('error');
+            statusEl.innerHTML = `<span>Connection failed: ${err.message}</span>`;
+
+            UI.toast(`Connection failed: ${err.message}`, 'error');
+        } finally {
+            connectBtn.disabled = false;
         }
     },
 
