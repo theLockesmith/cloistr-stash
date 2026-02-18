@@ -49,6 +49,23 @@ type FolderMetadataResponse struct {
 	CreatedAt int64  `json:"created_at,omitempty"`
 }
 
+// ShareResponse represents a file share returned to the frontend
+type ShareResponse struct {
+	ID              string `json:"id"`
+	FileID          string `json:"file_id"`
+	FileSHA256      string `json:"file_sha256,omitempty"`
+	FileName        string `json:"file_name,omitempty"`
+	FileSize        int64  `json:"file_size,omitempty"`
+	FileMimeType    string `json:"file_mime_type,omitempty"`
+	OwnerPubkey     string `json:"owner_pubkey"`
+	RecipientPubkey string `json:"recipient_pubkey"`
+	Permission      string `json:"permission,omitempty"`
+	ExpiresAt       int64  `json:"expires_at,omitempty"`
+	CreatedAt       int64  `json:"created_at"`
+	// EncryptedContent holds the NIP-04 encrypted share details (for recipient to decrypt)
+	EncryptedContent string `json:"encrypted_content,omitempty"`
+}
+
 // New creates a new HTTP server
 func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metadata.Store, whitelist *auth.Whitelist, webDir string, logger *slog.Logger) *Server {
 	s := &Server{
@@ -108,6 +125,16 @@ func (s *Server) registerRoutes() {
 
 	// Delete folder requires whitelist authorization
 	s.mux.Handle("DELETE /api/folders/{id}", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleDeleteFolder)))
+
+	// API endpoints - share operations
+	// List shares (both created and received)
+	s.mux.HandleFunc("GET /api/shares", s.handleListShares)
+
+	// Create share requires whitelist authorization
+	s.mux.Handle("POST /api/shares", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleCreateShare)))
+
+	// Revoke share requires whitelist authorization
+	s.mux.Handle("DELETE /api/shares/{id}", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleRevokeShare)))
 
 	// Serve static files (web UI)
 	s.mux.HandleFunc("/", s.handleStatic)
@@ -694,4 +721,195 @@ func (s *Server) handleDeleteFolder(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `{"status":"deleted"}`)
 
 	s.logger.Info("folder deleted", "folder_id", folderID)
+}
+
+// handleListShares returns shares for the current user
+// Query params: pubkey (required), type=created|received|all (default: all)
+func (s *Server) handleListShares(w http.ResponseWriter, r *http.Request) {
+	pubkey := r.URL.Query().Get("pubkey")
+	if pubkey == "" {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"shares":[],"received":[]}`)
+		return
+	}
+
+	if s.metadata == nil {
+		s.logger.Warn("metadata store not configured")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"shares":[],"received":[]}`)
+		return
+	}
+
+	shareType := r.URL.Query().Get("type")
+	if shareType == "" {
+		shareType = "all"
+	}
+
+	response := struct {
+		Shares   []ShareResponse `json:"shares"`
+		Received []ShareResponse `json:"received"`
+	}{
+		Shares:   make([]ShareResponse, 0),
+		Received: make([]ShareResponse, 0),
+	}
+
+	// Get shares created by this user
+	if shareType == "all" || shareType == "created" {
+		shares, err := s.metadata.ListMyShares(r.Context(), pubkey)
+		if err != nil {
+			s.logger.Error("failed to list created shares", "error", err)
+		} else {
+			for _, share := range shares {
+				response.Shares = append(response.Shares, ShareResponse{
+					ID:              share.Identifier,
+					FileID:          share.FileIdentifier,
+					OwnerPubkey:     share.OwnerPubkey,
+					RecipientPubkey: share.RecipientPubkey,
+					Permission:      share.Permission,
+					ExpiresAt:       share.ExpiresAt.Unix(),
+					CreatedAt:       share.CreatedAt.Unix(),
+				})
+			}
+		}
+	}
+
+	// Get shares received by this user
+	if shareType == "all" || shareType == "received" {
+		received, err := s.metadata.ListSharedWithMe(r.Context(), pubkey)
+		if err != nil {
+			s.logger.Error("failed to list received shares", "error", err)
+		} else {
+			for _, share := range received {
+				response.Received = append(response.Received, ShareResponse{
+					ID:               share.Identifier,
+					FileID:           share.FileIdentifier,
+					OwnerPubkey:      share.OwnerPubkey,
+					RecipientPubkey:  share.RecipientPubkey,
+					Permission:       share.Permission,
+					ExpiresAt:        share.ExpiresAt.Unix(),
+					CreatedAt:        share.CreatedAt.Unix(),
+					EncryptedContent: share.Message, // NIP-04 encrypted content for recipient
+				})
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleCreateShare creates a new file share
+func (s *Server) handleCreateShare(w http.ResponseWriter, r *http.Request) {
+	if s.metadata == nil {
+		http.Error(w, "Metadata storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse the signed share event from request body
+	var event nostr.Event
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+		s.logger.Warn("failed to decode share event", "error", err)
+		http.Error(w, "Invalid event format", http.StatusBadRequest)
+		return
+	}
+
+	// Validate event kind
+	if event.Kind != metadata.KindFileShare {
+		http.Error(w, fmt.Sprintf("Invalid event kind: expected %d", metadata.KindFileShare), http.StatusBadRequest)
+		return
+	}
+
+	// Verify signature
+	ok, err := event.CheckSignature()
+	if err != nil || !ok {
+		s.logger.Warn("invalid share event signature",
+			"event_id", event.ID,
+			"error", err,
+		)
+		http.Error(w, "Invalid signature", http.StatusUnauthorized)
+		return
+	}
+
+	// Publish to relay
+	if err := s.metadata.PublishShare(r.Context(), &event); err != nil {
+		s.logger.Error("failed to publish share",
+			"error", err,
+			"event_id", event.ID,
+		)
+		http.Error(w, "Failed to create share", http.StatusInternalServerError)
+		return
+	}
+
+	// Parse the event to return share info
+	share, _ := metadata.ParseShareEvent(&event)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(ShareResponse{
+		ID:              share.Identifier,
+		FileID:          share.FileIdentifier,
+		OwnerPubkey:     share.OwnerPubkey,
+		RecipientPubkey: share.RecipientPubkey,
+		Permission:      share.Permission,
+		CreatedAt:       share.CreatedAt.Unix(),
+	})
+
+	s.logger.Info("share created",
+		"event_id", event.ID[:16],
+		"owner", event.PubKey[:16],
+		"recipient", share.RecipientPubkey[:16],
+	)
+}
+
+// handleRevokeShare revokes a file share
+func (s *Server) handleRevokeShare(w http.ResponseWriter, r *http.Request) {
+	shareID := r.PathValue("id")
+	if shareID == "" {
+		http.Error(w, "Share ID required", http.StatusBadRequest)
+		return
+	}
+
+	if s.metadata == nil {
+		http.Error(w, "Metadata storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse the signed deletion event from request body
+	var event nostr.Event
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+		s.logger.Warn("failed to decode deletion event", "error", err)
+		http.Error(w, "Invalid event format", http.StatusBadRequest)
+		return
+	}
+
+	// Validate event kind
+	if event.Kind != 5 {
+		http.Error(w, "Invalid event kind: expected 5 (deletion)", http.StatusBadRequest)
+		return
+	}
+
+	// Verify signature
+	ok, err := event.CheckSignature()
+	if err != nil || !ok {
+		s.logger.Warn("invalid deletion event signature",
+			"event_id", event.ID,
+			"error", err,
+		)
+		http.Error(w, "Invalid signature", http.StatusUnauthorized)
+		return
+	}
+
+	// Publish deletion event to relay
+	if err := s.metadata.DeleteFile(r.Context(), &event); err != nil {
+		s.logger.Error("failed to publish share revocation",
+			"error", err,
+			"share_id", shareID,
+		)
+		http.Error(w, "Failed to revoke share", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprint(w, `{"status":"revoked"}`)
+
+	s.logger.Info("share revoked", "share_id", shareID)
 }

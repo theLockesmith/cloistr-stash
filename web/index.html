@@ -89,13 +89,19 @@
                         </button>
                     </div>
                     <div class="toolbar-center">
-                        <div class="breadcrumb" id="breadcrumb">
-                            <span class="breadcrumb-item active" data-id="">My Drive</span>
+                        <div class="view-tabs">
+                            <button id="tab-my-files" class="tab-btn active">My Files</button>
+                            <button id="tab-shared" class="tab-btn">Shared with Me</button>
                         </div>
                     </div>
                     <div class="toolbar-right">
                         <button id="view-grid" class="btn btn-icon" title="Grid view">▦</button>
                         <button id="view-list" class="btn btn-icon active" title="List view">≡</button>
+                    </div>
+                </div>
+                <div class="breadcrumb-bar" id="breadcrumb-bar">
+                    <div class="breadcrumb" id="breadcrumb">
+                        <span class="breadcrumb-item active" data-id="">My Drive</span>
                     </div>
                 </div>
 
@@ -159,6 +165,32 @@
                 <div class="modal-footer">
                     <button class="btn" id="upload-cancel">Cancel</button>
                     <button class="btn btn-primary" id="upload-start" disabled>Upload</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Share Modal -->
+        <div id="share-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Share File</h2>
+                    <button class="modal-close" id="share-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="share-file-name" id="share-file-name"></p>
+                    <div class="form-group">
+                        <label for="share-recipient">Recipient npub or hex pubkey:</label>
+                        <input type="text" id="share-recipient" class="input" placeholder="npub1... or hex pubkey" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="share-message">Message (optional):</label>
+                        <input type="text" id="share-message" class="input" placeholder="Shared with you!" autocomplete="off">
+                    </div>
+                    <div id="share-status" class="share-status hidden"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="share-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="share-confirm">Share</button>
                 </div>
             </div>
         </div>

@@ -497,3 +497,211 @@ func (s *Store) ListFilesInFolder(ctx context.Context, pubkey, folderID string) 
 
 	return files, nil
 }
+
+// CreateShareEvent creates a Nostr event for a file share (unsigned)
+// The content should be NIP-04 encrypted by the caller before creating the event
+func CreateShareEvent(share *FileShare, encryptedContent string) *nostr.Event {
+	event := &nostr.Event{
+		Kind:      KindFileShare,
+		PubKey:    share.OwnerPubkey,
+		CreatedAt: nostr.Timestamp(share.CreatedAt.Unix()),
+		Tags: nostr.Tags{
+			{"d", share.Identifier},
+			{"p", share.RecipientPubkey},
+			{"file", fmt.Sprintf("%d:%s:%s", KindFileMetadata, share.OwnerPubkey, share.FileIdentifier)},
+		},
+		Content: encryptedContent, // NIP-04 encrypted share details
+	}
+
+	// Add optional tags
+	if share.Permission != "" {
+		event.Tags = append(event.Tags, nostr.Tag{"permission", share.Permission})
+	}
+
+	if !share.ExpiresAt.IsZero() {
+		event.Tags = append(event.Tags, nostr.Tag{"expiration", fmt.Sprintf("%d", share.ExpiresAt.Unix())})
+	}
+
+	return event
+}
+
+// ParseShareEvent parses a Nostr event into FileShare
+// Note: The content is NIP-04 encrypted and must be decrypted by the caller
+func ParseShareEvent(event *nostr.Event) (*FileShare, error) {
+	if event.Kind != KindFileShare {
+		return nil, fmt.Errorf("invalid event kind: %d", event.Kind)
+	}
+
+	share := &FileShare{
+		OwnerPubkey: event.PubKey,
+		CreatedAt:   time.Unix(int64(event.CreatedAt), 0),
+	}
+
+	// Parse tags
+	for _, tag := range event.Tags {
+		if len(tag) < 2 {
+			continue
+		}
+		switch tag[0] {
+		case "d":
+			share.Identifier = tag[1]
+		case "p":
+			share.RecipientPubkey = tag[1]
+		case "file":
+			// Parse file reference: "30078:pubkey:file-id"
+			share.FileIdentifier = tag[1]
+		case "permission":
+			share.Permission = tag[1]
+		case "expiration":
+			var expiry int64
+			fmt.Sscanf(tag[1], "%d", &expiry)
+			if expiry > 0 {
+				share.ExpiresAt = time.Unix(expiry, 0)
+			}
+		}
+	}
+
+	// Content is encrypted - caller must decrypt
+	// We store it temporarily in Message field for transport
+	share.Message = event.Content
+
+	return share, nil
+}
+
+// PublishShare publishes a file share event to the relay
+// The event must be signed by the caller before passing to this function
+func (s *Store) PublishShare(ctx context.Context, event *nostr.Event) error {
+	if s.relay == nil {
+		return fmt.Errorf("not connected to relay")
+	}
+
+	if err := s.relay.Publish(ctx, *event); err != nil {
+		return fmt.Errorf("failed to publish share event: %w", err)
+	}
+
+	s.logger.Info("published file share",
+		"event_id", event.ID[:16],
+		"owner", event.PubKey[:16],
+	)
+
+	return nil
+}
+
+// ListSharedWithMe queries shares where the given pubkey is the recipient
+func (s *Store) ListSharedWithMe(ctx context.Context, recipientPubkey string) ([]*FileShare, error) {
+	if s.relay == nil {
+		return nil, fmt.Errorf("not connected to relay")
+	}
+
+	filter := nostr.Filter{
+		Kinds: []int{KindFileShare},
+		Tags:  map[string][]string{"p": {recipientPubkey}},
+		Limit: 500,
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	events, err := s.relay.QuerySync(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query share events: %w", err)
+	}
+
+	// Parse and deduplicate by identifier
+	shareMap := make(map[string]*FileShare)
+	now := time.Now()
+
+	for _, event := range events {
+		share, err := ParseShareEvent(event)
+		if err != nil {
+			s.logger.Warn("failed to parse share event",
+				"event_id", event.ID[:16],
+				"error", err,
+			)
+			continue
+		}
+
+		// Skip expired shares
+		if !share.ExpiresAt.IsZero() && share.ExpiresAt.Before(now) {
+			continue
+		}
+
+		// Keep the most recent version
+		existing, exists := shareMap[share.Identifier]
+		if !exists || share.CreatedAt.After(existing.CreatedAt) {
+			shareMap[share.Identifier] = share
+		}
+	}
+
+	shares := make([]*FileShare, 0, len(shareMap))
+	for _, share := range shareMap {
+		shares = append(shares, share)
+	}
+
+	s.logger.Info("listed shares with recipient",
+		"recipient", recipientPubkey[:16],
+		"count", len(shares),
+	)
+
+	return shares, nil
+}
+
+// ListMyShares queries shares created by the given pubkey
+func (s *Store) ListMyShares(ctx context.Context, ownerPubkey string) ([]*FileShare, error) {
+	if s.relay == nil {
+		return nil, fmt.Errorf("not connected to relay")
+	}
+
+	filter := nostr.Filter{
+		Kinds:   []int{KindFileShare},
+		Authors: []string{ownerPubkey},
+		Limit:   500,
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	events, err := s.relay.QuerySync(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query share events: %w", err)
+	}
+
+	// Parse and deduplicate
+	shareMap := make(map[string]*FileShare)
+	for _, event := range events {
+		share, err := ParseShareEvent(event)
+		if err != nil {
+			continue
+		}
+
+		existing, exists := shareMap[share.Identifier]
+		if !exists || share.CreatedAt.After(existing.CreatedAt) {
+			shareMap[share.Identifier] = share
+		}
+	}
+
+	shares := make([]*FileShare, 0, len(shareMap))
+	for _, share := range shareMap {
+		shares = append(shares, share)
+	}
+
+	s.logger.Info("listed shares by owner",
+		"owner", ownerPubkey[:16],
+		"count", len(shares),
+	)
+
+	return shares, nil
+}
+
+// CreateDeleteShareEvent creates a kind 5 deletion event for a share
+func CreateDeleteShareEvent(pubkey, shareIdentifier string) *nostr.Event {
+	return &nostr.Event{
+		Kind:      5, // NIP-09 deletion event
+		PubKey:    pubkey,
+		CreatedAt: nostr.Timestamp(time.Now().Unix()),
+		Tags: nostr.Tags{
+			{"a", fmt.Sprintf("%d:%s:%s", KindFileShare, pubkey, shareIdentifier)},
+		},
+		Content: "revoked",
+	}
+}

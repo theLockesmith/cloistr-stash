@@ -226,6 +226,112 @@ const Auth = {
         return Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
     },
 
+    // Generate a random share ID
+    generateShareId() {
+        const array = new Uint8Array(16);
+        crypto.getRandomValues(array);
+        return Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
+    },
+
+    // NIP-04 encrypt content for a recipient
+    // Note: This uses the browser extension's nip04.encrypt if available
+    async nip04Encrypt(recipientPubkey, content) {
+        if (!this.isConnected) {
+            throw new Error('Not connected');
+        }
+
+        // Try using browser extension's NIP-04 if available
+        if (this.connectionType === 'nip07' && window.nostr?.nip04?.encrypt) {
+            return window.nostr.nip04.encrypt(recipientPubkey, content);
+        }
+
+        // For NIP-46 or fallback, use our NIP46 module's encryption
+        if (typeof NIP46 !== 'undefined' && NIP46.nip04Encrypt) {
+            return NIP46.nip04Encrypt(content, recipientPubkey);
+        }
+
+        throw new Error('NIP-04 encryption not available');
+    },
+
+    // NIP-04 decrypt content from a sender
+    async nip04Decrypt(senderPubkey, encryptedContent) {
+        if (!this.isConnected) {
+            throw new Error('Not connected');
+        }
+
+        // Try using browser extension's NIP-04 if available
+        if (this.connectionType === 'nip07' && window.nostr?.nip04?.decrypt) {
+            return window.nostr.nip04.decrypt(senderPubkey, encryptedContent);
+        }
+
+        // For NIP-46 or fallback, use our NIP46 module's decryption
+        if (typeof NIP46 !== 'undefined' && NIP46.nip04Decrypt) {
+            return NIP46.nip04Decrypt(encryptedContent, senderPubkey);
+        }
+
+        throw new Error('NIP-04 decryption not available');
+    },
+
+    // Create a file share event (kind 30080)
+    async createShareEvent(shareInfo) {
+        const now = Math.floor(Date.now() / 1000);
+
+        // Create the share content to encrypt
+        const shareContent = JSON.stringify({
+            fileName: shareInfo.fileName,
+            fileSize: shareInfo.fileSize,
+            fileMimeType: shareInfo.fileMimeType,
+            fileSHA256: shareInfo.fileSHA256,
+            fileURL: shareInfo.fileURL,
+            message: shareInfo.message || '',
+        });
+
+        // Encrypt content for recipient using NIP-04
+        const encryptedContent = await this.nip04Encrypt(shareInfo.recipientPubkey, shareContent);
+
+        const event = {
+            kind: 30080,  // File share kind
+            created_at: now,
+            tags: [
+                ['d', shareInfo.id],
+                ['p', shareInfo.recipientPubkey],
+                ['file', `30078:${this.pubkey}:${shareInfo.fileId}`],
+            ],
+            content: encryptedContent,
+        };
+
+        // Add optional tags
+        if (shareInfo.permission) {
+            event.tags.push(['permission', shareInfo.permission]);
+        }
+
+        if (shareInfo.expiresAt) {
+            event.tags.push(['expiration', shareInfo.expiresAt.toString()]);
+        }
+
+        return this.signEvent(event);
+    },
+
+    // Create a share revocation event (kind 5 - NIP-09)
+    async createShareRevokeEvent(shareId) {
+        if (!this.isConnected || !this.pubkey) {
+            throw new Error('Not connected');
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+
+        const event = {
+            kind: 5,  // Deletion event
+            created_at: now,
+            tags: [
+                ['a', `30080:${this.pubkey}:${shareId}`],
+            ],
+            content: 'revoked',
+        };
+
+        return this.signEvent(event);
+    },
+
     // Disconnect
     disconnect() {
         // Disconnect NIP-46 if connected

@@ -195,4 +195,53 @@ const API = {
 
         return response.json();
     },
+
+    // List shares (created and received)
+    async listShares(pubkey, type = 'all') {
+        const url = `${this.baseURL}/api/shares?pubkey=${pubkey}&type=${type}`;
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`Failed to list shares: ${response.status}`);
+        }
+
+        return response.json();
+    },
+
+    // Create a share by publishing a signed share event
+    async createShare(signedEvent) {
+        const response = await fetch(`${this.baseURL}/api/shares`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(signedEvent),
+        });
+
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(error || `Failed to create share: ${response.status}`);
+        }
+
+        return response.json();
+    },
+
+    // Revoke a share
+    async revokeShare(shareId, signedEvent) {
+        const response = await fetch(`${this.baseURL}/api/shares/${shareId}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(signedEvent),
+        });
+
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(error || `Failed to revoke share: ${response.status}`);
+        }
+
+        return response.json();
+    },
 };

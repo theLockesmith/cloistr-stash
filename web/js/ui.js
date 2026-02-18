@@ -70,7 +70,20 @@ const UI = {
     attachFileEventListeners(container) {
         container.querySelectorAll('.file-item:not(.folder-item), .grid-item:not(.folder-grid-item)').forEach(item => {
             const sha256 = item.dataset.sha256;
+            const fileName = item.dataset.name;
+            const fileSize = parseInt(item.dataset.size) || 0;
+            const fileMime = item.dataset.mime || '';
             if (!sha256) return;
+
+            item.querySelector('.share-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                App.showShareModal({
+                    sha256,
+                    name: fileName,
+                    size: fileSize,
+                    mimeType: fileMime,
+                });
+            });
 
             item.querySelector('.download-btn')?.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -88,6 +101,7 @@ const UI = {
             item.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 this.showContextMenu(e.clientX, e.clientY, [
+                    { label: 'Share', action: () => App.showShareModal({ sha256, name: fileName, size: fileSize, mimeType: fileMime }) },
                     { label: 'Download', action: () => window.open(API.getDownloadURL(sha256), '_blank') },
                     { label: 'Delete', action: () => { if (confirm('Delete this file?')) App.deleteFile(sha256); } },
                 ]);
@@ -167,16 +181,18 @@ const UI = {
         const icon = Upload.getFileIcon(file.mime_type);
         const size = Upload.formatSize(file.size);
         const date = file.created_at ? new Date(file.created_at * 1000).toLocaleDateString() : '-';
+        const fileName = file.name || file.sha256.slice(0, 16) + '...';
 
         return `
-            <div class="file-item" data-sha256="${file.sha256}">
+            <div class="file-item" data-sha256="${file.sha256}" data-name="${this.escapeHtml(fileName)}" data-size="${file.size}" data-mime="${file.mime_type || ''}">
                 <div class="file-col file-name">
                     <span class="file-icon">${icon}</span>
-                    <span class="file-name-text">${this.escapeHtml(file.name || file.sha256.slice(0, 16) + '...')}</span>
+                    <span class="file-name-text">${this.escapeHtml(fileName)}</span>
                 </div>
                 <div class="file-col file-size">${size}</div>
                 <div class="file-col file-date">${date}</div>
                 <div class="file-col file-actions">
+                    <button class="action-btn share-btn share-btn" title="Share">Share</button>
                     <button class="action-btn download-btn">Download</button>
                     <button class="action-btn delete delete-btn">Delete</button>
                 </div>
@@ -190,10 +206,11 @@ const UI = {
         const name = file.name || file.sha256.slice(0, 12) + '...';
 
         return `
-            <div class="grid-item" data-sha256="${file.sha256}">
+            <div class="grid-item" data-sha256="${file.sha256}" data-name="${this.escapeHtml(name)}" data-size="${file.size}" data-mime="${file.mime_type || ''}">
                 <div class="grid-item-icon">${icon}</div>
                 <div class="grid-item-name">${this.escapeHtml(name)}</div>
                 <div class="grid-item-actions">
+                    <button class="action-btn share-btn" title="Share">&#8599;</button>
                     <button class="action-btn download-btn" title="Download">↓</button>
                     <button class="action-btn delete delete-btn" title="Delete">✕</button>
                 </div>
@@ -328,5 +345,94 @@ const UI = {
         const div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
+    },
+
+    // Render shared files list
+    renderSharedFiles(files) {
+        const fileList = document.getElementById('file-list');
+        const body = document.getElementById('file-list-body');
+        const emptyState = document.getElementById('empty-state');
+        const header = document.querySelector('.file-list-header');
+
+        // Toggle class for view mode
+        fileList.classList.toggle('view-grid', this.viewMode === 'grid');
+        fileList.classList.toggle('view-list', this.viewMode === 'list');
+
+        // Show/hide header based on view mode
+        if (header) {
+            header.style.display = this.viewMode === 'list' ? '' : 'none';
+        }
+
+        if (files.length === 0) {
+            body.innerHTML = '';
+            const emptyDiv = document.createElement('div');
+            emptyDiv.className = 'empty-state';
+            emptyDiv.innerHTML = '<p>No shared files</p><p class="empty-state-subtext">Files shared with you will appear here</p>';
+            body.appendChild(emptyDiv);
+            return;
+        }
+
+        if (this.viewMode === 'grid') {
+            body.innerHTML = files.map(file => this.renderSharedFileGridItem(file)).join('');
+        } else {
+            body.innerHTML = files.map(file => this.renderSharedFileListItem(file)).join('');
+        }
+
+        // Add event listeners
+        this.attachSharedFileEventListeners(body);
+    },
+
+    // Render shared file as list item
+    renderSharedFileListItem(file) {
+        const icon = file.encrypted ? '&#128274;' : Upload.getFileIcon(file.mime_type);
+        const size = file.size ? Upload.formatSize(file.size) : '-';
+        const date = file.created_at ? new Date(file.created_at * 1000).toLocaleDateString() : '-';
+        const ownerShort = file.owner_pubkey ? file.owner_pubkey.slice(0, 8) + '...' : '';
+
+        return `
+            <div class="file-item shared-item" data-sha256="${file.sha256 || ''}" data-url="${file.url || ''}" data-encrypted="${file.encrypted || false}">
+                <div class="file-col file-name">
+                    <span class="file-icon">${icon}</span>
+                    <span class="file-name-text">${this.escapeHtml(file.name)}</span>
+                    <span class="shared-by">from ${ownerShort}</span>
+                </div>
+                <div class="file-col file-size">${size}</div>
+                <div class="file-col file-date">${date}</div>
+                <div class="file-col file-actions">
+                    <button class="action-btn download-btn" ${file.encrypted ? 'disabled' : ''}>Download</button>
+                </div>
+            </div>
+        `;
+    },
+
+    // Render shared file as grid item
+    renderSharedFileGridItem(file) {
+        const icon = file.encrypted ? '&#128274;' : Upload.getFileIcon(file.mime_type);
+        const name = file.name || '(Encrypted)';
+
+        return `
+            <div class="grid-item shared-item" data-sha256="${file.sha256 || ''}" data-url="${file.url || ''}" data-encrypted="${file.encrypted || false}">
+                <div class="grid-item-icon">${icon}</div>
+                <div class="grid-item-name">${this.escapeHtml(name)}</div>
+                <div class="grid-item-actions">
+                    <button class="action-btn download-btn" title="Download" ${file.encrypted ? 'disabled' : ''}>↓</button>
+                </div>
+            </div>
+        `;
+    },
+
+    // Attach event listeners to shared file items
+    attachSharedFileEventListeners(container) {
+        container.querySelectorAll('.shared-item').forEach(item => {
+            const url = item.dataset.url;
+            const encrypted = item.dataset.encrypted === 'true';
+
+            if (!encrypted && url) {
+                item.querySelector('.download-btn')?.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    window.open(url, '_blank');
+                });
+            }
+        });
     },
 };

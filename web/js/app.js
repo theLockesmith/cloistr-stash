@@ -3,9 +3,12 @@
 const App = {
     files: [],
     folders: [],
+    sharedFiles: [],      // Files shared with current user
     currentFolderId: '',  // Empty string = root folder
     folderPath: [],       // Array of {id, name} for breadcrumb navigation
     authState: 'unauthenticated', // 'unauthenticated' | 'authenticated' | 'denied'
+    currentView: 'my-files', // 'my-files' | 'shared'
+    shareFile: null,      // File currently being shared
 
     async init() {
         // Check server health first
@@ -75,8 +78,19 @@ const App = {
             this.setViewMode('list');
         });
 
+        // Tab buttons
+        document.getElementById('tab-my-files').addEventListener('click', () => {
+            this.switchView('my-files');
+        });
+        document.getElementById('tab-shared').addEventListener('click', () => {
+            this.switchView('shared');
+        });
+
         // Upload modal
         this.setupUploadModal();
+
+        // Share modal
+        this.setupShareModal();
     },
 
     setupUploadModal() {
@@ -179,8 +193,90 @@ const App = {
         document.getElementById('view-grid').classList.toggle('active', mode === 'grid');
         document.getElementById('view-list').classList.toggle('active', mode === 'list');
 
-        // Re-render file list
-        UI.renderFileList(this.files);
+        // Re-render current view
+        if (this.currentView === 'my-files') {
+            UI.renderFileList(this.files, this.folders);
+        } else {
+            UI.renderSharedFiles(this.sharedFiles);
+        }
+    },
+
+    async switchView(view) {
+        this.currentView = view;
+
+        // Update tab states
+        document.getElementById('tab-my-files').classList.toggle('active', view === 'my-files');
+        document.getElementById('tab-shared').classList.toggle('active', view === 'shared');
+
+        // Show/hide appropriate UI elements
+        const breadcrumbBar = document.getElementById('breadcrumb-bar');
+        const uploadBtn = document.getElementById('upload-btn');
+        const newFolderBtn = document.getElementById('new-folder-btn');
+
+        if (view === 'my-files') {
+            breadcrumbBar.style.display = '';
+            uploadBtn.style.display = '';
+            newFolderBtn.style.display = '';
+            await this.loadFiles();
+        } else {
+            breadcrumbBar.style.display = 'none';
+            uploadBtn.style.display = 'none';
+            newFolderBtn.style.display = 'none';
+            await this.loadSharedFiles();
+        }
+    },
+
+    async loadSharedFiles() {
+        try {
+            const pubkey = Auth.isConnected ? Auth.pubkey : null;
+            if (!pubkey) return;
+
+            const response = await API.listShares(pubkey, 'received');
+            const shares = response.received || [];
+
+            // Decrypt share content and build file list
+            this.sharedFiles = [];
+
+            for (const share of shares) {
+                try {
+                    // Decrypt the share content
+                    const decryptedContent = await Auth.nip04Decrypt(
+                        share.owner_pubkey,
+                        share.encrypted_content
+                    );
+
+                    const content = JSON.parse(decryptedContent);
+
+                    this.sharedFiles.push({
+                        id: share.id,
+                        sha256: content.fileSHA256,
+                        name: content.fileName,
+                        size: content.fileSize,
+                        mime_type: content.fileMimeType,
+                        url: content.fileURL,
+                        owner_pubkey: share.owner_pubkey,
+                        message: content.message,
+                        created_at: share.created_at,
+                    });
+                } catch (decryptErr) {
+                    console.warn('Failed to decrypt share:', decryptErr);
+                    // Still show the share but without decrypted details
+                    this.sharedFiles.push({
+                        id: share.id,
+                        sha256: share.file_id,
+                        name: '(Encrypted)',
+                        owner_pubkey: share.owner_pubkey,
+                        created_at: share.created_at,
+                        encrypted: true,
+                    });
+                }
+            }
+
+            UI.renderSharedFiles(this.sharedFiles);
+        } catch (err) {
+            console.error('Failed to load shared files:', err);
+            UI.toast('Failed to load shared files', 'error');
+        }
     },
 
     async connectNIP07() {
@@ -493,6 +589,167 @@ const App = {
             await this.loadFiles();
         } catch (err) {
             UI.toast(`Delete failed: ${err.message}`, 'error');
+        }
+    },
+
+    setupShareModal() {
+        document.getElementById('share-modal-close').addEventListener('click', () => {
+            UI.hideModal('share-modal');
+        });
+
+        document.getElementById('share-cancel').addEventListener('click', () => {
+            UI.hideModal('share-modal');
+        });
+
+        document.getElementById('share-confirm').addEventListener('click', () => {
+            this.createShare();
+        });
+
+        // Allow Enter key to submit
+        document.getElementById('share-recipient').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.createShare();
+            }
+        });
+    },
+
+    showShareModal(file) {
+        this.shareFile = file;
+
+        // Update modal content
+        document.getElementById('share-file-name').textContent = file.name;
+        document.getElementById('share-recipient').value = '';
+        document.getElementById('share-message').value = '';
+
+        // Reset status
+        const statusEl = document.getElementById('share-status');
+        statusEl.classList.add('hidden');
+        statusEl.classList.remove('success', 'error');
+
+        UI.showModal('share-modal');
+        document.getElementById('share-recipient').focus();
+    },
+
+    // Convert npub to hex pubkey
+    npubToHex(npubOrHex) {
+        // If already hex (64 chars), return as is
+        if (/^[0-9a-f]{64}$/i.test(npubOrHex)) {
+            return npubOrHex.toLowerCase();
+        }
+
+        // If npub format, decode bech32
+        if (npubOrHex.startsWith('npub1')) {
+            try {
+                // Simple bech32 decode for npub
+                const ALPHABET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+                const data = npubOrHex.slice(5); // Remove 'npub1' prefix
+
+                let bits = [];
+                for (const char of data) {
+                    const val = ALPHABET.indexOf(char.toLowerCase());
+                    if (val === -1) throw new Error('Invalid character');
+                    bits.push(...[val >> 4 & 1, val >> 3 & 1, val >> 2 & 1, val >> 1 & 1, val & 1]);
+                }
+
+                // Remove checksum (last 30 bits = 6 chars * 5 bits)
+                bits = bits.slice(0, -30);
+
+                // Convert 5-bit groups to 8-bit bytes
+                const bytes = [];
+                for (let i = 0; i + 8 <= bits.length; i += 8) {
+                    let byte = 0;
+                    for (let j = 0; j < 8; j++) {
+                        byte = (byte << 1) | bits[i + j];
+                    }
+                    bytes.push(byte);
+                }
+
+                return bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+            } catch (err) {
+                throw new Error('Invalid npub format');
+            }
+        }
+
+        throw new Error('Invalid pubkey format. Use npub1... or 64-char hex.');
+    },
+
+    async createShare() {
+        const recipientInput = document.getElementById('share-recipient').value.trim();
+        const message = document.getElementById('share-message').value.trim();
+        const statusEl = document.getElementById('share-status');
+        const confirmBtn = document.getElementById('share-confirm');
+
+        if (!recipientInput) {
+            statusEl.textContent = 'Please enter a recipient pubkey';
+            statusEl.classList.remove('hidden', 'success');
+            statusEl.classList.add('error');
+            return;
+        }
+
+        // Validate and convert recipient pubkey
+        let recipientPubkey;
+        try {
+            recipientPubkey = this.npubToHex(recipientInput);
+        } catch (err) {
+            statusEl.textContent = err.message;
+            statusEl.classList.remove('hidden', 'success');
+            statusEl.classList.add('error');
+            return;
+        }
+
+        // Don't allow sharing with self
+        if (recipientPubkey === Auth.pubkey) {
+            statusEl.textContent = 'Cannot share with yourself';
+            statusEl.classList.remove('hidden', 'success');
+            statusEl.classList.add('error');
+            return;
+        }
+
+        // Show loading state
+        statusEl.textContent = 'Creating share...';
+        statusEl.classList.remove('hidden', 'error', 'success');
+        confirmBtn.disabled = true;
+
+        try {
+            const shareId = Auth.generateShareId();
+
+            // Create and sign the share event
+            const signedEvent = await Auth.createShareEvent({
+                id: shareId,
+                fileId: this.shareFile.sha256,
+                fileName: this.shareFile.name,
+                fileSize: this.shareFile.size,
+                fileMimeType: this.shareFile.mimeType,
+                fileSHA256: this.shareFile.sha256,
+                fileURL: API.getDownloadURL(this.shareFile.sha256),
+                recipientPubkey: recipientPubkey,
+                message: message,
+                permission: 'download',
+            });
+
+            // Publish share
+            await API.createShare(signedEvent);
+
+            // Show success
+            statusEl.textContent = 'File shared successfully!';
+            statusEl.classList.remove('error');
+            statusEl.classList.add('success');
+
+            UI.toast(`Shared "${this.shareFile.name}" with ${recipientInput.slice(0, 12)}...`, 'success');
+
+            // Close modal after delay
+            setTimeout(() => {
+                UI.hideModal('share-modal');
+                this.shareFile = null;
+            }, 1500);
+
+        } catch (err) {
+            console.error('Failed to create share:', err);
+            statusEl.textContent = `Failed: ${err.message}`;
+            statusEl.classList.remove('success');
+            statusEl.classList.add('error');
+        } finally {
+            confirmBtn.disabled = false;
         }
     },
 };
