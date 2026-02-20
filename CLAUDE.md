@@ -2,6 +2,11 @@
 
 **Nostr-native file manager UI - Google Drive replacement**
 
+## REQUIRED READING (Before ANY Action)
+
+**Claude MUST read this file at the start of every session:**
+- `~/claude/coldforge/cloistr/CLAUDE.md` - Cloistr project rules (contains further required reading)
+
 ## Documentation
 
 Full documentation is maintained at:

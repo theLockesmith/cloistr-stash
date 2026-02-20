@@ -1084,6 +1084,64 @@ body {
     color: var(--text-primary);
 }
 
+/* Search box */
+.search-box {
+    position: relative;
+    margin-left: 1rem;
+}
+
+.search-input {
+    width: 200px;
+    padding: 0.5rem 2rem 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    transition: width 0.2s, border-color 0.15s;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    width: 280px;
+}
+
+.search-input::placeholder {
+    color: var(--text-secondary);
+}
+
+.search-clear {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0.25rem;
+    line-height: 1;
+}
+
+.search-clear:hover {
+    color: var(--text-primary);
+}
+
+/* Search results indicator */
+.search-results-info {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.search-highlight {
+    background-color: rgba(88, 166, 255, 0.3);
+    border-radius: 2px;
+}
+
 /* Breadcrumb bar */
 .breadcrumb-bar {
     margin-bottom: 1rem;

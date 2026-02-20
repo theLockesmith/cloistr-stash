@@ -8,6 +8,7 @@ const App = {
     folderPath: [],       // Array of {id, name} for breadcrumb navigation
     authState: 'unauthenticated', // 'unauthenticated' | 'authenticated' | 'denied'
     currentView: 'my-files', // 'my-files' | 'shared'
+    searchQuery: '',      // Current search query
     shareFile: null,      // File currently being shared
 
     async init() {
@@ -84,6 +85,25 @@ const App = {
         });
         document.getElementById('tab-shared').addEventListener('click', () => {
             this.switchView('shared');
+        });
+
+        // Search
+        const searchInput = document.getElementById('search-input');
+        const searchClear = document.getElementById('search-clear');
+
+        searchInput.addEventListener('input', (e) => {
+            this.handleSearch(e.target.value);
+        });
+
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.clearSearch();
+                searchInput.blur();
+            }
+        });
+
+        searchClear.addEventListener('click', () => {
+            this.clearSearch();
         });
 
         // Upload modal
@@ -194,15 +214,64 @@ const App = {
         document.getElementById('view-list').classList.toggle('active', mode === 'list');
 
         // Re-render current view
+        this.renderCurrentView();
+    },
+
+    handleSearch(query) {
+        this.searchQuery = query.toLowerCase().trim();
+
+        // Show/hide clear button
+        const searchClear = document.getElementById('search-clear');
+        searchClear.classList.toggle('hidden', !this.searchQuery);
+
+        // Re-render with filter
+        this.renderCurrentView();
+    },
+
+    clearSearch() {
+        this.searchQuery = '';
+        document.getElementById('search-input').value = '';
+        document.getElementById('search-clear').classList.add('hidden');
+        this.renderCurrentView();
+    },
+
+    // Filter files based on search query
+    filterBySearch(files) {
+        if (!this.searchQuery) return files;
+
+        return files.filter(file => {
+            const name = (file.name || '').toLowerCase();
+            const sha = (file.sha256 || '').toLowerCase();
+            return name.includes(this.searchQuery) || sha.includes(this.searchQuery);
+        });
+    },
+
+    // Filter folders based on search query
+    filterFoldersBySearch(folders) {
+        if (!this.searchQuery) return folders;
+
+        return folders.filter(folder => {
+            const name = (folder.name || '').toLowerCase();
+            return name.includes(this.searchQuery);
+        });
+    },
+
+    renderCurrentView() {
         if (this.currentView === 'my-files') {
-            UI.renderFileList(this.files, this.folders);
+            const filteredFiles = this.filterBySearch(this.files);
+            const filteredFolders = this.filterFoldersBySearch(this.folders);
+            UI.renderFileList(filteredFiles, filteredFolders, this.searchQuery);
         } else {
-            UI.renderSharedFiles(this.sharedFiles);
+            const filteredShared = this.filterBySearch(this.sharedFiles);
+            UI.renderSharedFiles(filteredShared, this.searchQuery);
         }
     },
 
     async switchView(view) {
         this.currentView = view;
+
+        // Clear search when switching views
+        this.clearSearch();
 
         // Update tab states
         document.getElementById('tab-my-files').classList.toggle('active', view === 'my-files');
@@ -272,7 +341,7 @@ const App = {
                 }
             }
 
-            UI.renderSharedFiles(this.sharedFiles);
+            this.renderCurrentView();
         } catch (err) {
             console.error('Failed to load shared files:', err);
             UI.toast('Failed to load shared files', 'error');
@@ -414,7 +483,7 @@ const App = {
             this.folders = foldersResponse.folders || [];
             this.files = filesResponse.files || [];
 
-            UI.renderFileList(this.files, this.folders);
+            this.renderCurrentView();
             this.renderBreadcrumbs();
         } catch (err) {
             console.error('Failed to load files:', err);

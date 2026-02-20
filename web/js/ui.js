@@ -25,7 +25,7 @@ const UI = {
     },
 
     // Render file list (supports grid and list views)
-    renderFileList(files, folders = []) {
+    renderFileList(files, folders = [], searchQuery = '') {
         const fileList = document.getElementById('file-list');
         const body = document.getElementById('file-list-body');
         const emptyState = document.getElementById('empty-state');
@@ -42,10 +42,23 @@ const UI = {
 
         const hasContent = files.length > 0 || folders.length > 0;
 
+        // Build content
+        let html = '';
+
+        // Show search results info if searching
+        if (searchQuery) {
+            const totalResults = files.length + folders.length;
+            html += `<div class="search-results-info">Found ${totalResults} result${totalResults !== 1 ? 's' : ''} for "${this.escapeHtml(searchQuery)}"</div>`;
+        }
+
         if (!hasContent) {
-            body.innerHTML = '';
-            body.appendChild(emptyState);
-            emptyState.style.display = 'block';
+            body.innerHTML = html;
+            if (searchQuery) {
+                body.innerHTML += '<div class="empty-state"><p>No matches found</p></div>';
+            } else {
+                body.appendChild(emptyState);
+                emptyState.style.display = 'block';
+            }
             return;
         }
 
@@ -54,12 +67,14 @@ const UI = {
         if (this.viewMode === 'grid') {
             const folderHtml = folders.map(folder => this.renderFolderGridItem(folder)).join('');
             const fileHtml = files.map(file => this.renderFileGridItem(file)).join('');
-            body.innerHTML = folderHtml + fileHtml;
+            html += '<div class="grid-container">' + folderHtml + fileHtml + '</div>';
         } else {
             const folderHtml = folders.map(folder => this.renderFolderListItem(folder)).join('');
             const fileHtml = files.map(file => this.renderFileListItem(file)).join('');
-            body.innerHTML = folderHtml + fileHtml;
+            html += folderHtml + fileHtml;
         }
+
+        body.innerHTML = html;
 
         // Add event listeners
         this.attachFileEventListeners(body);
@@ -348,10 +363,9 @@ const UI = {
     },
 
     // Render shared files list
-    renderSharedFiles(files) {
+    renderSharedFiles(files, searchQuery = '') {
         const fileList = document.getElementById('file-list');
         const body = document.getElementById('file-list-body');
-        const emptyState = document.getElementById('empty-state');
         const header = document.querySelector('.file-list-header');
 
         // Toggle class for view mode
@@ -363,20 +377,29 @@ const UI = {
             header.style.display = this.viewMode === 'list' ? '' : 'none';
         }
 
+        let html = '';
+
+        // Show search results info if searching
+        if (searchQuery) {
+            html += `<div class="search-results-info">Found ${files.length} result${files.length !== 1 ? 's' : ''} for "${this.escapeHtml(searchQuery)}"</div>`;
+        }
+
         if (files.length === 0) {
-            body.innerHTML = '';
-            const emptyDiv = document.createElement('div');
-            emptyDiv.className = 'empty-state';
-            emptyDiv.innerHTML = '<p>No shared files</p><p class="empty-state-subtext">Files shared with you will appear here</p>';
-            body.appendChild(emptyDiv);
+            if (searchQuery) {
+                body.innerHTML = html + '<div class="empty-state"><p>No matches found</p></div>';
+            } else {
+                body.innerHTML = '<div class="empty-state"><p>No shared files</p><p class="empty-state-subtext">Files shared with you will appear here</p></div>';
+            }
             return;
         }
 
         if (this.viewMode === 'grid') {
-            body.innerHTML = files.map(file => this.renderSharedFileGridItem(file)).join('');
+            html += files.map(file => this.renderSharedFileGridItem(file)).join('');
         } else {
-            body.innerHTML = files.map(file => this.renderSharedFileListItem(file)).join('');
+            html += files.map(file => this.renderSharedFileListItem(file)).join('');
         }
+
+        body.innerHTML = html;
 
         // Add event listeners
         this.attachSharedFileEventListeners(body);
