@@ -11,9 +11,9 @@ services:
     environment:
       DRIVE_HOST: "0.0.0.0"
       DRIVE_PORT: "8080"
-      DRIVE_PUBLIC_URL: "https://drive.coldforge.xyz"
-      DRIVE_BLOSSOM_URL: "https://blossom.coldforge.xyz"
-      DRIVE_RELAY_URL: "wss://relay.coldforge.xyz"
+      DRIVE_PUBLIC_URL: "https://drive.cloistr.xyz"
+      DRIVE_BLOSSOM_URL: "https://blossom.cloistr.xyz"
+      DRIVE_RELAY_URL: "wss://relay.cloistr.xyz"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]

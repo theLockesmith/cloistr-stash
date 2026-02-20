@@ -1,4 +1,4 @@
-# coldforge-drive configuration
+# cloistr-drive configuration
 
 server:
   # HTTP server bind address
@@ -6,14 +6,14 @@ server:
   # HTTP server port
   port: 8080
   # Public URL for the Drive UI
-  public_url: "https://drive.coldforge.xyz"
+  public_url: "https://drive.cloistr.xyz"
 
 # Blossom backend server (file storage)
 blossom:
   # URL of the hosted Blossom server
-  url: "https://blossom.coldforge.xyz"
+  url: "https://blossom.cloistr.xyz"
 
 # Nostr relay for file/folder metadata
 relay:
   # Relay URL for publishing and querying metadata events
-  url: "wss://relay.coldforge.xyz"
+  url: "wss://relay.cloistr.xyz"
