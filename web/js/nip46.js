@@ -229,11 +229,74 @@ const NIP46 = {
         console.log('NIP-46: Connected to', this.sockets.length, 'relay(s)');
     },
 
+    // NIP-42 authentication state
+    authenticated: false,
+    pendingAuth: null,
+    pendingRetry: null,
+
+    // Handle NIP-42 AUTH challenge
+    async handleAuthChallenge(challenge, relayUrl, ws) {
+        console.log('NIP-46: AUTH challenge received:', challenge.slice(0, 16) + '...');
+
+        // Create auth event (kind 22242)
+        const authEvent = {
+            kind: 22242,
+            pubkey: this.clientPubkey,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [
+                ['relay', relayUrl],
+                ['challenge', challenge],
+            ],
+            content: '',
+        };
+
+        // Sign the auth event
+        await this.waitForSecp256k1();
+
+        const serialized = JSON.stringify([
+            0,
+            authEvent.pubkey,
+            authEvent.created_at,
+            authEvent.kind,
+            authEvent.tags,
+            authEvent.content,
+        ]);
+
+        const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(serialized));
+        authEvent.id = this.bytesToHex(new Uint8Array(hashBuffer));
+
+        const privkeyBytes = this.hexToBytes(this.clientPrivkey);
+        const msgBytes = this.hexToBytes(authEvent.id);
+        const sig = nobleSchnorr.sign(msgBytes, privkeyBytes);
+        authEvent.sig = this.bytesToHex(sig);
+
+        console.log('NIP-46: Sending AUTH response:', authEvent.id.slice(0, 16) + '...');
+
+        // Send AUTH
+        ws.send(JSON.stringify(['AUTH', authEvent]));
+
+        // Store the auth event ID to track response
+        this.pendingAuth = authEvent.id;
+    },
+
     // Handle incoming relay messages
     async handleRelayMessage(data) {
         try {
             const message = JSON.parse(data);
             console.log('NIP-46: Received message:', message[0], message.length > 2 ? JSON.stringify(message[2]).slice(0, 100) : '');
+
+            // Handle NIP-42 AUTH challenge
+            if (message[0] === 'AUTH') {
+                const challenge = message[1];
+                // Find the socket that received this
+                for (const ws of this.sockets) {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        await this.handleAuthChallenge(challenge, ws.url, ws);
+                        break;
+                    }
+                }
+                return;
+            }
 
             if (message[0] === 'EVENT') {
                 const event = message[2];
@@ -263,7 +326,31 @@ const NIP46 = {
                     }
                 }
             } else if (message[0] === 'OK') {
-                console.log('NIP-46: Event published:', message[1]?.slice(0, 8), message[2] ? 'accepted' : 'rejected', message[3] || '');
+                const eventId = message[1];
+                const success = message[2];
+                const reason = message[3] || '';
+                console.log('NIP-46: Event published:', eventId?.slice(0, 8), success ? 'accepted' : 'rejected', reason);
+
+                // Check if this is our AUTH response
+                if (this.pendingAuth && eventId === this.pendingAuth) {
+                    if (success) {
+                        console.log('NIP-46: Authenticated with relay');
+                        this.authenticated = true;
+                        // Retry pending event if any
+                        if (this.pendingRetry) {
+                            console.log('NIP-46: Retrying pending request after auth...');
+                            const { event, ws } = this.pendingRetry;
+                            this.pendingRetry = null;
+                            ws.send(JSON.stringify(['EVENT', event]));
+                        }
+                    } else {
+                        console.error('NIP-46: AUTH failed:', reason);
+                    }
+                    this.pendingAuth = null;
+                } else if (reason.includes('auth-required')) {
+                    // Event was rejected due to auth-required
+                    console.log('NIP-46: Event requires auth, waiting for AUTH challenge...');
+                }
             } else if (message[0] === 'EOSE') {
                 // End of stored events
             }
@@ -365,6 +452,13 @@ const NIP46 = {
                 }
             }, 60000);
         });
+
+        // Store event for potential retry after AUTH
+        // Only store the first socket's event for retry
+        const firstOpenSocket = this.sockets.find(ws => ws.readyState === WebSocket.OPEN);
+        if (firstOpenSocket && !this.authenticated) {
+            this.pendingRetry = { event, ws: firstOpenSocket };
+        }
 
         // Publish event to all relays
         const message = JSON.stringify(['EVENT', event]);
