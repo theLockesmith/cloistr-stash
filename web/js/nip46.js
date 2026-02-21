@@ -102,12 +102,9 @@ const NIP46 = {
         const privkeyBytes = this.randomBytes(32);
         this.clientPrivkey = this.bytesToHex(privkeyBytes);
 
-        // Derive public key using noble-secp256k1 v2 API
-        // getPublicKey returns compressed pubkey by default
-        const pubkeyBytes = nobleSecp256k1.getPublicKey(privkeyBytes);
-        // For Nostr, we need x-only pubkey (32 bytes, no prefix)
-        // Compressed pubkey is 33 bytes with 02/03 prefix
-        this.clientPubkey = this.bytesToHex(pubkeyBytes.slice(1));
+        // Derive x-only public key using Schnorr (BIP-340) for Nostr
+        const pubkeyBytes = nobleSecp256k1.schnorr.getPublicKey(privkeyBytes);
+        this.clientPubkey = this.bytesToHex(pubkeyBytes);
     },
 
     // Compute shared secret for NIP-04 encryption
@@ -352,10 +349,9 @@ const NIP46 = {
         const privkeyBytes = this.hexToBytes(this.clientPrivkey);
         const msgBytes = this.hexToBytes(event.id);
 
-        // noble/secp256k1 v2 sign() returns a Signature object
-        const sig = nobleSecp256k1.sign(msgBytes, privkeyBytes);
-        // Get compact signature (64 bytes, no recovery byte)
-        event.sig = this.bytesToHex(sig.toCompactRawBytes());
+        // Use Schnorr signature (BIP-340) for Nostr - returns 64-byte Uint8Array
+        const sig = nobleSecp256k1.schnorr.sign(msgBytes, privkeyBytes);
+        event.sig = this.bytesToHex(sig);
 
         // Create promise for response
         const responsePromise = new Promise((resolve, reject) => {
