@@ -275,7 +275,12 @@ const NIP46 = {
 
     // Send a request to the remote signer
     async sendRequest(method, params = []) {
-        if (!this.ws || !this.connected) {
+        // Allow 'connect' and 'get_public_key' before fully connected
+        const allowedBeforeConnect = ['connect', 'get_public_key'];
+        if (!this.ws) {
+            throw new Error('Not connected to relay');
+        }
+        if (!this.connected && !allowedBeforeConnect.includes(method)) {
             throw new Error('Not connected to remote signer');
         }
 
