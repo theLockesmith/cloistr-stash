@@ -79,7 +79,7 @@ const NIP46 = {
 
     // Wait for secp256k1 library to load
     async waitForSecp256k1() {
-        if (typeof nobleSecp256k1 !== 'undefined') {
+        if (typeof nobleSecp256k1 !== 'undefined' && typeof nobleSchnorr !== 'undefined') {
             return;
         }
 
@@ -94,8 +94,8 @@ const NIP46 = {
     async generateClientKeypair() {
         await this.waitForSecp256k1();
 
-        if (typeof nobleSecp256k1 === 'undefined') {
-            throw new Error('secp256k1 library not loaded');
+        if (typeof nobleSchnorr === 'undefined') {
+            throw new Error('secp256k1/schnorr library not loaded');
         }
 
         // Generate 32 random bytes for private key
@@ -103,7 +103,7 @@ const NIP46 = {
         this.clientPrivkey = this.bytesToHex(privkeyBytes);
 
         // Derive x-only public key using Schnorr (BIP-340) for Nostr
-        const pubkeyBytes = nobleSecp256k1.schnorr.getPublicKey(privkeyBytes);
+        const pubkeyBytes = nobleSchnorr.getPublicKey(privkeyBytes);
         this.clientPubkey = this.bytesToHex(pubkeyBytes);
     },
 
@@ -339,18 +339,18 @@ const NIP46 = {
         const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(serialized));
         event.id = this.bytesToHex(new Uint8Array(hashBuffer));
 
-        // Sign the event
+        // Sign the event with Schnorr (BIP-340)
         await this.waitForSecp256k1();
 
-        if (typeof nobleSecp256k1 === 'undefined') {
-            throw new Error('secp256k1 library not loaded');
+        if (typeof nobleSchnorr === 'undefined') {
+            throw new Error('secp256k1/schnorr library not loaded');
         }
 
         const privkeyBytes = this.hexToBytes(this.clientPrivkey);
         const msgBytes = this.hexToBytes(event.id);
 
         // Use Schnorr signature (BIP-340) for Nostr - returns 64-byte Uint8Array
-        const sig = nobleSecp256k1.schnorr.sign(msgBytes, privkeyBytes);
+        const sig = nobleSchnorr.sign(msgBytes, privkeyBytes);
         event.sig = this.bytesToHex(sig);
 
         // Create promise for response
