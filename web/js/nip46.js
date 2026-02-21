@@ -233,12 +233,12 @@ const NIP46 = {
     async handleRelayMessage(data) {
         try {
             const message = JSON.parse(data);
-            console.log('NIP-46: Received message:', message[0]);
+            console.log('NIP-46: Received message:', message[0], message.length > 2 ? JSON.stringify(message[2]).slice(0, 100) : '');
 
             if (message[0] === 'EVENT') {
                 const event = message[2];
-                console.log('NIP-46: EVENT kind:', event.kind, 'from:', event.pubkey?.slice(0, 8));
-                console.log('NIP-46: Expected from:', this.remotePubkey?.slice(0, 8));
+                console.log('NIP-46: EVENT kind:', event.kind, 'from:', event.pubkey?.slice(0, 16), 'to:', event.tags?.find(t => t[0] === 'p')?.[1]?.slice(0, 16));
+                console.log('NIP-46: Expecting from:', this.remotePubkey?.slice(0, 16), 'to:', this.clientPubkey?.slice(0, 16));
 
                 // Check if this is a response to us (kind 24133)
                 if (event.kind === 24133 && event.pubkey === this.remotePubkey) {
