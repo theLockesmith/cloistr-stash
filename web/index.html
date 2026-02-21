@@ -209,6 +209,14 @@
     <!-- Secp256k1 library for NIP-46 crypto operations -->
     <script type="module">
         import * as secp from 'https://esm.sh/@noble/secp256k1@2.1.0';
+        import { hmac } from 'https://esm.sh/@noble/hashes@1.4.0/hmac';
+        import { sha256 } from 'https://esm.sh/@noble/hashes@1.4.0/sha256';
+
+        // Configure hmacSha256Sync for signing operations
+        secp.etc.hmacSha256Sync = (key, ...messages) => {
+            return hmac(sha256, key, secp.etc.concatBytes(...messages));
+        };
+
         window.nobleSecp256k1 = secp;
         window.dispatchEvent(new Event('secp256k1-loaded'));
     </script>
