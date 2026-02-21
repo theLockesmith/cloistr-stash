@@ -236,15 +236,20 @@ const NIP46 = {
     async handleRelayMessage(data) {
         try {
             const message = JSON.parse(data);
+            console.log('NIP-46: Received message:', message[0]);
 
             if (message[0] === 'EVENT') {
                 const event = message[2];
+                console.log('NIP-46: EVENT kind:', event.kind, 'from:', event.pubkey?.slice(0, 8));
+                console.log('NIP-46: Expected from:', this.remotePubkey?.slice(0, 8));
 
                 // Check if this is a response to us (kind 24133)
                 if (event.kind === 24133 && event.pubkey === this.remotePubkey) {
+                    console.log('NIP-46: Decrypting response...');
                     // Decrypt the content
                     const decrypted = await this.nip04Decrypt(event.content, this.remotePubkey);
                     const response = JSON.parse(decrypted);
+                    console.log('NIP-46: Response id:', response.id, 'pending ids:', [...this.pendingRequests.keys()]);
 
                     // Find pending request
                     const pending = this.pendingRequests.get(response.id);
@@ -256,10 +261,12 @@ const NIP46 = {
                         } else {
                             pending.resolve(response.result);
                         }
+                    } else {
+                        console.log('NIP-46: No pending request for id:', response.id);
                     }
                 }
             } else if (message[0] === 'OK') {
-                // Event published successfully
+                console.log('NIP-46: Event published:', message[1]?.slice(0, 8), message[2] ? 'accepted' : 'rejected');
             } else if (message[0] === 'EOSE') {
                 // End of stored events
             }
@@ -279,6 +286,7 @@ const NIP46 = {
             '#p': [this.clientPubkey],
             since: Math.floor(Date.now() / 1000) - 60,
         };
+        console.log('NIP-46: Subscribing with filter:', JSON.stringify(filter));
 
         const message = JSON.stringify(['REQ', subId, filter]);
         this.sockets.forEach(ws => {
@@ -300,6 +308,7 @@ const NIP46 = {
         }
 
         const id = String(++this.requestId);
+        console.log('NIP-46: Sending request', method, 'with id:', id);
 
         // Create request payload
         const request = {
