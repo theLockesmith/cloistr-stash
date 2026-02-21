@@ -48,6 +48,12 @@ const App = {
         document.getElementById('nip46-connect').addEventListener('click', () => {
             this.connectNIP46();
         });
+        document.getElementById('bunker-url').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.connectNIP46();
+            }
+        });
 
         // Access denied - disconnect button
         document.getElementById('disconnect-btn').addEventListener('click', () => {
