@@ -266,7 +266,7 @@ const NIP46 = {
                     }
                 }
             } else if (message[0] === 'OK') {
-                console.log('NIP-46: Event published:', message[1]?.slice(0, 8), message[2] ? 'accepted' : 'rejected');
+                console.log('NIP-46: Event published:', message[1]?.slice(0, 8), message[2] ? 'accepted' : 'rejected', message[3] || '');
             } else if (message[0] === 'EOSE') {
                 // End of stored events
             }
