@@ -6,15 +6,15 @@ const NIP46 = {
     connected: false,
     userPubkey: null,
     remotePubkey: null,
-    relayUrl: null,
+    relayUrls: [],
     secret: null,
 
     // Client keypair (ephemeral)
     clientPrivkey: null,
     clientPubkey: null,
 
-    // WebSocket connection
-    ws: null,
+    // WebSocket connections (one per relay)
+    sockets: [],
 
     // Pending requests
     pendingRequests: new Map(),
@@ -39,16 +39,16 @@ const NIP46 = {
             }
 
             const params = new URLSearchParams(queryString || '');
-            const relay = params.get('relay');
+            const relays = params.getAll('relay');
             const secret = params.get('secret');
 
-            if (!relay) {
+            if (relays.length === 0) {
                 throw new Error('Missing relay parameter in bunker URL');
             }
 
             return {
                 remotePubkey: pubkeyPart,
-                relayUrl: relay,
+                relayUrls: relays,
                 secret: secret || '',
             };
         } catch (err) {
@@ -194,32 +194,42 @@ const NIP46 = {
         return decoder.decode(plaintext);
     },
 
-    // Connect to relay via WebSocket
-    connectRelay(url) {
+    // Connect to a single relay via WebSocket
+    connectSingleRelay(url) {
         return new Promise((resolve, reject) => {
             const ws = new WebSocket(url);
 
             ws.onopen = () => {
-                this.ws = ws;
-                resolve();
+                console.log('NIP-46: Connected to', url);
+                resolve(ws);
             };
 
             ws.onerror = (err) => {
-                reject(new Error('WebSocket connection failed'));
+                console.error('NIP-46: Connection failed to', url);
+                resolve(null); // Don't reject, allow other relays to work
             };
 
             ws.onclose = () => {
-                this.ws = null;
-                if (this.connected) {
-                    this.connected = false;
-                    console.log('NIP-46: Relay connection closed');
-                }
+                console.log('NIP-46: Disconnected from', url);
+                this.sockets = this.sockets.filter(s => s !== ws);
             };
 
             ws.onmessage = (msg) => {
                 this.handleRelayMessage(msg.data);
             };
         });
+    },
+
+    // Connect to all relays
+    async connectRelays(urls) {
+        const connections = await Promise.all(urls.map(url => this.connectSingleRelay(url)));
+        this.sockets = connections.filter(ws => ws !== null);
+
+        if (this.sockets.length === 0) {
+            throw new Error('Failed to connect to any relay');
+        }
+
+        console.log('NIP-46: Connected to', this.sockets.length, 'relay(s)');
     },
 
     // Handle incoming relay messages
@@ -258,9 +268,9 @@ const NIP46 = {
         }
     },
 
-    // Subscribe to responses from remote signer
+    // Subscribe to responses from remote signer on all relays
     subscribeToResponses() {
-        if (!this.ws) return;
+        if (this.sockets.length === 0) return;
 
         const subId = 'nip46-' + Date.now();
         const filter = {
@@ -270,15 +280,20 @@ const NIP46 = {
             since: Math.floor(Date.now() / 1000) - 60,
         };
 
-        this.ws.send(JSON.stringify(['REQ', subId, filter]));
+        const message = JSON.stringify(['REQ', subId, filter]);
+        this.sockets.forEach(ws => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(message);
+            }
+        });
     },
 
     // Send a request to the remote signer
     async sendRequest(method, params = []) {
         // Allow 'connect' and 'get_public_key' before fully connected
         const allowedBeforeConnect = ['connect', 'get_public_key'];
-        if (!this.ws) {
-            throw new Error('Not connected to relay');
+        if (this.sockets.length === 0) {
+            throw new Error('Not connected to any relay');
         }
         if (!this.connected && !allowedBeforeConnect.includes(method)) {
             throw new Error('Not connected to remote signer');
@@ -346,8 +361,13 @@ const NIP46 = {
             }, 60000);
         });
 
-        // Publish event to relay
-        this.ws.send(JSON.stringify(['EVENT', event]));
+        // Publish event to all relays
+        const message = JSON.stringify(['EVENT', event]);
+        this.sockets.forEach(ws => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(message);
+            }
+        });
 
         return responsePromise;
     },
@@ -358,19 +378,19 @@ const NIP46 = {
         await this.waitForSecp256k1();
 
         // Parse bunker URL
-        const { remotePubkey, relayUrl, secret } = this.parseBunkerUrl(bunkerUrl);
+        const { remotePubkey, relayUrls, secret } = this.parseBunkerUrl(bunkerUrl);
 
         this.remotePubkey = remotePubkey;
-        this.relayUrl = relayUrl;
+        this.relayUrls = relayUrls;
         this.secret = secret;
 
         // Generate client keypair
         await this.generateClientKeypair();
 
-        // Connect to relay
-        await this.connectRelay(relayUrl);
+        // Connect to all relays
+        await this.connectRelays(relayUrls);
 
-        // Subscribe to responses
+        // Subscribe to responses on all relays
         this.subscribeToResponses();
 
         // Send connect request
@@ -385,14 +405,18 @@ const NIP46 = {
 
     // Disconnect from bunker
     disconnect() {
-        if (this.ws) {
-            this.ws.close();
-            this.ws = null;
-        }
+        // Close all relay connections
+        this.sockets.forEach(ws => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+        });
+        this.sockets = [];
 
         this.connected = false;
         this.userPubkey = null;
         this.remotePubkey = null;
+        this.relayUrls = [];
         this.clientPrivkey = null;
         this.clientPubkey = null;
         this.pendingRequests.clear();
