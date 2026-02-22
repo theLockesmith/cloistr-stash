@@ -20,6 +20,9 @@ const NIP46 = {
     pendingRequests: new Map(),
     requestId: 0,
 
+    // Track seen events to deduplicate responses from multiple relays
+    seenEvents: new Set(),
+
     // Parse bunker:// URL
     // Format: bunker://<remote-pubkey>?relay=<relay-url>&secret=<secret>
     parseBunkerUrl(url) {
@@ -300,8 +303,15 @@ const NIP46 = {
 
             if (message[0] === 'EVENT') {
                 const event = message[2];
-                console.log('NIP-46: EVENT kind:', event.kind, 'from:', event.pubkey?.slice(0, 16), 'to:', event.tags?.find(t => t[0] === 'p')?.[1]?.slice(0, 16));
-                console.log('NIP-46: Expecting from:', this.remotePubkey?.slice(0, 16), 'to:', this.clientPubkey?.slice(0, 16));
+
+                // Deduplicate events from multiple relays
+                if (this.seenEvents.has(event.id)) {
+                    console.log('NIP-46: Skipping duplicate event:', event.id?.slice(0, 8));
+                    return;
+                }
+                this.seenEvents.add(event.id);
+
+                console.log('NIP-46: EVENT kind:', event.kind, 'from:', event.pubkey?.slice(0, 16), 'id:', event.id?.slice(0, 8));
 
                 // Check if this is a response to us (kind 24133)
                 if (event.kind === 24133 && event.pubkey === this.remotePubkey) {
@@ -309,11 +319,12 @@ const NIP46 = {
                     // Decrypt the content
                     const decrypted = await this.nip04Decrypt(event.content, this.remotePubkey);
                     const response = JSON.parse(decrypted);
-                    console.log('NIP-46: Response id:', response.id, 'pending ids:', [...this.pendingRequests.keys()]);
+                    console.log('NIP-46: Response id:', response.id, 'result type:', typeof response.result, 'pending ids:', [...this.pendingRequests.keys()]);
 
                     // Find pending request
                     const pending = this.pendingRequests.get(response.id);
                     if (pending) {
+                        console.log('NIP-46: Resolving request', response.id);
                         this.pendingRequests.delete(response.id);
 
                         if (response.error) {
@@ -322,7 +333,7 @@ const NIP46 = {
                             pending.resolve(response.result);
                         }
                     } else {
-                        console.log('NIP-46: No pending request for id:', response.id);
+                        console.log('NIP-46: No pending request for id:', response.id, '(already processed or wrong id)');
                     }
                 }
             } else if (message[0] === 'OK') {
@@ -519,6 +530,7 @@ const NIP46 = {
         this.clientPrivkey = null;
         this.clientPubkey = null;
         this.pendingRequests.clear();
+        this.seenEvents.clear();
     },
 
     // Sign an event (mimics window.nostr.signEvent)
@@ -532,8 +544,11 @@ const NIP46 = {
             event.pubkey = this.userPubkey;
         }
 
+        console.log('NIP-46: signEvent called for kind:', event.kind);
+
         // Send sign_event request
         const signedEvent = await this.sendRequest('sign_event', [JSON.stringify(event)]);
+        console.log('NIP-46: signEvent got response, type:', typeof signedEvent);
 
         // Parse the result (some signers return string, some return object)
         if (typeof signedEvent === 'string') {
