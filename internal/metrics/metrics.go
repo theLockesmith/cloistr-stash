@@ -14,7 +14,7 @@ var (
 	// RequestsTotal counts total HTTP requests
 	RequestsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "coldforge_drive_requests_total",
+			Name: "cloistr_drive_requests_total",
 			Help: "Total HTTP requests processed",
 		},
 		[]string{"method", "path", "status"},
@@ -23,7 +23,7 @@ var (
 	// RequestDuration tracks request latency
 	RequestDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "coldforge_drive_request_duration_seconds",
+			Name:    "cloistr_drive_request_duration_seconds",
 			Help:    "HTTP request duration in seconds",
 			Buckets: []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10},
 		},
@@ -33,7 +33,7 @@ var (
 	// ErrorsTotal counts errors by type
 	ErrorsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "coldforge_drive_errors_total",
+			Name: "cloistr_drive_errors_total",
 			Help: "Total errors by type",
 		},
 		[]string{"type"},
@@ -42,7 +42,7 @@ var (
 	// UploadsTotal counts file uploads
 	UploadsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "coldforge_drive_uploads_total",
+			Name: "cloistr_drive_uploads_total",
 			Help: "Total file uploads",
 		},
 		[]string{"status"},
@@ -51,7 +51,7 @@ var (
 	// UploadBytes tracks bytes uploaded
 	UploadBytes = promauto.NewCounter(
 		prometheus.CounterOpts{
-			Name: "coldforge_drive_upload_bytes_total",
+			Name: "cloistr_drive_upload_bytes_total",
 			Help: "Total bytes uploaded",
 		},
 	)
@@ -59,7 +59,7 @@ var (
 	// DownloadsTotal counts file downloads
 	DownloadsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "coldforge_drive_downloads_total",
+			Name: "cloistr_drive_downloads_total",
 			Help: "Total file downloads",
 		},
 		[]string{"status"},
@@ -68,7 +68,7 @@ var (
 	// ActiveConnections tracks current active connections
 	ActiveConnections = promauto.NewGauge(
 		prometheus.GaugeOpts{
-			Name: "coldforge_drive_active_connections",
+			Name: "cloistr_drive_active_connections",
 			Help: "Current number of active connections",
 		},
 	)
