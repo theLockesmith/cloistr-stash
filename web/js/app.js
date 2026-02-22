@@ -419,14 +419,18 @@ const App = {
     async verifyAuthorization() {
         try {
             // Create a simple auth header for status check
+            console.log('Auth: Creating status auth header...');
             const authHeader = await Auth.createStatusAuth();
+            console.log('Auth: Got auth header, checking status...');
             const result = await API.checkAuthStatus(authHeader);
+            console.log('Auth: Status result:', result);
 
             if (result.authorized) {
                 this.authState = 'authenticated';
                 await this.loadFiles();
                 UI.toast('Connected', 'success');
             } else {
+                console.log('Auth: Not authorized. Pubkey:', Auth.pubkey);
                 this.authState = 'denied';
                 document.getElementById('denied-pubkey').textContent = Auth.pubkey;
             }
