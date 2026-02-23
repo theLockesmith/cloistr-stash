@@ -672,6 +672,39 @@ const NIP46 = {
 
         return this.userPubkey;
     },
+
+    // Publish a signed event to all connected relays
+    async publishEvent(signedEvent) {
+        if (this.sockets.length === 0) {
+            throw new Error('Not connected to any relay');
+        }
+
+        console.log('NIP-46: Publishing event kind:', signedEvent.kind, 'id:', signedEvent.id?.slice(0, 8));
+
+        const message = JSON.stringify(['EVENT', signedEvent]);
+        const results = [];
+
+        // Publish to all connected relays
+        for (const ws of this.sockets) {
+            if (ws.readyState === WebSocket.OPEN) {
+                try {
+                    ws.send(message);
+                    results.push({ url: ws.url, sent: true });
+                } catch (err) {
+                    console.warn('NIP-46: Failed to send to', ws.url, err);
+                    results.push({ url: ws.url, sent: false, error: err.message });
+                }
+            }
+        }
+
+        const sent = results.filter(r => r.sent).length;
+        if (sent === 0) {
+            throw new Error('Failed to publish to any relay');
+        }
+
+        console.log('NIP-46: Event published to', sent, 'relay(s)');
+        return { published: sent, results };
+    },
 };
 
 // Export for use in other modules

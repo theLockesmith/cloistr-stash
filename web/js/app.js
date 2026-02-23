@@ -635,9 +635,8 @@ const App = {
                 parentId: this.currentFolderId || null,
             });
 
-            // Create auth header and publish to server
-            const authHeader = await Auth.createStatusAuth();
-            await API.createFolder(signedEvent, authHeader);
+            // Publish directly to relay (client-side)
+            await Auth.publishEvent(signedEvent);
 
             UI.toast(`Created folder "${name.trim()}"`, 'success');
 
@@ -658,9 +657,8 @@ const App = {
             // Create and sign the deletion event
             const signedEvent = await Auth.createFolderDeleteEvent(folderId);
 
-            // Create auth header and send to server
-            const authHeader = await Auth.createStatusAuth();
-            await API.deleteFolder(folderId, signedEvent, authHeader);
+            // Publish directly to relay (client-side)
+            await Auth.publishEvent(signedEvent);
 
             UI.toast(`Deleted folder "${folderName}"`, 'success');
 
@@ -822,9 +820,8 @@ const App = {
                 permission: 'download',
             });
 
-            // Create auth header and publish share
-            const authHeader = await Auth.createStatusAuth();
-            await API.createShare(signedEvent, authHeader);
+            // Publish directly to relay (client-side)
+            await Auth.publishEvent(signedEvent);
 
             // Show success
             statusEl.textContent = 'File shared successfully!';

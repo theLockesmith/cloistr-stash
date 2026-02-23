@@ -87,7 +87,7 @@ const Upload = {
                 const result = await API.uploadFile(item.file, authHeader);
                 console.log(`Upload: Server responded with sha256: ${result.sha256?.slice(0, 16)}...`);
 
-                // Step 4: Publish metadata to relay (if connected)
+                // Step 4: Publish metadata to relay (client-side, if connected)
                 if (Auth.isConnected) {
                     try {
                         console.log('Upload: Publishing metadata to relay...');
@@ -100,9 +100,8 @@ const Upload = {
                             mimeType: result.mime_type,
                             folderId: this.targetFolderId || App.currentFolderId || null,
                         });
-                        // Create auth header for metadata publish
-                        const metaAuthHeader = await Auth.createStatusAuth();
-                        await API.publishMetadata(metadataEvent, metaAuthHeader);
+                        // Publish directly to relay (client-side)
+                        await Auth.publishEvent(metadataEvent);
                         console.log('Upload: Metadata published');
                     } catch (metaErr) {
                         console.warn('Upload: Failed to publish metadata:', metaErr);

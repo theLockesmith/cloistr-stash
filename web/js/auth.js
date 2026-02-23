@@ -358,6 +358,22 @@ const Auth = {
         return this.signEvent(event);
     },
 
+    // Publish a signed event to relays (client-side publishing)
+    async publishEvent(signedEvent) {
+        if (!this.isConnected) {
+            throw new Error('Not connected');
+        }
+
+        if (this.connectionType === 'nip46') {
+            // NIP-46: Use the already-authenticated relay connections
+            return NIP46.publishEvent(signedEvent);
+        }
+
+        // NIP-07: Would need direct relay connection with NIP-42 auth
+        // For now, throw an error - this needs implementation
+        throw new Error('Direct relay publishing not yet supported for NIP-07. Use a NIP-46 signer.');
+    },
+
     // Disconnect
     disconnect() {
         // Disconnect NIP-46 if connected
