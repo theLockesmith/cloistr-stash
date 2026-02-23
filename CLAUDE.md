@@ -1,128 +1,134 @@
-# CLAUDE.md - coldforge-drive
+# CLAUDE.md - cloistr-drive
 
-**Nostr-native file manager UI - Google Drive replacement**
+**Zero-knowledge file manager - Google Drive replacement with end-to-end encryption**
+
+**Domain:** drive.cloistr.xyz
 
 ## REQUIRED READING (Before ANY Action)
 
-**Claude MUST read this file at the start of every session:**
-- `~/claude/coldforge/cloistr/CLAUDE.md` - Cloistr project rules (contains further required reading)
+**Claude MUST read these files at the start of every session:**
 
-## Documentation
+1. `~/claude/coldforge/cloistr/CLAUDE.md` - Cloistr project rules
+2. `~/claude/coldforge/cloistr/services/drive/CLAUDE.md` - **Full Drive architecture documentation**
 
-Full documentation is maintained at:
-`~/claude/coldforge/services/drive/CLAUDE.md`
-
-This file exists to help Claude Code find context when working in this repository.
-
-## What is Drive?
-
-Drive is the **user-facing file manager application** that uses coldforge-blossom as its storage backend. Think of it like:
-- **Blossom** = S3 (storage layer)
-- **Drive** = Dropbox/Google Drive UI (file organization, sharing, folders)
-
-Drive handles:
-- File/folder organization (as Nostr events)
-- Sharing with other npubs
-- File metadata (names, descriptions, tags)
-- Search and browsing UI
-
-Blossom handles:
-- Actual blob storage
-- Upload/download
-- Content addressing (SHA256)
-
-## Status
-
-**Active development** - Blossom backend is operational, building the Drive UI.
-
-## Architecture
-
-```
-┌─────────────────────────────────────────┐
-│           Browser (User)                │
-└─────────────────┬───────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────┐
-│         coldforge-drive                 │
-│                                         │
-│  web/          → Frontend UI (HTML/JS)  │
-│  internal/     → Go backend             │
-│    blossom/    → Client SDK for Blossom │
-│    metadata/   → Nostr event handling   │
-└─────────────────┬───────────────────────┘
-                  │
-        ┌─────────┴─────────┐
-        ▼                   ▼
-┌───────────────┐   ┌───────────────┐
-│ coldforge-    │   │ Nostr Relay   │
-│ blossom       │   │               │
-│               │   │ (metadata     │
-│ (file storage)│   │  events)      │
-└───────────────┘   └───────────────┘
-```
+The services/drive/CLAUDE.md contains the complete zero-knowledge architecture specification.
 
 ## Quick Reference
 
-```bash
-# Run locally
-docker-compose up
+### What is Drive?
 
-# Run tests
-go test ./...
+Drive is the **user-facing file manager** that uses Blossom as storage. Think:
+- **Blossom** = S3 (dumb blob storage)
+- **Drive** = Google Drive UI (organization, sharing, collaboration)
 
-# Build
-docker build -t coldforge-drive .
+**The key difference from Google Drive:** All encryption happens client-side. Coldforge cannot read user files.
+
+### Architecture Summary
+
 ```
+User's Nostr Key
+       │
+       └── Folder Keys (HKDF derived)
+                │
+                └── File Keys (HKDF from folder + file_id)
+                         │
+                         └── Encrypted blobs → Blossom
+```
+
+| Component | Responsibility |
+|-----------|---------------|
+| Drive (client) | Encryption, key management, UI |
+| Drive (server) | Share links, expiration, ACL |
+| Blossom | Encrypted blob storage |
+| Nostr relay | Folder/file metadata events |
+
+### Key Features (Target Architecture)
+
+| Feature | Approach |
+|---------|----------|
+| File encryption | Client-side XChaCha20-Poly1305, HKDF key derivation |
+| Sharing | NIP-44 encrypted folder keys |
+| Public links | Key in URL fragment (never sent to server) |
+| Versioning | Linked encrypted blobs, same file key |
+| Collaboration | Yjs CRDT + WebRTC + encrypted operations |
+| Search | Client-side encrypted index per folder |
+| Revocation | Full re-encrypt (cryptographically correct) |
+
+### Current State
+
+| Feature | Status |
+|---------|--------|
+| Basic file browser | **DONE** |
+| NIP-07 auth | **DONE** |
+| File upload | **DONE** (no encryption yet) |
+| Client-side encryption | **PLANNED** |
+| Folders | **PLANNED** |
+| Sharing | **PLANNED** |
+| Versioning | **PLANNED** |
+| Collaboration | **PLANNED** |
 
 ## Project Structure
 
 ```
-coldforge-drive/
+cloistr-drive/
 ├── cmd/server/main.go      # Entry point
 ├── internal/
-│   ├── server/             # HTTP server (serves UI + API)
-│   ├── blossom/            # Blossom client SDK
-│   ├── metadata/           # File/folder Nostr events
-│   ├── auth/               # NIP-46/NIP-07 auth
-│   └── config/             # Configuration
-├── web/                    # Frontend UI
-│   ├── index.html
-│   ├── css/
-│   └── js/
-└── config/                 # Config files
+│   ├── auth/               # NIP-07/NIP-46 auth, whitelist
+│   ├── blossom/            # Blossom API client
+│   ├── config/             # Configuration
+│   ├── metadata/           # Nostr relay integration
+│   ├── metrics/            # Prometheus metrics
+│   └── server/             # HTTP handlers
+└── web/                    # Frontend
+    ├── index.html
+    ├── css/
+    └── js/
+        ├── api.js          # API client
+        ├── auth.js         # Nostr auth
+        ├── upload.js       # Upload handling
+        ├── ui.js           # UI rendering
+        ├── app.js          # Main app
+        ├── crypto.js       # (planned) Encryption
+        ├── keys.js         # (planned) Key management
+        └── sharing.js      # (planned) NIP-44 sharing
 ```
 
-## Current Roadmap
+## Quick Commands
 
-1. **Blossom client SDK** - Go client to upload/download from Blossom
-2. **Web frontend** - File browser with upload/download
-3. **File upload flow** - Drag-and-drop → Blossom
-4. **Folder management** - Create, rename, move folders (Nostr events)
-5. **File metadata** - Names, descriptions, tags (Nostr events)
-6. **Sharing** - Share files/folders with other npubs
+```bash
+# Run locally
+cp config.example.yml config.yml
+go run ./cmd/server
 
-## Agents
+# Run tests
+go test ./...
 
-This repo has a `.claude` symlink pointing to `~/claude/coldforge/.claude`, which provides access to Coldforge-specific agents:
-- **explore** - Research code and NIPs
-- **docker** - Create/update Dockerfiles
-- **atlas-deploy** - Kubernetes deployment via Atlas
-- **service-init** - Scaffold new services
+# Build Docker
+docker build -t cloistr-drive .
+```
 
-Global agents (reviewer, security, tester, test-writer, debugger, documenter) are always available.
+## Deployment
 
-## Autonomous Work Mode (CRITICAL)
+ArgoCD GitOps via cloistr-config:
+- **Namespace:** cloistr
+- **Tunnel:** drive.cloistr.xyz via cloistr-tunnel
+
+```bash
+# Deploy via Atlas
+atlas kube apply cloistr-drive --kube-context atlantis
+```
+
+## Autonomous Work Mode
 
 **Work autonomously. Do NOT stop to ask what to do next.**
 
-- Keep working until the task is complete or you hit a genuine blocker
-- Make reasonable decisions - don't ask for permission on obvious choices
-- If tests fail, fix them. If code needs review, use the reviewer agent. Keep going.
+- Read services/drive/CLAUDE.md for full architecture
+- Follow the implementation phases documented there
+- Make reasonable decisions without asking
 - Update documentation as you make progress
 
 ## See Also
 
-- Blossom (storage): `~/claude/coldforge/services/blossom/CLAUDE.md`
-- Drive service docs: `~/claude/coldforge/services/drive/CLAUDE.md`
-- Coldforge Overview: `~/claude/coldforge/CLAUDE.md`
+- **Full architecture:** `~/claude/coldforge/cloistr/services/drive/CLAUDE.md`
+- **Blossom storage:** `~/Development/cloistr-blossom/CLAUDE.md`
+- **Cloistr overview:** `~/claude/coldforge/cloistr/CLAUDE.md`
