@@ -42,6 +42,32 @@ const Auth = {
         }
     },
 
+    // Check if there's a saved NIP-46 session
+    hasSavedSession() {
+        return typeof NIP46 !== 'undefined' && NIP46.hasSavedSession();
+    },
+
+    // Restore a saved NIP-46 session
+    async restoreSession() {
+        if (typeof NIP46 === 'undefined') {
+            return false;
+        }
+
+        try {
+            const pubkey = await NIP46.restoreSession();
+            if (pubkey) {
+                this.pubkey = pubkey;
+                this.isConnected = true;
+                this.connectionType = 'nip46';
+                return true;
+            }
+            return false;
+        } catch (err) {
+            console.error('Failed to restore session:', err);
+            return false;
+        }
+    },
+
     // Sign a Nostr event (works with both NIP-07 and NIP-46)
     async signEvent(event) {
         if (!this.isConnected) {

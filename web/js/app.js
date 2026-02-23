@@ -23,6 +23,20 @@ const App = {
         this.setupEventListeners();
         this.setupDragAndDrop();
 
+        // Try to restore saved session
+        if (Auth.hasSavedSession()) {
+            console.log('Found saved session, attempting to restore...');
+            try {
+                const restored = await Auth.restoreSession();
+                if (restored) {
+                    console.log('Session restored, verifying authorization...');
+                    await this.verifyAuthorization();
+                }
+            } catch (err) {
+                console.error('Failed to restore session:', err);
+            }
+        }
+
         // Update UI to initial state
         this.updateAuthUI();
     },

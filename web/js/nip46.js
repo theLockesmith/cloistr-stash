@@ -510,11 +510,117 @@ const NIP46 = {
         this.userPubkey = await this.sendRequest('get_public_key', []);
         this.connected = true;
 
+        // Save session for persistence
+        this.saveSession();
+
         return this.userPubkey;
+    },
+
+    // Session persistence storage key
+    STORAGE_KEY: 'cloistr_nip46_session',
+
+    // Save session to localStorage
+    saveSession() {
+        if (!this.connected || !this.userPubkey) return;
+
+        const session = {
+            remotePubkey: this.remotePubkey,
+            relayUrls: this.relayUrls,
+            secret: this.secret,
+            userPubkey: this.userPubkey,
+            clientPrivkey: this.clientPrivkey,
+            clientPubkey: this.clientPubkey,
+        };
+
+        try {
+            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(session));
+            console.log('NIP-46: Session saved');
+        } catch (err) {
+            console.warn('NIP-46: Failed to save session:', err);
+        }
+    },
+
+    // Load session from localStorage
+    loadSession() {
+        try {
+            const data = localStorage.getItem(this.STORAGE_KEY);
+            if (!data) return null;
+
+            const session = JSON.parse(data);
+            if (!session.remotePubkey || !session.relayUrls || !session.clientPrivkey) {
+                return null;
+            }
+
+            return session;
+        } catch (err) {
+            console.warn('NIP-46: Failed to load session:', err);
+            return null;
+        }
+    },
+
+    // Clear saved session
+    clearSession() {
+        try {
+            localStorage.removeItem(this.STORAGE_KEY);
+            console.log('NIP-46: Session cleared');
+        } catch (err) {
+            console.warn('NIP-46: Failed to clear session:', err);
+        }
+    },
+
+    // Restore a saved session (reconnect without user interaction)
+    async restoreSession() {
+        const session = this.loadSession();
+        if (!session) {
+            return null;
+        }
+
+        console.log('NIP-46: Restoring session...');
+
+        try {
+            // Wait for secp256k1 library
+            await this.waitForSecp256k1();
+
+            // Restore state from saved session
+            this.remotePubkey = session.remotePubkey;
+            this.relayUrls = session.relayUrls;
+            this.secret = session.secret;
+            this.userPubkey = session.userPubkey;
+            this.clientPrivkey = session.clientPrivkey;
+            this.clientPubkey = session.clientPubkey;
+
+            // Connect to relays
+            await this.connectRelays(this.relayUrls);
+
+            // Subscribe to responses
+            this.subscribeToResponses();
+
+            // Send connect request to re-establish session
+            await this.sendRequest('connect', [this.clientPubkey, this.secret]);
+
+            this.connected = true;
+            console.log('NIP-46: Session restored successfully');
+
+            return this.userPubkey;
+        } catch (err) {
+            console.error('NIP-46: Failed to restore session:', err);
+            // Clear invalid session
+            this.clearSession();
+            this.disconnect();
+            return null;
+        }
+    },
+
+    // Check if there's a saved session
+    hasSavedSession() {
+        return this.loadSession() !== null;
     },
 
     // Disconnect from bunker
     disconnect() {
+        // Clear saved session
+        this.clearSession();
+
         // Close all relay connections
         this.sockets.forEach(ws => {
             if (ws && ws.readyState === WebSocket.OPEN) {
