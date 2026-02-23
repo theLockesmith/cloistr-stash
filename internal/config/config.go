@@ -32,7 +32,8 @@ type ServerConfig struct {
 
 // BlossomConfig represents the Blossom backend configuration
 type BlossomConfig struct {
-	URL string `yaml:"url"`
+	URL       string `yaml:"url"`        // Internal URL for server-to-server communication
+	PublicURL string `yaml:"public_url"` // Public URL returned to clients
 }
 
 // RelayConfig represents Nostr relay configuration for metadata
@@ -84,6 +85,9 @@ func Load(path string) (*Config, error) {
 	}
 	if blossomURL := os.Getenv("DRIVE_BLOSSOM_URL"); blossomURL != "" {
 		cfg.Blossom.URL = blossomURL
+	}
+	if blossomPublicURL := os.Getenv("DRIVE_BLOSSOM_PUBLIC_URL"); blossomPublicURL != "" {
+		cfg.Blossom.PublicURL = blossomPublicURL
 	}
 	if relayURL := os.Getenv("DRIVE_RELAY_URL"); relayURL != "" {
 		cfg.Relay.URL = relayURL
