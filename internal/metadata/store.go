@@ -20,6 +20,11 @@ type Store struct {
 
 	// Local cache of file metadata by pubkey
 	cache map[string][]*FileMetadata
+
+	// Connection management
+	connMu      sync.Mutex
+	baseCtx     context.Context
+	cancelFunc  context.CancelFunc
 }
 
 // NewStore creates a new metadata store
@@ -33,7 +38,18 @@ func NewStore(relayURL string, logger *slog.Logger) *Store {
 
 // Connect establishes connection to the relay
 func (s *Store) Connect(ctx context.Context) error {
-	relay, err := nostr.RelayConnect(ctx, s.relayURL)
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+
+	// Store base context for reconnection
+	s.baseCtx, s.cancelFunc = context.WithCancel(ctx)
+
+	return s.connectLocked()
+}
+
+// connectLocked performs the actual connection (must hold connMu)
+func (s *Store) connectLocked() error {
+	relay, err := nostr.RelayConnect(s.baseCtx, s.relayURL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to relay: %w", err)
 	}
@@ -42,18 +58,55 @@ func (s *Store) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Close closes the relay connection
-func (s *Store) Close() {
+// ensureConnected checks connection and reconnects if needed
+func (s *Store) ensureConnected() error {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+
+	// Check if we have a connection and it's still alive
+	if s.relay != nil && s.relay.IsConnected() {
+		return nil
+	}
+
+	// Need to reconnect
+	if s.relay != nil {
+		s.logger.Warn("relay connection lost, reconnecting", "url", s.relayURL)
+	}
+
+	// Close old connection if any
 	if s.relay != nil {
 		s.relay.Close()
+		s.relay = nil
+	}
+
+	// Reconnect
+	if err := s.connectLocked(); err != nil {
+		return fmt.Errorf("failed to reconnect to relay: %w", err)
+	}
+
+	s.logger.Info("reconnected to relay", "url", s.relayURL)
+	return nil
+}
+
+// Close closes the relay connection
+func (s *Store) Close() {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+
+	if s.cancelFunc != nil {
+		s.cancelFunc()
+	}
+	if s.relay != nil {
+		s.relay.Close()
+		s.relay = nil
 	}
 }
 
 // PublishFile publishes file metadata to the relay
 // The event must be signed by the caller before passing to this function
 func (s *Store) PublishFile(ctx context.Context, event *nostr.Event) error {
-	if s.relay == nil {
-		return fmt.Errorf("not connected to relay")
+	if err := s.ensureConnected(); err != nil {
+		return err
 	}
 
 	if err := s.relay.Publish(ctx, *event); err != nil {
@@ -151,8 +204,8 @@ func ParseFileEvent(event *nostr.Event) (*FileMetadata, error) {
 
 // ListFiles queries the relay for all files owned by a pubkey
 func (s *Store) ListFiles(ctx context.Context, pubkey string) ([]*FileMetadata, error) {
-	if s.relay == nil {
-		return nil, fmt.Errorf("not connected to relay")
+	if err := s.ensureConnected(); err != nil {
+		return nil, err
 	}
 
 	// Create subscription filter
@@ -212,8 +265,8 @@ func (s *Store) ListFiles(ctx context.Context, pubkey string) ([]*FileMetadata, 
 
 // GetFile retrieves a specific file's metadata
 func (s *Store) GetFile(ctx context.Context, pubkey, identifier string) (*FileMetadata, error) {
-	if s.relay == nil {
-		return nil, fmt.Errorf("not connected to relay")
+	if err := s.ensureConnected(); err != nil {
+		return nil, err
 	}
 
 	// Create filter for specific file
@@ -242,8 +295,8 @@ func (s *Store) GetFile(ctx context.Context, pubkey, identifier string) (*FileMe
 // DeleteFile publishes a deletion event for a file
 // In Nostr, we publish a kind 5 deletion event referencing the file event
 func (s *Store) DeleteFile(ctx context.Context, event *nostr.Event) error {
-	if s.relay == nil {
-		return fmt.Errorf("not connected to relay")
+	if err := s.ensureConnected(); err != nil {
+		return err
 	}
 
 	if err := s.relay.Publish(ctx, *event); err != nil {
@@ -335,8 +388,8 @@ func ParseFolderEvent(event *nostr.Event) (*FolderMetadata, error) {
 // PublishFolder publishes folder metadata to the relay
 // The event must be signed by the caller before passing to this function
 func (s *Store) PublishFolder(ctx context.Context, event *nostr.Event) error {
-	if s.relay == nil {
-		return fmt.Errorf("not connected to relay")
+	if err := s.ensureConnected(); err != nil {
+		return err
 	}
 
 	if err := s.relay.Publish(ctx, *event); err != nil {
@@ -353,8 +406,8 @@ func (s *Store) PublishFolder(ctx context.Context, event *nostr.Event) error {
 
 // ListFolders queries the relay for all folders owned by a pubkey
 func (s *Store) ListFolders(ctx context.Context, pubkey string) ([]*FolderMetadata, error) {
-	if s.relay == nil {
-		return nil, fmt.Errorf("not connected to relay")
+	if err := s.ensureConnected(); err != nil {
+		return nil, err
 	}
 
 	filter := nostr.Filter{
@@ -407,8 +460,8 @@ func (s *Store) ListFolders(ctx context.Context, pubkey string) ([]*FolderMetada
 
 // GetFolder retrieves a specific folder's metadata
 func (s *Store) GetFolder(ctx context.Context, pubkey, identifier string) (*FolderMetadata, error) {
-	if s.relay == nil {
-		return nil, fmt.Errorf("not connected to relay")
+	if err := s.ensureConnected(); err != nil {
+		return nil, err
 	}
 
 	filter := nostr.Filter{
@@ -448,8 +501,8 @@ func CreateDeleteFolderEvent(pubkey, folderIdentifier string) *nostr.Event {
 
 // ListFilesInFolder queries files in a specific folder
 func (s *Store) ListFilesInFolder(ctx context.Context, pubkey, folderID string) ([]*FileMetadata, error) {
-	if s.relay == nil {
-		return nil, fmt.Errorf("not connected to relay")
+	if err := s.ensureConnected(); err != nil {
+		return nil, err
 	}
 
 	filter := nostr.Filter{
@@ -571,8 +624,8 @@ func ParseShareEvent(event *nostr.Event) (*FileShare, error) {
 // PublishShare publishes a file share event to the relay
 // The event must be signed by the caller before passing to this function
 func (s *Store) PublishShare(ctx context.Context, event *nostr.Event) error {
-	if s.relay == nil {
-		return fmt.Errorf("not connected to relay")
+	if err := s.ensureConnected(); err != nil {
+		return err
 	}
 
 	if err := s.relay.Publish(ctx, *event); err != nil {
@@ -589,8 +642,8 @@ func (s *Store) PublishShare(ctx context.Context, event *nostr.Event) error {
 
 // ListSharedWithMe queries shares where the given pubkey is the recipient
 func (s *Store) ListSharedWithMe(ctx context.Context, recipientPubkey string) ([]*FileShare, error) {
-	if s.relay == nil {
-		return nil, fmt.Errorf("not connected to relay")
+	if err := s.ensureConnected(); err != nil {
+		return nil, err
 	}
 
 	filter := nostr.Filter{
@@ -648,8 +701,8 @@ func (s *Store) ListSharedWithMe(ctx context.Context, recipientPubkey string) ([
 
 // ListMyShares queries shares created by the given pubkey
 func (s *Store) ListMyShares(ctx context.Context, ownerPubkey string) ([]*FileShare, error) {
-	if s.relay == nil {
-		return nil, fmt.Errorf("not connected to relay")
+	if err := s.ensureConnected(); err != nil {
+		return nil, err
 	}
 
 	filter := nostr.Filter{
