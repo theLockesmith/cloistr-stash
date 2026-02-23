@@ -458,4 +458,59 @@ const UI = {
             }
         });
     },
+
+    // Show floating upload progress indicator
+    showUploadProgress(current, total) {
+        let indicator = document.getElementById('upload-progress-indicator');
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.id = 'upload-progress-indicator';
+            indicator.className = 'upload-progress-indicator';
+            indicator.innerHTML = `
+                <div class="upload-progress-content">
+                    <div class="upload-progress-spinner"></div>
+                    <div class="upload-progress-text">
+                        <span class="upload-progress-status">Preparing upload...</span>
+                        <span class="upload-progress-count">${current} / ${total}</span>
+                    </div>
+                </div>
+                <div class="upload-progress-bar-container">
+                    <div class="upload-progress-bar" style="width: 0%"></div>
+                </div>
+            `;
+            document.body.appendChild(indicator);
+        }
+
+        indicator.classList.remove('hidden');
+        this.updateUploadProgress(current, total);
+    },
+
+    // Update floating upload progress
+    updateUploadProgress(current, total, statusText) {
+        const indicator = document.getElementById('upload-progress-indicator');
+        if (!indicator) return;
+
+        const status = indicator.querySelector('.upload-progress-status');
+        const count = indicator.querySelector('.upload-progress-count');
+        const bar = indicator.querySelector('.upload-progress-bar');
+
+        if (statusText && status) {
+            status.textContent = statusText;
+        }
+        if (count) {
+            count.textContent = `${current} / ${total}`;
+        }
+        if (bar && total > 0) {
+            const percent = Math.round((current / total) * 100);
+            bar.style.width = `${percent}%`;
+        }
+    },
+
+    // Hide floating upload progress
+    hideUploadProgress() {
+        const indicator = document.getElementById('upload-progress-indicator');
+        if (indicator) {
+            indicator.classList.add('hidden');
+        }
+    },
 };
