@@ -83,7 +83,9 @@ const Upload = {
                             mimeType: result.mime_type,
                             folderId: this.targetFolderId || App.currentFolderId || null,
                         });
-                        await API.publishMetadata(metadataEvent);
+                        // Create auth header for metadata publish
+                        const metaAuthHeader = await Auth.createStatusAuth();
+                        await API.publishMetadata(metadataEvent, metaAuthHeader);
                     } catch (metaErr) {
                         console.warn('Failed to publish metadata:', metaErr);
                         // Continue even if metadata fails - file is still uploaded

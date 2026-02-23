@@ -43,12 +43,17 @@ const API = {
     },
 
     // Publish file metadata event to relay
-    async publishMetadata(signedEvent) {
+    async publishMetadata(signedEvent, authHeader) {
+        const headers = {
+            'Content-Type': 'application/json',
+        };
+        if (authHeader) {
+            headers['Authorization'] = authHeader;
+        }
+
         const response = await fetch(`${this.baseURL}/api/metadata`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: headers,
             body: JSON.stringify(signedEvent),
         });
 
@@ -137,12 +142,17 @@ const API = {
     },
 
     // Create a folder by publishing a signed folder event
-    async createFolder(signedEvent) {
+    async createFolder(signedEvent, authHeader) {
+        const headers = {
+            'Content-Type': 'application/json',
+        };
+        if (authHeader) {
+            headers['Authorization'] = authHeader;
+        }
+
         const response = await fetch(`${this.baseURL}/api/folders`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: headers,
             body: JSON.stringify(signedEvent),
         });
 
@@ -166,12 +176,17 @@ const API = {
     },
 
     // Delete a folder by publishing a signed deletion event
-    async deleteFolder(id, signedEvent) {
+    async deleteFolder(id, signedEvent, authHeader) {
+        const headers = {
+            'Content-Type': 'application/json',
+        };
+        if (authHeader) {
+            headers['Authorization'] = authHeader;
+        }
+
         const response = await fetch(`${this.baseURL}/api/folders/${id}`, {
             method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: headers,
             body: JSON.stringify(signedEvent),
         });
 
@@ -210,12 +225,17 @@ const API = {
     },
 
     // Create a share by publishing a signed share event
-    async createShare(signedEvent) {
+    async createShare(signedEvent, authHeader) {
+        const headers = {
+            'Content-Type': 'application/json',
+        };
+        if (authHeader) {
+            headers['Authorization'] = authHeader;
+        }
+
         const response = await fetch(`${this.baseURL}/api/shares`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: headers,
             body: JSON.stringify(signedEvent),
         });
 
@@ -228,12 +248,17 @@ const API = {
     },
 
     // Revoke a share
-    async revokeShare(shareId, signedEvent) {
+    async revokeShare(shareId, signedEvent, authHeader) {
+        const headers = {
+            'Content-Type': 'application/json',
+        };
+        if (authHeader) {
+            headers['Authorization'] = authHeader;
+        }
+
         const response = await fetch(`${this.baseURL}/api/shares/${shareId}`, {
             method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: headers,
             body: JSON.stringify(signedEvent),
         });
 
