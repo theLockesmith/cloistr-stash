@@ -521,6 +521,7 @@ const App = {
                 await Versioning.init();
 
                 await this.loadFiles();
+                await this.loadFolderTree();
                 UI.toast('Connected', 'success');
             } else {
                 console.log('Auth: Not authorized. Pubkey:', Auth.pubkey);
@@ -740,6 +741,7 @@ const App = {
 
             // Reload to show new folder
             await this.loadFiles();
+            await this.loadFolderTree();
         } catch (err) {
             console.error('Failed to create folder:', err);
             UI.toast(`Failed to create folder: ${err.message}`, 'error');
@@ -762,9 +764,162 @@ const App = {
 
             // Reload to update view
             await this.loadFiles();
+            await this.loadFolderTree();
         } catch (err) {
             console.error('Failed to delete folder:', err);
             UI.toast(`Failed to delete folder: ${err.message}`, 'error');
+        }
+    },
+
+    // Folder tree state
+    folderTreeData: [],
+    expandedFolders: new Set(),
+
+    // Load folder tree
+    async loadFolderTree() {
+        if (!Auth.isConnected) return;
+
+        try {
+            const result = await API.listFolders(Auth.pubkey);
+            this.folderTreeData = result.folders || [];
+            this.renderFolderTree();
+        } catch (err) {
+            console.error('Failed to load folder tree:', err);
+        }
+    },
+
+    // Render folder tree
+    renderFolderTree() {
+        const container = document.getElementById('folder-tree-root');
+        if (!container) return;
+
+        // Build tree structure
+        const tree = this.buildFolderTree(this.folderTreeData);
+        container.innerHTML = this.renderFolderTreeItems(tree, '');
+        this.attachFolderTreeEvents();
+    },
+
+    // Build hierarchical tree from flat folder list
+    buildFolderTree(folders) {
+        const map = new Map();
+        const roots = [];
+
+        // First pass: create map
+        folders.forEach(folder => {
+            map.set(folder.id, { ...folder, children: [] });
+        });
+
+        // Second pass: build hierarchy
+        folders.forEach(folder => {
+            const node = map.get(folder.id);
+            if (folder.parent_id && map.has(folder.parent_id)) {
+                map.get(folder.parent_id).children.push(node);
+            } else {
+                roots.push(node);
+            }
+        });
+
+        return roots;
+    },
+
+    // Render folder tree items recursively
+    renderFolderTreeItems(folders, parentId) {
+        if (!folders || folders.length === 0) {
+            return '';
+        }
+
+        return folders.map(folder => {
+            const hasChildren = folder.children && folder.children.length > 0;
+            const isExpanded = this.expandedFolders.has(folder.id);
+            const isActive = this.currentFolderId === folder.id;
+
+            let html = `
+                <div class="folder-tree-item ${isActive ? 'active' : ''}" data-id="${folder.id}" data-name="${UI.escapeHtml(folder.name)}">
+                    ${hasChildren ? `<span class="folder-tree-toggle ${isExpanded ? 'expanded' : ''}">&#9654;</span>` : '<span class="folder-tree-toggle"></span>'}
+                    <span class="folder-tree-icon">&#128193;</span>
+                    <span class="folder-tree-name">${UI.escapeHtml(folder.name)}</span>
+                </div>
+            `;
+
+            if (hasChildren) {
+                html += `<div class="folder-tree-children ${isExpanded ? '' : 'collapsed'}">${this.renderFolderTreeItems(folder.children, folder.id)}</div>`;
+            }
+
+            return html;
+        }).join('');
+    },
+
+    // Attach event listeners to folder tree items
+    attachFolderTreeEvents() {
+        const tree = document.getElementById('folder-tree');
+        if (!tree) return;
+
+        // Root folder click
+        const rootItem = tree.querySelector('.folder-tree-item.root');
+        if (rootItem) {
+            rootItem.addEventListener('click', () => {
+                this.openFolder('', 'My Drive');
+                this.updateFolderTreeActive('');
+            });
+        }
+
+        // Folder items
+        tree.querySelectorAll('.folder-tree-item:not(.root)').forEach(item => {
+            const folderId = item.dataset.id;
+            const folderName = item.dataset.name;
+
+            // Toggle expand/collapse on toggle click
+            const toggle = item.querySelector('.folder-tree-toggle');
+            if (toggle && toggle.textContent.trim()) {
+                toggle.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.toggleFolderExpand(folderId);
+                });
+            }
+
+            // Navigate on item click
+            item.addEventListener('click', () => {
+                this.openFolder(folderId, folderName);
+                this.updateFolderTreeActive(folderId);
+            });
+        });
+
+        // Sidebar toggle
+        const toggleBtn = document.getElementById('sidebar-toggle');
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', () => {
+                this.toggleSidebar();
+            });
+        }
+    },
+
+    // Toggle folder expand/collapse
+    toggleFolderExpand(folderId) {
+        if (this.expandedFolders.has(folderId)) {
+            this.expandedFolders.delete(folderId);
+        } else {
+            this.expandedFolders.add(folderId);
+        }
+        this.renderFolderTree();
+    },
+
+    // Update active state in folder tree
+    updateFolderTreeActive(folderId) {
+        document.querySelectorAll('.folder-tree-item').forEach(item => {
+            item.classList.toggle('active', item.dataset.id === folderId);
+        });
+        // Update root active state
+        const root = document.querySelector('.folder-tree-item.root');
+        if (root) {
+            root.classList.toggle('active', folderId === '');
+        }
+    },
+
+    // Toggle sidebar visibility
+    toggleSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar) {
+            sidebar.classList.toggle('collapsed');
         }
     },
 

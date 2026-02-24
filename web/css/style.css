@@ -1946,3 +1946,129 @@ body {
 .preview-unsupported p {
     margin-bottom: 1rem;
 }
+
+/* ============================================
+   Folder Tree Sidebar
+   ============================================ */
+.explorer-content {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.sidebar {
+    width: 240px;
+    min-width: 200px;
+    background-color: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: width 0.2s ease, min-width 0.2s ease;
+}
+
+.sidebar.collapsed {
+    width: 0;
+    min-width: 0;
+    border-right: none;
+}
+
+.sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.sidebar-title {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.sidebar-toggle {
+    padding: 0.25rem;
+    font-size: 1rem;
+}
+
+.folder-tree {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.5rem 0;
+}
+
+.folder-tree-item {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    transition: background-color 0.15s ease;
+}
+
+.folder-tree-item:hover {
+    background-color: var(--bg-tertiary);
+}
+
+.folder-tree-item.active {
+    background-color: var(--bg-tertiary);
+    color: var(--accent-primary);
+}
+
+.folder-tree-item.root {
+    font-weight: 600;
+}
+
+.folder-tree-icon {
+    margin-right: 0.5rem;
+    font-size: 1rem;
+}
+
+.folder-tree-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.folder-tree-toggle {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 0.25rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 0.625rem;
+    transition: transform 0.15s ease;
+}
+
+.folder-tree-toggle.expanded {
+    transform: rotate(90deg);
+}
+
+.folder-tree-children {
+    padding-left: 1rem;
+}
+
+.folder-tree-children.collapsed {
+    display: none;
+}
+
+.folder-tree-empty {
+    padding: 0.5rem 1rem 0.5rem 2rem;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-style: italic;
+}
+
+/* Main content adjustment when sidebar is present */
+.explorer-content .main {
+    flex: 1;
+    overflow: hidden;
+}

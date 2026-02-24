@@ -79,7 +79,23 @@
                 </div>
             </header>
 
-            <main class="main">
+            <div class="explorer-content">
+                <!-- Folder Tree Sidebar -->
+                <aside class="sidebar" id="sidebar">
+                    <div class="sidebar-header">
+                        <span class="sidebar-title">Folders</span>
+                        <button id="sidebar-toggle" class="btn btn-icon sidebar-toggle" title="Toggle sidebar">&#9776;</button>
+                    </div>
+                    <div class="folder-tree" id="folder-tree">
+                        <div class="folder-tree-item root" data-id="">
+                            <span class="folder-tree-icon">&#128193;</span>
+                            <span class="folder-tree-name">My Drive</span>
+                        </div>
+                        <div class="folder-tree-children" id="folder-tree-root"></div>
+                    </div>
+                </aside>
+
+                <main class="main">
                 <div class="toolbar">
                     <div class="toolbar-left">
                         <button id="upload-btn" class="btn btn-primary">
@@ -124,7 +140,8 @@
                         </div>
                     </div>
                 </div>
-            </main>
+                </main>
+            </div>
         </div>
 
         <!-- NIP-46 Connection Modal -->
