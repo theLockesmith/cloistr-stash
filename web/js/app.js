@@ -414,6 +414,11 @@ const App = {
                         created_at: share.created_at,
                         expires_at: share.expires_at,
                         permission: share.permission,
+                        // Encryption fields for shared files
+                        encrypted: content.encrypted || false,
+                        file_id: content.fileId,
+                        fileKey: content.fileKey,  // Decryption key from sharer
+                        isShared: true,
                     });
                 } catch (decryptErr) {
                     console.warn('Failed to decrypt share:', decryptErr);
@@ -1073,47 +1078,54 @@ const App = {
         }
     },
 
-    // Download a shared file (may need different key handling)
+    // Download a shared file using the key from the share
     async downloadSharedFile(file) {
         try {
-            // For shared files, we need to get the key from the share event
-            // This will be implemented when we add NIP-44 folder key sharing
-            // For now, fall back to direct download (unencrypted shares)
+            UI.toast(`Downloading shared file ${file.name}...`, 'info');
 
-            if (file.folder_key) {
-                // We have the folder key from the share
-                UI.toast(`Downloading shared file ${file.name}...`, 'info');
+            const downloadUrl = file.url || API.getDownloadURL(file.sha256);
+            const response = await fetch(downloadUrl);
 
-                const downloadUrl = file.url || API.getDownloadURL(file.sha256);
-                const response = await fetch(downloadUrl);
-
-                if (!response.ok) {
-                    throw new Error(`Download failed: ${response.status}`);
-                }
-
-                const encryptedData = await response.arrayBuffer();
-                const folderKey = Crypto.base64ToBytes(file.folder_key);
-                const fileKey = await Keys.deriveKey(folderKey, file.file_id || file.sha256, Keys.CONTEXT_FILE);
-                const decryptedData = await Crypto.decryptFile(encryptedData, fileKey);
-
-                const mimeType = file.mime_type || 'application/octet-stream';
-                const blob = new Blob([decryptedData], { type: mimeType });
-                const url = URL.createObjectURL(blob);
-
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = file.name;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-
-                URL.revokeObjectURL(url);
-                UI.toast(`Downloaded ${file.name}`, 'success');
-            } else {
-                // No encryption key, try direct download
-                const downloadUrl = file.url || API.getDownloadURL(file.sha256);
-                window.open(downloadUrl, '_blank');
+            if (!response.ok) {
+                throw new Error(`Download failed: ${response.status}`);
             }
+
+            const encryptedData = await response.arrayBuffer();
+            let decryptedData;
+
+            // Check if file is encrypted and we have the key
+            if (file.encrypted && file.fileKey) {
+                UI.toast(`Decrypting ${file.name}...`, 'info');
+
+                // Convert hex key to bytes
+                const fileKey = Crypto.hexToBytes(file.fileKey);
+
+                // Decrypt the file
+                decryptedData = await Crypto.decryptFile(encryptedData, fileKey);
+
+                // Wipe key from memory
+                Crypto.wipeKey(fileKey);
+
+                console.log(`Shared download: Decrypted to ${decryptedData.byteLength} bytes`);
+            } else {
+                // Not encrypted or no key provided
+                decryptedData = new Uint8Array(encryptedData);
+            }
+
+            // Create blob and trigger download
+            const mimeType = file.mime_type || 'application/octet-stream';
+            const blob = new Blob([decryptedData], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = file.name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            URL.revokeObjectURL(url);
+            UI.toast(`Downloaded ${file.name}`, 'success');
 
         } catch (err) {
             console.error('Download shared file failed:', err);

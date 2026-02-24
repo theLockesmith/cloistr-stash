@@ -484,8 +484,8 @@ const UI = {
 
         body.innerHTML = html;
 
-        // Add event listeners
-        this.attachSharedFileEventListeners(body);
+        // Add event listeners - pass files for key access
+        this.attachSharedFileEventListeners(body, files);
     },
 
     // Render shared file as list item
@@ -496,9 +496,11 @@ const UI = {
         const ownerShort = file.owner_pubkey ? file.owner_pubkey.slice(0, 8) + '...' : '';
         const expiration = file.expires_at ? Sharing.formatExpiration(file.expires_at) : '';
         const isExpired = file.expires_at && Sharing.isShareExpired(file);
+        // Can download if not expired and either not encrypted or has key
+        const canDownload = !isExpired && (!file.encrypted || file.fileKey);
 
         return `
-            <div class="file-item shared-item ${isExpired ? 'expired' : ''}" data-sha256="${file.sha256 || ''}" data-url="${file.url || ''}" data-encrypted="${file.encrypted || false}">
+            <div class="file-item shared-item ${isExpired ? 'expired' : ''}" data-id="${file.id || ''}" data-sha256="${file.sha256 || ''}" data-encrypted="${file.encrypted || false}">
                 <div class="file-col file-name">
                     <span class="file-icon">${icon}</span>
                     <span class="file-name-text">${this.escapeHtml(file.name)}</span>
@@ -508,7 +510,7 @@ const UI = {
                 <div class="file-col file-size">${size}</div>
                 <div class="file-col file-date">${date}</div>
                 <div class="file-col file-actions">
-                    <button class="action-btn download-btn" ${file.encrypted || isExpired ? 'disabled' : ''}>Download</button>
+                    <button class="action-btn download-btn" ${canDownload ? '' : 'disabled'}>Download</button>
                 </div>
             </div>
         `;
@@ -518,28 +520,33 @@ const UI = {
     renderSharedFileGridItem(file) {
         const icon = file.encrypted ? '&#128274;' : Upload.getFileIcon(file.mime_type);
         const name = file.name || '(Encrypted)';
+        const isExpired = file.expires_at && Sharing.isShareExpired(file);
+        const canDownload = !isExpired && (!file.encrypted || file.fileKey);
 
         return `
-            <div class="grid-item shared-item" data-sha256="${file.sha256 || ''}" data-url="${file.url || ''}" data-encrypted="${file.encrypted || false}">
+            <div class="grid-item shared-item ${isExpired ? 'expired' : ''}" data-id="${file.id || ''}" data-sha256="${file.sha256 || ''}" data-encrypted="${file.encrypted || false}">
                 <div class="grid-item-icon">${icon}</div>
                 <div class="grid-item-name">${this.escapeHtml(name)}</div>
                 <div class="grid-item-actions">
-                    <button class="action-btn download-btn" title="Download" ${file.encrypted ? 'disabled' : ''}>↓</button>
+                    <button class="action-btn download-btn" title="Download" ${canDownload ? '' : 'disabled'}>↓</button>
                 </div>
             </div>
         `;
     },
 
     // Attach event listeners to shared file items
-    attachSharedFileEventListeners(container) {
+    attachSharedFileEventListeners(container, sharedFiles) {
         container.querySelectorAll('.shared-item').forEach(item => {
-            const url = item.dataset.url;
-            const encrypted = item.dataset.encrypted === 'true';
+            const shareId = item.dataset.id;
+            const sha256 = item.dataset.sha256;
 
-            if (!encrypted && url) {
+            // Find the file object to get all properties including fileKey
+            const file = sharedFiles.find(f => f.id === shareId || f.sha256 === sha256);
+
+            if (file) {
                 item.querySelector('.download-btn')?.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    window.open(url, '_blank');
+                    App.downloadSharedFile(file);
                 });
             }
         });

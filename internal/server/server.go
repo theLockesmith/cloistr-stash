@@ -1028,7 +1028,24 @@ func (s *Server) handlePublicLink(w http.ResponseWriter, r *http.Request) {
     <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/sodium.js"></script>
     <script>
         const sha256 = '` + sha256 + `';
-        const apiUrl = '/api/files/' + sha256 + '/download';
+        const downloadUrl = '/api/files/' + sha256 + '/download';
+        const metadataUrl = '/api/public/' + sha256;
+        let fileMetadata = null;
+
+        // Try to get file metadata on page load
+        (async function() {
+            try {
+                const resp = await fetch(metadataUrl);
+                if (resp.ok) {
+                    fileMetadata = await resp.json();
+                    if (fileMetadata.name) {
+                        document.querySelector('h1').textContent = fileMetadata.name;
+                    }
+                }
+            } catch (e) {
+                console.log('Could not fetch metadata');
+            }
+        })();
 
         async function downloadAndDecrypt() {
             const btn = document.getElementById('download-btn');
@@ -1057,7 +1074,7 @@ func (s *Server) handlePublicLink(w http.ResponseWriter, r *http.Request) {
                 }
 
                 // Download encrypted file
-                const response = await fetch(apiUrl);
+                const response = await fetch(downloadUrl);
                 if (!response.ok) throw new Error('Download failed: ' + response.status);
 
                 status.textContent = 'Decrypting...';
@@ -1068,12 +1085,16 @@ func (s *Server) handlePublicLink(w http.ResponseWriter, r *http.Request) {
                 const ciphertext = encrypted.slice(sodium.crypto_secretbox_NONCEBYTES);
                 const decrypted = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
 
+                // Get filename from metadata or use default
+                const filename = (fileMetadata && fileMetadata.name) || 'download';
+                const mimeType = (fileMetadata && fileMetadata.mime_type) || 'application/octet-stream';
+
                 // Trigger download
-                const blob = new Blob([decrypted]);
+                const blob = new Blob([decrypted], { type: mimeType });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'download';
+                a.download = filename;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -1141,12 +1162,23 @@ func (s *Server) handlePublicLinkAPI(w http.ResponseWriter, r *http.Request) {
 	downloads := s.downloadCounts[sha256]
 	s.downloadCountsMux.RUnlock()
 
-	// Return basic info (no key ever on server)
+	// Try to get file metadata from relay
 	response := PublicLinkResponse{
 		ID:        sha256,
 		SHA256:    sha256,
 		Downloads: downloads,
-		CreatedAt: 0, // Unknown from Blossom alone
+		CreatedAt: 0,
+	}
+
+	// Query metadata store for file info (if available)
+	if s.metadata != nil {
+		fileMeta, err := s.metadata.GetFileBySHA256(r.Context(), sha256)
+		if err == nil && fileMeta != nil {
+			response.FileName = fileMeta.Name
+			response.FileSize = fileMeta.Size
+			response.FileMimeType = fileMeta.MimeType
+			response.CreatedAt = fileMeta.CreatedAt.Unix()
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

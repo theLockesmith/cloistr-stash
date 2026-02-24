@@ -161,6 +161,25 @@ const Upload = {
                 completed++;
                 console.log(`Upload: Success! (${completed}/${pending.length})`);
 
+                // Index the file for search (if search is initialized)
+                if (typeof Search !== 'undefined' && Search.indexKey) {
+                    try {
+                        const fileInfo = {
+                            file_id: item.fileId,
+                            sha256: result.sha256,
+                            name: item.file.name,
+                            size: item.file.size,
+                            mime_type: item.file.type,
+                            encrypted: true,
+                        };
+                        // Index with plaintext content (still in fileData)
+                        await Search.indexFile(fileInfo, fileData);
+                        console.log('Upload: Indexed file for search');
+                    } catch (indexErr) {
+                        console.warn('Upload: Failed to index file:', indexErr);
+                    }
+                }
+
                 // Clear encrypted data from memory
                 item.encryptedBlob = null;
 

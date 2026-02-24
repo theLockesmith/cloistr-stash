@@ -304,6 +304,35 @@ func (s *Store) GetFile(ctx context.Context, pubkey, identifier string) (*FileMe
 	return ParseFileEvent(events[0])
 }
 
+// GetFileBySHA256 retrieves file metadata by its SHA256 hash
+// This is used for public links where we don't know the owner
+func (s *Store) GetFileBySHA256(ctx context.Context, sha256 string) (*FileMetadata, error) {
+	if err := s.ensureConnected(); err != nil {
+		return nil, err
+	}
+
+	// Create filter for file by SHA256 hash (x tag)
+	filter := nostr.Filter{
+		Kinds: []int{KindFileMetadata},
+		Tags:  map[string][]string{"x": {sha256}},
+		Limit: 1,
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	events, err := s.relay.QuerySync(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query event: %w", err)
+	}
+
+	if len(events) == 0 {
+		return nil, fmt.Errorf("file not found: %s", sha256)
+	}
+
+	return ParseFileEvent(events[0])
+}
+
 // DeleteFile publishes a deletion event for a file
 // In Nostr, we publish a kind 5 deletion event referencing the file event
 func (s *Store) DeleteFile(ctx context.Context, event *nostr.Event) error {
