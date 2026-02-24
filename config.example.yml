@@ -1,0 +1,49 @@
+# Cloistr Drive Configuration
+# Copy to config.yml and customize for your environment
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  public_url: "http://localhost:8080"
+
+# Blossom storage backend
+blossom:
+  url: "http://localhost:8085"        # Internal URL for server-to-server
+  public_url: "http://localhost:8085" # Public URL returned to clients
+
+# Nostr relay for metadata
+relay:
+  url: "wss://relay.damus.io"
+
+# Authentication and authorization
+auth:
+  # Path to file with one pubkey per line (optional)
+  whitelist_file: ""
+  # Inline list of allowed pubkeys (optional)
+  pubkeys: []
+  # Example:
+  # pubkeys:
+  #   - "abc123def456789..."
+  #   - "987654321fedcba..."
+
+# Storage quota settings
+quota:
+  enabled: false
+  # Default quota in bytes (0 = unlimited)
+  # Examples: 1073741824 = 1GB, 10737418240 = 10GB
+  default_limit: 0
+  # Per-user quota overrides
+  user_limits: {}
+  # Example:
+  # user_limits:
+  #   "pubkey1": 107374182400  # 100 GB
+  #   "pubkey2": 53687091200   # 50 GB
+  # Path to persist quota data (optional)
+  data_file: ""
+
+# Rate limiting settings
+rate_limit:
+  enabled: false
+  requests_per_minute: 120
+  burst_size: 30
+  uploads_per_minute: 10

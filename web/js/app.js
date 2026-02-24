@@ -158,6 +158,15 @@ const App = {
             this.clearSearch();
         });
 
+        // Search filters
+        this.setupSearchFilters();
+
+        // Sorting
+        this.setupSorting();
+
+        // Theme toggle
+        this.setupThemeToggle();
+
         // Upload modal
         this.setupUploadModal();
 
@@ -175,6 +184,272 @@ const App = {
 
         // Keyboard shortcuts
         this.setupKeyboardShortcuts();
+    },
+
+    // Search filter state
+    searchFilters: {
+        type: '',
+        date: '',
+        size: '',
+    },
+
+    // Sort state
+    sortBy: 'date-desc',
+
+    setupSorting() {
+        const sortSelect = document.getElementById('sort-select');
+        sortSelect?.addEventListener('change', (e) => {
+            this.sortBy = e.target.value;
+            this.renderCurrentView();
+        });
+    },
+
+    // Theme state
+    currentTheme: 'dark',
+    THEME_STORAGE_KEY: 'cloistr-theme',
+
+    setupThemeToggle() {
+        // Load saved theme
+        const savedTheme = localStorage.getItem(this.THEME_STORAGE_KEY);
+        if (savedTheme) {
+            this.setTheme(savedTheme);
+        } else {
+            // Check system preference
+            if (window.matchMedia?.('(prefers-color-scheme: light)').matches) {
+                this.setTheme('light');
+            }
+        }
+
+        // Toggle button
+        const toggleBtn = document.getElementById('theme-toggle');
+        toggleBtn?.addEventListener('click', () => {
+            const newTheme = this.currentTheme === 'dark' ? 'light' : 'dark';
+            this.setTheme(newTheme);
+            localStorage.setItem(this.THEME_STORAGE_KEY, newTheme);
+        });
+
+        // Listen for system preference changes
+        window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+            if (!localStorage.getItem(this.THEME_STORAGE_KEY)) {
+                this.setTheme(e.matches ? 'dark' : 'light');
+            }
+        });
+    },
+
+    setTheme(theme) {
+        this.currentTheme = theme;
+        document.documentElement.setAttribute('data-theme', theme);
+
+        // Update button icon
+        const toggleBtn = document.getElementById('theme-toggle');
+        if (toggleBtn) {
+            toggleBtn.innerHTML = theme === 'dark' ? '&#9728;' : '&#127769;'; // Sun or moon
+            toggleBtn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+        }
+    },
+
+    sortFiles(files) {
+        const [field, direction] = this.sortBy.split('-');
+        const asc = direction === 'asc';
+
+        return [...files].sort((a, b) => {
+            let valueA, valueB;
+
+            switch (field) {
+                case 'name':
+                    valueA = (a.name || '').toLowerCase();
+                    valueB = (b.name || '').toLowerCase();
+                    return asc ? valueA.localeCompare(valueB) : valueB.localeCompare(valueA);
+
+                case 'date':
+                    valueA = a.created_at || 0;
+                    valueB = b.created_at || 0;
+                    return asc ? valueA - valueB : valueB - valueA;
+
+                case 'size':
+                    valueA = a.size || 0;
+                    valueB = b.size || 0;
+                    return asc ? valueA - valueB : valueB - valueA;
+
+                case 'type':
+                    valueA = (a.mime_type || a.mimeType || '').toLowerCase();
+                    valueB = (b.mime_type || b.mimeType || '').toLowerCase();
+                    return valueA.localeCompare(valueB);
+
+                default:
+                    return 0;
+            }
+        });
+    },
+
+    setupSearchFilters() {
+        const filterBtn = document.getElementById('search-filter-btn');
+        const filterPanel = document.getElementById('search-filters');
+        const filterType = document.getElementById('filter-type');
+        const filterDate = document.getElementById('filter-date');
+        const filterSize = document.getElementById('filter-size');
+        const filterReset = document.getElementById('filter-reset');
+        const filterApply = document.getElementById('filter-apply');
+
+        // Toggle filter panel
+        filterBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            filterPanel.classList.toggle('hidden');
+        });
+
+        // Close on outside click
+        document.addEventListener('click', (e) => {
+            if (!filterPanel?.contains(e.target) && e.target !== filterBtn) {
+                filterPanel?.classList.add('hidden');
+            }
+        });
+
+        // Apply filters
+        filterApply?.addEventListener('click', () => {
+            this.searchFilters.type = filterType?.value || '';
+            this.searchFilters.date = filterDate?.value || '';
+            this.searchFilters.size = filterSize?.value || '';
+            filterPanel?.classList.add('hidden');
+            this.applyFilters();
+        });
+
+        // Reset filters
+        filterReset?.addEventListener('click', () => {
+            if (filterType) filterType.value = '';
+            if (filterDate) filterDate.value = '';
+            if (filterSize) filterSize.value = '';
+            this.searchFilters = { type: '', date: '', size: '' };
+            this.applyFilters();
+        });
+    },
+
+    applyFilters() {
+        const searchInput = document.getElementById('search-input');
+        const query = searchInput?.value || '';
+
+        // If search is active, re-search with filters
+        if (query) {
+            this.handleSearch(query);
+        } else {
+            // Filter current view
+            this.filterCurrentView();
+        }
+    },
+
+    filterCurrentView() {
+        const hasFilters = this.searchFilters.type || this.searchFilters.date || this.searchFilters.size;
+
+        if (!hasFilters) {
+            // No filters, show all files
+            UI.renderFileList(this.files, this.folders, '');
+            return;
+        }
+
+        const filteredFiles = this.files.filter(file => this.matchesFilters(file));
+        UI.renderFileList(filteredFiles, this.folders, '');
+    },
+
+    matchesFilters(file) {
+        const { type, date, size } = this.searchFilters;
+
+        // Type filter
+        if (type && !this.matchesTypeFilter(file, type)) {
+            return false;
+        }
+
+        // Date filter
+        if (date && !this.matchesDateFilter(file, date)) {
+            return false;
+        }
+
+        // Size filter
+        if (size && !this.matchesSizeFilter(file, size)) {
+            return false;
+        }
+
+        return true;
+    },
+
+    matchesTypeFilter(file, type) {
+        const mimeType = file.mime_type || file.mimeType || '';
+
+        switch (type) {
+            case 'image':
+                return mimeType.startsWith('image/');
+            case 'video':
+                return mimeType.startsWith('video/');
+            case 'audio':
+                return mimeType.startsWith('audio/');
+            case 'document':
+                return mimeType.startsWith('application/pdf') ||
+                       mimeType.includes('document') ||
+                       mimeType.includes('spreadsheet') ||
+                       mimeType.includes('presentation') ||
+                       mimeType.startsWith('text/');
+            case 'code':
+                return mimeType.includes('javascript') ||
+                       mimeType.includes('json') ||
+                       mimeType.includes('xml') ||
+                       mimeType.includes('html') ||
+                       mimeType.includes('css') ||
+                       file.name?.match(/\.(js|ts|py|go|rs|rb|php|java|c|cpp|h|jsx|tsx|vue|svelte)$/i);
+            case 'archive':
+                return mimeType.includes('zip') ||
+                       mimeType.includes('tar') ||
+                       mimeType.includes('gzip') ||
+                       mimeType.includes('rar') ||
+                       mimeType.includes('7z');
+            default:
+                return true;
+        }
+    },
+
+    matchesDateFilter(file, date) {
+        const fileDate = file.created_at ? new Date(file.created_at * 1000) : null;
+        if (!fileDate) return true;
+
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        switch (date) {
+            case 'today':
+                return fileDate >= startOfToday;
+            case 'week':
+                const weekAgo = new Date(startOfToday);
+                weekAgo.setDate(weekAgo.getDate() - 7);
+                return fileDate >= weekAgo;
+            case 'month':
+                const monthAgo = new Date(startOfToday);
+                monthAgo.setMonth(monthAgo.getMonth() - 1);
+                return fileDate >= monthAgo;
+            case 'year':
+                const yearAgo = new Date(startOfToday);
+                yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+                return fileDate >= yearAgo;
+            default:
+                return true;
+        }
+    },
+
+    matchesSizeFilter(file, size) {
+        const fileSize = file.size || 0;
+        const KB = 1024;
+        const MB = 1024 * KB;
+
+        switch (size) {
+            case 'tiny':
+                return fileSize < 100 * KB;
+            case 'small':
+                return fileSize < 1 * MB;
+            case 'medium':
+                return fileSize >= 1 * MB && fileSize < 10 * MB;
+            case 'large':
+                return fileSize >= 10 * MB && fileSize < 100 * MB;
+            case 'huge':
+                return fileSize >= 100 * MB;
+            default:
+                return true;
+        }
     },
 
     setupSidebarNav() {
@@ -429,8 +704,33 @@ const App = {
         });
     },
 
+    dragCounter: 0,
+
     setupDragAndDrop() {
         const fileList = document.getElementById('file-list');
+        const dropOverlay = document.getElementById('drop-overlay');
+
+        // Track drag enter/leave globally for overlay
+        document.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            if (this.authState !== 'authenticated') return;
+
+            // Only show overlay for file drags (not internal dragging)
+            if (e.dataTransfer?.types?.includes('Files')) {
+                this.dragCounter++;
+                if (this.dragCounter === 1) {
+                    dropOverlay?.classList.remove('hidden');
+                }
+            }
+        });
+
+        document.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            this.dragCounter--;
+            if (this.dragCounter === 0) {
+                dropOverlay?.classList.add('hidden');
+            }
+        });
 
         // Main area drag and drop
         fileList.addEventListener('dragover', (e) => {
@@ -450,20 +750,22 @@ const App = {
         fileList.addEventListener('drop', (e) => {
             e.preventDefault();
             fileList.classList.remove('drag-over');
+            dropOverlay?.classList.add('hidden');
+            this.dragCounter = 0;
 
             if (this.authState !== 'authenticated') {
                 return;
             }
 
             // Check if dropping on a folder
-            const folderItem = e.target.closest('.folder-item');
+            const folderItem = e.target.closest('.folder-item, .folder-grid-item');
             if (folderItem) {
-                // Upload to specific folder (future feature)
-                const folderId = folderItem.dataset.id;
-                this.uploadToFolder(e.dataTransfer.files, folderId);
+                const folderId = folderItem.dataset.folderId;
+                const folderName = folderItem.dataset.folderName;
+                this.uploadToFolder(e.dataTransfer.files, folderId, folderName);
             } else {
                 // Upload to current folder
-                this.uploadToFolder(e.dataTransfer.files, null);
+                this.uploadToFolder(e.dataTransfer.files, this.currentFolderId);
             }
         });
 
@@ -474,6 +776,8 @@ const App = {
 
         document.addEventListener('drop', (e) => {
             e.preventDefault();
+            dropOverlay?.classList.add('hidden');
+            this.dragCounter = 0;
         });
     },
 
@@ -558,15 +862,26 @@ const App = {
         this.renderCurrentView();
     },
 
-    // Filter files based on search query
+    // Filter files based on search query and filters
     filterBySearch(files) {
-        if (!this.searchQuery) return files;
+        let filtered = files;
 
-        return files.filter(file => {
-            const name = (file.name || '').toLowerCase();
-            const sha = (file.sha256 || '').toLowerCase();
-            return name.includes(this.searchQuery) || sha.includes(this.searchQuery);
-        });
+        // Apply text search
+        if (this.searchQuery) {
+            filtered = filtered.filter(file => {
+                const name = (file.name || '').toLowerCase();
+                const sha = (file.sha256 || '').toLowerCase();
+                return name.includes(this.searchQuery) || sha.includes(this.searchQuery);
+            });
+        }
+
+        // Apply additional filters
+        const hasFilters = this.searchFilters?.type || this.searchFilters?.date || this.searchFilters?.size;
+        if (hasFilters) {
+            filtered = filtered.filter(file => this.matchesFilters(file));
+        }
+
+        return filtered;
     },
 
     // Filter folders based on search query
@@ -582,11 +897,13 @@ const App = {
     renderCurrentView() {
         if (this.currentView === 'my-files') {
             const filteredFiles = this.filterBySearch(this.files);
+            const sortedFiles = this.sortFiles(filteredFiles);
             const filteredFolders = this.filterFoldersBySearch(this.folders);
-            UI.renderFileList(filteredFiles, filteredFolders, this.searchQuery);
+            UI.renderFileList(sortedFiles, filteredFolders, this.searchQuery);
         } else {
             const filteredShared = this.filterBySearch(this.sharedFiles);
-            UI.renderSharedFiles(filteredShared, this.searchQuery);
+            const sortedShared = this.sortFiles(filteredShared);
+            UI.renderSharedFiles(sortedShared, this.searchQuery);
         }
     },
 
@@ -4641,14 +4958,47 @@ const App = {
     // === Storage Usage ===
 
     // Calculate and display storage usage
-    updateStorageUsage() {
+    async updateStorageUsage() {
         const valueEl = document.getElementById('storage-value');
         const barFill = document.getElementById('storage-bar-fill');
         const detailsEl = document.getElementById('storage-details');
 
         if (!valueEl || !barFill) return;
 
-        // Calculate total storage used
+        // Try to get quota from server
+        try {
+            if (Auth.pubkey) {
+                const quota = await API.getQuota(Auth.pubkey);
+
+                if (quota.enabled) {
+                    // Server quota is enabled - show server-side values
+                    valueEl.textContent = quota.used_human;
+
+                    if (quota.limit > 0) {
+                        // Show percentage
+                        barFill.style.width = quota.percent + '%';
+                        detailsEl.textContent = `${quota.used_human} of ${quota.limit_human} used`;
+                    } else {
+                        // Unlimited quota
+                        barFill.style.width = '0%';
+                        detailsEl.textContent = 'Unlimited storage';
+                    }
+
+                    // Color coding based on usage
+                    barFill.classList.remove('warning', 'danger');
+                    if (quota.percent > 90) {
+                        barFill.classList.add('danger');
+                    } else if (quota.percent > 70) {
+                        barFill.classList.add('warning');
+                    }
+                    return;
+                }
+            }
+        } catch (err) {
+            console.warn('Failed to get quota from server:', err);
+        }
+
+        // Fallback: calculate from loaded files
         let totalBytes = 0;
         let fileCount = 0;
 

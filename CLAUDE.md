@@ -299,8 +299,35 @@ atlas kube apply cloistr-drive --kube-context atlantis
 - Make reasonable decisions without asking
 - Update documentation as you make progress
 
+## Roadmap
+
+### Completed (Web App)
+- Full zero-knowledge file manager with E2E encryption
+- NIP-07/NIP-46 authentication
+- File/folder sharing, public links, versioning
+- Collaborative editing, search, offline support
+- Storage quotas and rate limiting (server)
+
+### In Progress
+- **Desktop App (Tauri)** - See `docs/DESKTOP_APP.md`
+  - Native file system integration
+  - Sync folders
+  - System tray
+  - Background sync daemon
+
+### Planned
+- **Mobile Apps** - See `docs/MOBILE_APP.md`
+  - React Native or Flutter
+  - iOS and Android
+  - Camera upload, share extensions
+
+### Not Planned
+- Browser extension (low value, web UI sufficient)
+
 ## See Also
 
 - **Full architecture:** `~/claude/coldforge/cloistr/services/drive/CLAUDE.md`
 - **Blossom storage:** `~/Development/cloistr-blossom/CLAUDE.md`
 - **Cloistr overview:** `~/claude/coldforge/cloistr/CLAUDE.md`
+- **Desktop App Plan:** `docs/DESKTOP_APP.md`
+- **Mobile App Plan:** `docs/MOBILE_APP.md`

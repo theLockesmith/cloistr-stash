@@ -269,4 +269,17 @@ const API = {
 
         return response.json();
     },
+
+    // Get storage quota information
+    async getQuota(pubkey) {
+        const url = `${this.baseURL}/api/quota?pubkey=${pubkey}`;
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`Failed to get quota: ${response.status}`);
+        }
+
+        return response.json();
+    },
 };

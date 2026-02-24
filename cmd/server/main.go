@@ -13,6 +13,8 @@ import (
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/blossom"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/config"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/metadata"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/quota"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/ratelimit"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/server"
 	"github.com/joho/godotenv"
 )
@@ -116,8 +118,31 @@ func main() {
 		logger.Info("whitelist initialized", "count", whitelist.Count())
 	}
 
+	// Initialize quota manager
+	quotaManager := quota.NewManager(cfg.Quota, logger)
+	if quotaManager.IsEnabled() {
+		logger.Info("quota enforcement enabled",
+			"default_limit", cfg.Quota.DefaultLimit,
+		)
+	}
+
+	// Initialize rate limiter
+	var rateLimiter *ratelimit.Limiter
+	if cfg.RateLimit.Enabled {
+		rateLimiter = ratelimit.NewLimiter(ratelimit.Config{
+			RequestsPerMinute: cfg.RateLimit.RequestsPerMinute,
+			BurstSize:         cfg.RateLimit.BurstSize,
+			UploadsPerMinute:  cfg.RateLimit.UploadsPerMinute,
+		})
+		logger.Info("rate limiting enabled",
+			"requests_per_minute", cfg.RateLimit.RequestsPerMinute,
+			"burst_size", cfg.RateLimit.BurstSize,
+			"uploads_per_minute", cfg.RateLimit.UploadsPerMinute,
+		)
+	}
+
 	// Create HTTP server
-	srv := server.New(cfg, blossomClient, metadataStore, whitelist, webPath, logger)
+	srv := server.New(cfg, blossomClient, metadataStore, whitelist, quotaManager, rateLimiter, webPath, logger)
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

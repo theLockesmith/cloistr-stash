@@ -88,6 +88,7 @@
                 </div>
                 <div class="header-right">
                     <span id="user-pubkey" class="user-pubkey"></span>
+                    <button id="theme-toggle" class="btn btn-icon" title="Toggle theme">&#127769;</button>
                     <button id="backup-btn" class="btn btn-icon" title="Key Backup">&#128273;</button>
                     <button id="logout-btn" class="btn">Disconnect</button>
                 </div>
@@ -163,10 +164,61 @@
                         </div>
                         <div class="search-box">
                             <input type="text" id="search-input" class="search-input" placeholder="Search files..." autocomplete="off">
+                            <button id="search-filter-btn" class="search-filter-btn" title="Filter options">&#9660;</button>
                             <button id="search-clear" class="search-clear hidden">&times;</button>
+                        </div>
+                        <div id="search-filters" class="search-filters hidden">
+                            <div class="filter-group">
+                                <label>File Type</label>
+                                <select id="filter-type">
+                                    <option value="">All Types</option>
+                                    <option value="image">Images</option>
+                                    <option value="video">Videos</option>
+                                    <option value="audio">Audio</option>
+                                    <option value="document">Documents</option>
+                                    <option value="code">Code</option>
+                                    <option value="archive">Archives</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Date</label>
+                                <select id="filter-date">
+                                    <option value="">Any Time</option>
+                                    <option value="today">Today</option>
+                                    <option value="week">This Week</option>
+                                    <option value="month">This Month</option>
+                                    <option value="year">This Year</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Size</label>
+                                <select id="filter-size">
+                                    <option value="">Any Size</option>
+                                    <option value="tiny">Tiny (&lt;100KB)</option>
+                                    <option value="small">Small (&lt;1MB)</option>
+                                    <option value="medium">Medium (1-10MB)</option>
+                                    <option value="large">Large (10-100MB)</option>
+                                    <option value="huge">Huge (&gt;100MB)</option>
+                                </select>
+                            </div>
+                            <div class="filter-actions">
+                                <button class="btn" id="filter-reset">Reset</button>
+                                <button class="btn btn-primary" id="filter-apply">Apply</button>
+                            </div>
                         </div>
                     </div>
                     <div class="toolbar-right">
+                        <div class="sort-dropdown">
+                            <select id="sort-select" class="sort-select" aria-label="Sort files">
+                                <option value="name-asc">Name (A-Z)</option>
+                                <option value="name-desc">Name (Z-A)</option>
+                                <option value="date-desc" selected>Date (Newest)</option>
+                                <option value="date-asc">Date (Oldest)</option>
+                                <option value="size-desc">Size (Largest)</option>
+                                <option value="size-asc">Size (Smallest)</option>
+                                <option value="type">Type</option>
+                            </select>
+                        </div>
                         <button id="view-grid" class="btn btn-icon" title="Grid view">▦</button>
                         <button id="view-list" class="btn btn-icon active" title="List view">≡</button>
                     </div>
@@ -187,6 +239,15 @@
                         <button class="btn btn-small" id="batch-download-btn">Download</button>
                         <button class="btn btn-small btn-danger" id="batch-delete-btn">Delete</button>
                         <button class="btn btn-small" id="batch-cancel-btn">Cancel</button>
+                    </div>
+                </div>
+
+                <!-- Global drop overlay -->
+                <div id="drop-overlay" class="drop-overlay hidden">
+                    <div class="drop-overlay-content">
+                        <div class="drop-overlay-icon">&#128230;</div>
+                        <div class="drop-overlay-text">Drop files here to upload</div>
+                        <div class="drop-overlay-subtext">Files will be encrypted and uploaded</div>
                     </div>
                 </div>
 

@@ -17,19 +17,23 @@ import (
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/config"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/metadata"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/metrics"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/quota"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/ratelimit"
 	"github.com/nbd-wtf/go-nostr"
 )
 
 // Server represents the HTTP server
 type Server struct {
-	config     *config.Config
-	blossom    *blossom.Client
-	metadata   *metadata.Store
-	whitelist  *auth.Whitelist
-	authMiddle *auth.AuthMiddleware
-	mux        *http.ServeMux
-	webDir     string
-	logger     *slog.Logger
+	config      *config.Config
+	blossom     *blossom.Client
+	metadata    *metadata.Store
+	whitelist   *auth.Whitelist
+	authMiddle  *auth.AuthMiddleware
+	quota       *quota.Manager
+	rateLimiter *ratelimit.Limiter
+	mux         *http.ServeMux
+	webDir      string
+	logger      *slog.Logger
 
 	// Download counting for max-downloads links
 	downloadCounts    map[string]int
@@ -85,13 +89,15 @@ type PublicLinkResponse struct {
 }
 
 // New creates a new HTTP server
-func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metadata.Store, whitelist *auth.Whitelist, webDir string, logger *slog.Logger) *Server {
+func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metadata.Store, whitelist *auth.Whitelist, quotaManager *quota.Manager, rateLimiter *ratelimit.Limiter, webDir string, logger *slog.Logger) *Server {
 	s := &Server{
 		config:         cfg,
 		blossom:        blossomClient,
 		metadata:       metadataStore,
 		whitelist:      whitelist,
 		authMiddle:     auth.NewAuthMiddleware(whitelist, logger),
+		quota:          quotaManager,
+		rateLimiter:    rateLimiter,
 		mux:            http.NewServeMux(),
 		webDir:         webDir,
 		logger:         logger,
@@ -162,13 +168,26 @@ func (s *Server) registerRoutes() {
 	// GET /api/public/{id} - get public link metadata (JSON, for client-side decryption)
 	s.mux.HandleFunc("GET /api/public/{id}", s.handlePublicLinkAPI)
 
+	// Quota endpoints
+	s.mux.HandleFunc("GET /api/quota", s.handleGetQuota)
+
 	// Serve static files (web UI)
 	s.mux.HandleFunc("/", s.handleStatic)
 }
 
-// Handler returns the HTTP handler with metrics middleware
+// Handler returns the HTTP handler with middleware chain
 func (s *Server) Handler() http.Handler {
-	return metrics.Middleware(s.mux)
+	var handler http.Handler = s.mux
+
+	// Apply rate limiting middleware if enabled
+	if s.rateLimiter != nil {
+		handler = s.rateLimiter.Middleware(handler)
+	}
+
+	// Apply metrics middleware
+	handler = metrics.Middleware(handler)
+
+	return handler
 }
 
 // ListenAndServe starts the HTTP server
@@ -322,6 +341,22 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	// Get Blossom auth header from request
 	authHeader := r.Header.Get("X-Blossom-Auth")
 
+	// Extract pubkey from auth header for quota check
+	pubkey := extractPubkeyFromAuth(authHeader)
+
+	// Check quota before upload
+	if s.quota != nil && s.quota.IsEnabled() && pubkey != "" {
+		if err := s.quota.CheckQuota(pubkey, header.Size); err != nil {
+			s.logger.Warn("quota exceeded",
+				"pubkey", pubkey[:min(16, len(pubkey))],
+				"file_size", header.Size,
+				"error", err,
+			)
+			http.Error(w, "Storage quota exceeded", http.StatusForbidden)
+			return
+		}
+	}
+
 	// Detect content type
 	contentType := header.Header.Get("Content-Type")
 	if contentType == "" {
@@ -344,8 +379,13 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	// Record successful upload
 	metrics.RecordUpload(true, result.Size)
 
+	// Update quota usage
+	if s.quota != nil && pubkey != "" {
+		s.quota.AddUsage(pubkey, result.Size)
+	}
+
 	// Create response with file metadata
-	metadata := FileMetadata{
+	fileMeta := FileMetadata{
 		SHA256:   result.SHA256,
 		Name:     header.Filename,
 		Size:     result.Size,
@@ -354,7 +394,7 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(metadata)
+	json.NewEncoder(w).Encode(fileMeta)
 
 	s.logger.Info("file uploaded",
 		"filename", header.Filename,
@@ -407,6 +447,15 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 
 	// Get Blossom auth header from request
 	authHeader := r.Header.Get("X-Blossom-Auth")
+	pubkey := extractPubkeyFromAuth(authHeader)
+
+	// Get file size before deletion for quota update
+	var fileSize int64
+	if s.metadata != nil && s.quota != nil && pubkey != "" {
+		if fileMeta, err := s.metadata.GetFileBySHA256(r.Context(), sha256); err == nil && fileMeta != nil {
+			fileSize = fileMeta.Size
+		}
+	}
 
 	// Delete from Blossom with auth
 	if err := s.blossom.Delete(r.Context(), sha256, authHeader); err != nil {
@@ -416,6 +465,11 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		)
 		http.Error(w, "Delete failed", http.StatusInternalServerError)
 		return
+	}
+
+	// Update quota usage
+	if s.quota != nil && pubkey != "" && fileSize > 0 {
+		s.quota.RemoveUsage(pubkey, fileSize)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1200,4 +1254,52 @@ func (s *Server) getDownloadCount(sha256 string) int {
 	defer s.downloadCountsMux.RUnlock()
 
 	return s.downloadCounts[sha256]
+}
+
+// QuotaResponse represents the quota information returned by the API
+type QuotaResponse struct {
+	Enabled   bool   `json:"enabled"`
+	Used      int64  `json:"used"`
+	Limit     int64  `json:"limit"`
+	Available int64  `json:"available"`
+	Percent   int    `json:"percent"`
+	UsedHuman string `json:"used_human"`
+	LimitHuman string `json:"limit_human"`
+}
+
+// handleGetQuota returns quota information for the authenticated user
+func (s *Server) handleGetQuota(w http.ResponseWriter, r *http.Request) {
+	pubkey := r.URL.Query().Get("pubkey")
+	if pubkey == "" {
+		// Try to get from auth header
+		authHeader := r.Header.Get("X-Blossom-Auth")
+		pubkey = extractPubkeyFromAuth(authHeader)
+	}
+
+	if pubkey == "" {
+		http.Error(w, "Pubkey required", http.StatusBadRequest)
+		return
+	}
+
+	response := QuotaResponse{
+		Enabled: false,
+	}
+
+	if s.quota != nil {
+		response.Enabled = s.quota.IsEnabled()
+		info := s.quota.GetQuotaInfo(pubkey)
+		response.Used = info.Used
+		response.Limit = info.Limit
+		response.Available = info.Available
+		response.Percent = info.Percent
+		response.UsedHuman = quota.FormatBytes(info.Used)
+		if info.Limit > 0 {
+			response.LimitHuman = quota.FormatBytes(info.Limit)
+		} else {
+			response.LimitHuman = "Unlimited"
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

@@ -11,10 +11,12 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	Server  ServerConfig  `yaml:"server"`
-	Blossom BlossomConfig `yaml:"blossom"`
-	Relay   RelayConfig   `yaml:"relay"`
-	Auth    AuthConfig    `yaml:"auth"`
+	Server    ServerConfig    `yaml:"server"`
+	Blossom   BlossomConfig   `yaml:"blossom"`
+	Relay     RelayConfig     `yaml:"relay"`
+	Auth      AuthConfig      `yaml:"auth"`
+	Quota     QuotaConfig     `yaml:"quota"`
+	RateLimit RateLimitConfig `yaml:"rate_limit"`
 }
 
 // AuthConfig represents authentication and authorization configuration
@@ -39,6 +41,22 @@ type BlossomConfig struct {
 // RelayConfig represents Nostr relay configuration for metadata
 type RelayConfig struct {
 	URL string `yaml:"url"`
+}
+
+// QuotaConfig represents storage quota configuration
+type QuotaConfig struct {
+	Enabled      bool             `yaml:"enabled"`       // Enable quota enforcement
+	DefaultLimit int64            `yaml:"default_limit"` // Default quota in bytes (0 = unlimited)
+	UserLimits   map[string]int64 `yaml:"user_limits"`   // Per-user quota overrides (pubkey -> bytes)
+	DataFile     string           `yaml:"data_file"`     // Path to quota data file for persistence
+}
+
+// RateLimitConfig represents rate limiting configuration
+type RateLimitConfig struct {
+	Enabled           bool `yaml:"enabled"`             // Enable rate limiting
+	RequestsPerMinute int  `yaml:"requests_per_minute"` // General API requests per minute
+	BurstSize         int  `yaml:"burst_size"`          // Max burst size
+	UploadsPerMinute  int  `yaml:"uploads_per_minute"`  // Upload requests per minute
 }
 
 // Load loads configuration from a YAML file with environment variable overrides
@@ -104,6 +122,43 @@ func Load(path string) (*Config, error) {
 			if pk != "" {
 				cfg.Auth.Pubkeys = append(cfg.Auth.Pubkeys, pk)
 			}
+		}
+	}
+
+	// Quota configuration from environment
+	if quotaEnabled := os.Getenv("DRIVE_QUOTA_ENABLED"); quotaEnabled == "true" || quotaEnabled == "1" {
+		cfg.Quota.Enabled = true
+	}
+	if quotaDefault := os.Getenv("DRIVE_QUOTA_DEFAULT"); quotaDefault != "" {
+		limit, err := strconv.ParseInt(quotaDefault, 10, 64)
+		if err == nil {
+			cfg.Quota.DefaultLimit = limit
+		}
+	}
+	if quotaDataFile := os.Getenv("DRIVE_QUOTA_DATA_FILE"); quotaDataFile != "" {
+		cfg.Quota.DataFile = quotaDataFile
+	}
+
+	// Rate limiting configuration from environment
+	if rlEnabled := os.Getenv("DRIVE_RATELIMIT_ENABLED"); rlEnabled == "true" || rlEnabled == "1" {
+		cfg.RateLimit.Enabled = true
+	}
+	if rlRequests := os.Getenv("DRIVE_RATELIMIT_REQUESTS"); rlRequests != "" {
+		val, err := strconv.Atoi(rlRequests)
+		if err == nil {
+			cfg.RateLimit.RequestsPerMinute = val
+		}
+	}
+	if rlBurst := os.Getenv("DRIVE_RATELIMIT_BURST"); rlBurst != "" {
+		val, err := strconv.Atoi(rlBurst)
+		if err == nil {
+			cfg.RateLimit.BurstSize = val
+		}
+	}
+	if rlUploads := os.Getenv("DRIVE_RATELIMIT_UPLOADS"); rlUploads != "" {
+		val, err := strconv.Atoi(rlUploads)
+		if err == nil {
+			cfg.RateLimit.UploadsPerMinute = val
 		}
 	}
 
