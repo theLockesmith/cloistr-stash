@@ -7,6 +7,73 @@ const UI = {
     THUMBNAIL_SIZE: 48,
     THUMBNAIL_DB_NAME: 'cloistr-thumbnails',
 
+    // Folder customization storage
+    folderCustomizations: {},
+    FOLDER_STORAGE_KEY: 'cloistr-folder-customizations',
+
+    // Available folder colors
+    folderColors: [
+        { name: 'Default', value: null },
+        { name: 'Red', value: '#ef4444' },
+        { name: 'Orange', value: '#f97316' },
+        { name: 'Yellow', value: '#eab308' },
+        { name: 'Green', value: '#22c55e' },
+        { name: 'Teal', value: '#14b8a6' },
+        { name: 'Blue', value: '#3b82f6' },
+        { name: 'Purple', value: '#8b5cf6' },
+        { name: 'Pink', value: '#ec4899' },
+    ],
+
+    // Available folder icons
+    folderIcons: [
+        { name: 'Default', value: '📁', code: '&#128193;' },
+        { name: 'Open', value: '📂', code: '&#128194;' },
+        { name: 'Star', value: '⭐', code: '&#11088;' },
+        { name: 'Heart', value: '❤️', code: '&#10084;' },
+        { name: 'Work', value: '💼', code: '&#128188;' },
+        { name: 'Music', value: '🎵', code: '&#127925;' },
+        { name: 'Camera', value: '📷', code: '&#128247;' },
+        { name: 'Video', value: '🎬', code: '&#127916;' },
+        { name: 'Book', value: '📚', code: '&#128218;' },
+        { name: 'Code', value: '💻', code: '&#128187;' },
+        { name: 'Game', value: '🎮', code: '&#127918;' },
+        { name: 'Lock', value: '🔒', code: '&#128274;' },
+    ],
+
+    // Load folder customizations from localStorage
+    loadFolderCustomizations() {
+        try {
+            const stored = localStorage.getItem(this.FOLDER_STORAGE_KEY);
+            this.folderCustomizations = stored ? JSON.parse(stored) : {};
+        } catch (e) {
+            this.folderCustomizations = {};
+        }
+    },
+
+    // Save folder customizations to localStorage
+    saveFolderCustomizations() {
+        try {
+            localStorage.setItem(this.FOLDER_STORAGE_KEY, JSON.stringify(this.folderCustomizations));
+        } catch (e) {
+            console.error('Failed to save folder customizations:', e);
+        }
+    },
+
+    // Get customization for a specific folder
+    getFolderCustomization(folderId) {
+        return this.folderCustomizations[folderId] || { color: null, icon: null };
+    },
+
+    // Set customization for a folder
+    setFolderCustomization(folderId, color, icon) {
+        if (color === null && icon === null) {
+            delete this.folderCustomizations[folderId];
+        } else {
+            this.folderCustomizations[folderId] = { color, icon };
+        }
+        this.saveFolderCustomizations();
+    },
+
     // Virtual scrolling configuration
     virtualScroll: {
         enabled: false,
@@ -565,6 +632,12 @@ const UI = {
                 App.deleteFolder(folderId, folderName);
             });
 
+            // Customize button
+            item.querySelector('.customize-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                App.showFolderCustomizeModal(folderId, folderName);
+            });
+
             // Drop target for moving files into folder
             item.addEventListener('dragover', (e) => {
                 e.preventDefault();
@@ -596,6 +669,7 @@ const UI = {
                 const folder = App.folders.find(f => f.id === folderId) || { id: folderId, name: folderName };
                 this.showContextMenu(e.clientX, e.clientY, [
                     { label: 'Open', action: () => App.openFolder(folderId, folderName) },
+                    { label: 'Customize', action: () => App.showFolderCustomizeModal(folderId, folderName) },
                     { label: 'Share', action: () => App.showShareFolderModal(folder) },
                     { label: 'Delete', action: () => App.deleteFolder(folderId, folderName), className: 'danger' },
                 ]);
@@ -606,16 +680,20 @@ const UI = {
     // Render folder as list item
     renderFolderListItem(folder) {
         const date = folder.created_at ? new Date(folder.created_at * 1000).toLocaleDateString() : '-';
+        const custom = this.getFolderCustomization(folder.id);
+        const icon = custom.icon || '&#128193;';
+        const colorStyle = custom.color ? `style="color: ${custom.color}"` : '';
 
         return `
             <div class="file-item folder-item" data-folder-id="${folder.id}" data-folder-name="${this.escapeHtml(folder.name)}" role="listitem" tabindex="0" aria-label="Folder: ${this.escapeHtml(folder.name)}">
                 <div class="file-col file-name">
-                    <span class="file-icon folder-icon" aria-hidden="true">&#128193;</span>
+                    <span class="file-icon folder-icon" ${colorStyle} aria-hidden="true">${icon}</span>
                     <span class="file-name-text">${this.escapeHtml(folder.name)}</span>
                 </div>
                 <div class="file-col file-size" aria-hidden="true">-</div>
                 <div class="file-col file-date">${date}</div>
                 <div class="file-col file-actions">
+                    <button class="action-btn customize customize-btn" aria-label="Customize folder ${this.escapeHtml(folder.name)}">&#127912;</button>
                     <button class="action-btn delete delete-btn" aria-label="Delete folder ${this.escapeHtml(folder.name)}">Delete</button>
                 </div>
             </div>
@@ -624,11 +702,16 @@ const UI = {
 
     // Render folder as grid item
     renderFolderGridItem(folder) {
+        const custom = this.getFolderCustomization(folder.id);
+        const icon = custom.icon || '&#128193;';
+        const colorStyle = custom.color ? `style="color: ${custom.color}"` : '';
+
         return `
             <div class="grid-item folder-grid-item" data-folder-id="${folder.id}" data-folder-name="${this.escapeHtml(folder.name)}" role="listitem" tabindex="0" aria-label="Folder: ${this.escapeHtml(folder.name)}">
-                <div class="grid-item-icon folder-icon" aria-hidden="true">&#128193;</div>
+                <div class="grid-item-icon folder-icon" ${colorStyle} aria-hidden="true">${icon}</div>
                 <div class="grid-item-name">${this.escapeHtml(folder.name)}</div>
                 <div class="grid-item-actions">
+                    <button class="action-btn customize customize-btn" title="Customize" aria-label="Customize folder ${this.escapeHtml(folder.name)}">&#127912;</button>
                     <button class="action-btn delete delete-btn" title="Delete" aria-label="Delete folder ${this.escapeHtml(folder.name)}">✕</button>
                 </div>
             </div>
@@ -731,6 +814,11 @@ const UI = {
 
         // Tags option
         menuItems.push({ label: 'Tags...', action: () => App.showTagsModal(fileObj) });
+
+        // Comments option
+        const commentCount = App.getCommentCount(fileObj.sha256);
+        const commentsLabel = commentCount > 0 ? `Comments (${commentCount})` : 'Comments...';
+        menuItems.push({ label: commentsLabel, action: () => App.showCommentsModal(fileObj) });
 
         // Add preview option for previewable files
         if (App.isPreviewable(fileMime)) {

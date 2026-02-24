@@ -44,6 +44,11 @@ const App = {
 
         // Initialize thumbnail cache
         UI.initThumbnails();
+        UI.loadFolderCustomizations();
+        this.loadFileComments();
+        this.loadActivityLog();
+        this.loadNotifications();
+        this.startNotificationPolling();
 
         // Load local state (starred, recent, tags)
         this.loadStarredState();
@@ -956,6 +961,563 @@ const App = {
         tagInput.focus();
     },
 
+    // Folder customization
+    customizingFolder: null,
+    selectedFolderColor: null,
+    selectedFolderIcon: null,
+
+    showFolderCustomizeModal(folderId, folderName) {
+        this.customizingFolder = folderId;
+        const current = UI.getFolderCustomization(folderId);
+        this.selectedFolderColor = current.color;
+        this.selectedFolderIcon = current.icon;
+
+        // Set folder name
+        document.getElementById('customize-folder-name').textContent = folderName;
+
+        // Render color picker
+        const colorPicker = document.getElementById('folder-color-picker');
+        colorPicker.innerHTML = UI.folderColors.map(color => {
+            const isSelected = color.value === this.selectedFolderColor;
+            const isDefault = color.value === null;
+            const bg = color.value || '#888';
+            return `<div class="color-swatch ${isSelected ? 'selected' : ''} ${isDefault ? 'default' : ''}"
+                        data-color="${color.value || ''}"
+                        style="background-color: ${bg}"
+                        title="${color.name}"></div>`;
+        }).join('');
+
+        // Add color swatch click handlers
+        colorPicker.querySelectorAll('.color-swatch').forEach(swatch => {
+            swatch.addEventListener('click', () => {
+                colorPicker.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+                swatch.classList.add('selected');
+                this.selectedFolderColor = swatch.dataset.color || null;
+            });
+        });
+
+        // Render icon picker
+        const iconPicker = document.getElementById('folder-icon-picker');
+        iconPicker.innerHTML = UI.folderIcons.map(icon => {
+            const isSelected = icon.code === this.selectedFolderIcon;
+            return `<div class="icon-option ${isSelected ? 'selected' : ''}"
+                        data-icon="${icon.code}"
+                        title="${icon.name}">${icon.value}</div>`;
+        }).join('');
+
+        // Add icon option click handlers
+        iconPicker.querySelectorAll('.icon-option').forEach(option => {
+            option.addEventListener('click', () => {
+                iconPicker.querySelectorAll('.icon-option').forEach(o => o.classList.remove('selected'));
+                option.classList.add('selected');
+                const iconCode = option.dataset.icon;
+                this.selectedFolderIcon = iconCode === '&#128193;' ? null : iconCode;
+            });
+        });
+
+        UI.showModal('folder-customize-modal');
+    },
+
+    saveFolderCustomization() {
+        if (this.customizingFolder) {
+            UI.setFolderCustomization(
+                this.customizingFolder,
+                this.selectedFolderColor,
+                this.selectedFolderIcon
+            );
+            // Refresh the file list to show updated folder
+            this.refreshFileList();
+        }
+        UI.hideModal('folder-customize-modal');
+        this.customizingFolder = null;
+    },
+
+    resetFolderCustomization() {
+        if (this.customizingFolder) {
+            UI.setFolderCustomization(this.customizingFolder, null, null);
+            this.refreshFileList();
+        }
+        UI.hideModal('folder-customize-modal');
+        this.customizingFolder = null;
+    },
+
+    // File comments storage
+    fileComments: {},
+    COMMENTS_STORAGE_KEY: 'cloistr-file-comments',
+    commentsModalFile: null,
+
+    loadFileComments() {
+        try {
+            const stored = localStorage.getItem(this.COMMENTS_STORAGE_KEY);
+            this.fileComments = stored ? JSON.parse(stored) : {};
+        } catch (e) {
+            this.fileComments = {};
+        }
+    },
+
+    saveFileComments() {
+        try {
+            localStorage.setItem(this.COMMENTS_STORAGE_KEY, JSON.stringify(this.fileComments));
+        } catch (e) {
+            console.error('Failed to save comments:', e);
+        }
+    },
+
+    getFileComments(sha256) {
+        return this.fileComments[sha256] || [];
+    },
+
+    addComment(sha256, text) {
+        if (!text.trim()) return;
+
+        if (!this.fileComments[sha256]) {
+            this.fileComments[sha256] = [];
+        }
+
+        this.fileComments[sha256].push({
+            id: Date.now().toString(),
+            text: text.trim(),
+            timestamp: Date.now(),
+        });
+
+        this.saveFileComments();
+    },
+
+    deleteComment(sha256, commentId) {
+        if (!this.fileComments[sha256]) return;
+
+        this.fileComments[sha256] = this.fileComments[sha256].filter(c => c.id !== commentId);
+
+        if (this.fileComments[sha256].length === 0) {
+            delete this.fileComments[sha256];
+        }
+
+        this.saveFileComments();
+    },
+
+    getCommentCount(sha256) {
+        return (this.fileComments[sha256] || []).length;
+    },
+
+    showCommentsModal(file) {
+        this.commentsModalFile = file;
+        const fileName = document.getElementById('comments-file-name');
+        const commentsList = document.getElementById('comments-list');
+        const commentInput = document.getElementById('comment-input');
+
+        fileName.textContent = file.name;
+        commentInput.value = '';
+
+        this.renderComments(commentsList, file.sha256);
+        UI.showModal('comments-modal');
+        commentInput.focus();
+    },
+
+    renderComments(container, sha256) {
+        const comments = this.getFileComments(sha256);
+
+        if (comments.length === 0) {
+            container.innerHTML = '<div class="no-comments">No comments yet</div>';
+            return;
+        }
+
+        container.innerHTML = comments.map(comment => `
+            <div class="comment-item" data-comment-id="${comment.id}">
+                <div class="comment-header">
+                    <span class="comment-date">${new Date(comment.timestamp).toLocaleString()}</span>
+                    <div class="comment-actions">
+                        <button class="comment-action-btn delete" data-action="delete" title="Delete comment">&#10005;</button>
+                    </div>
+                </div>
+                <div class="comment-text">${UI.escapeHtml(comment.text)}</div>
+            </div>
+        `).join('');
+
+        // Add delete handlers
+        container.querySelectorAll('.comment-action-btn[data-action="delete"]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const commentItem = e.target.closest('.comment-item');
+                const commentId = commentItem.dataset.commentId;
+                if (confirm('Delete this comment?')) {
+                    this.deleteComment(sha256, commentId);
+                    this.renderComments(container, sha256);
+                }
+            });
+        });
+    },
+
+    // Activity log
+    activityLog: [],
+    ACTIVITY_STORAGE_KEY: 'cloistr-activity-log',
+    MAX_ACTIVITY_ITEMS: 500,
+
+    loadActivityLog() {
+        try {
+            const stored = localStorage.getItem(this.ACTIVITY_STORAGE_KEY);
+            this.activityLog = stored ? JSON.parse(stored) : [];
+        } catch (e) {
+            this.activityLog = [];
+        }
+    },
+
+    saveActivityLog() {
+        try {
+            // Trim to max items
+            if (this.activityLog.length > this.MAX_ACTIVITY_ITEMS) {
+                this.activityLog = this.activityLog.slice(-this.MAX_ACTIVITY_ITEMS);
+            }
+            localStorage.setItem(this.ACTIVITY_STORAGE_KEY, JSON.stringify(this.activityLog));
+        } catch (e) {
+            console.error('Failed to save activity log:', e);
+        }
+    },
+
+    logActivity(type, details) {
+        const entry = {
+            id: Date.now().toString(),
+            type,
+            details,
+            timestamp: Date.now(),
+        };
+        this.activityLog.push(entry);
+        this.saveActivityLog();
+    },
+
+    getActivityIcon(type) {
+        const icons = {
+            upload: '&#128194;',     // Folder with up arrow
+            download: '&#128229;',   // Inbox
+            delete: '&#128465;',     // Trash
+            move: '&#128193;',       // Folder
+            share: '&#128101;',      // People
+            comment: '&#128172;',    // Speech bubble
+            folder: '&#128193;',     // Folder
+            login: '&#128274;',      // Lock
+            logout: '&#128275;',     // Unlock
+        };
+        return icons[type] || '&#128196;';
+    },
+
+    showActivityModal() {
+        this.renderActivityLog();
+        UI.showModal('activity-modal');
+    },
+
+    renderActivityLog(filter = 'all') {
+        const container = document.getElementById('activity-list');
+        let activities = [...this.activityLog].reverse(); // Most recent first
+
+        if (filter !== 'all') {
+            activities = activities.filter(a => a.type === filter);
+        }
+
+        if (activities.length === 0) {
+            container.innerHTML = '<div class="no-activity">No activity recorded</div>';
+            return;
+        }
+
+        container.innerHTML = activities.map(activity => `
+            <div class="activity-item" data-id="${activity.id}">
+                <div class="activity-icon">${this.getActivityIcon(activity.type)}</div>
+                <div class="activity-details">
+                    <div class="activity-text">${this.formatActivityText(activity)}</div>
+                    <div class="activity-time">${this.formatActivityTime(activity.timestamp)}</div>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    formatActivityText(activity) {
+        const d = activity.details;
+        switch (activity.type) {
+            case 'upload':
+                return `Uploaded <strong>${UI.escapeHtml(d.name || 'file')}</strong>`;
+            case 'download':
+                return `Downloaded <strong>${UI.escapeHtml(d.name || 'file')}</strong>`;
+            case 'delete':
+                return `Moved <strong>${UI.escapeHtml(d.name || 'file')}</strong> to trash`;
+            case 'move':
+                return `Moved <strong>${UI.escapeHtml(d.name || 'file')}</strong> to <strong>${UI.escapeHtml(d.destination || 'folder')}</strong>`;
+            case 'share':
+                return `Shared <strong>${UI.escapeHtml(d.name || 'file')}</strong>`;
+            case 'comment':
+                return `Added comment to <strong>${UI.escapeHtml(d.name || 'file')}</strong>`;
+            case 'folder':
+                return `Created folder <strong>${UI.escapeHtml(d.name || 'folder')}</strong>`;
+            case 'login':
+                return `Logged in`;
+            case 'logout':
+                return `Logged out`;
+            default:
+                return d.message || 'Unknown activity';
+        }
+    },
+
+    formatActivityTime(timestamp) {
+        const now = Date.now();
+        const diff = now - timestamp;
+
+        if (diff < 60000) return 'Just now';
+        if (diff < 3600000) return `${Math.floor(diff / 60000)} minutes ago`;
+        if (diff < 86400000) return `${Math.floor(diff / 3600000)} hours ago`;
+        if (diff < 604800000) return `${Math.floor(diff / 86400000)} days ago`;
+
+        return new Date(timestamp).toLocaleDateString();
+    },
+
+    clearActivityLog() {
+        if (confirm('Clear all activity history? This cannot be undone.')) {
+            this.activityLog = [];
+            this.saveActivityLog();
+            this.renderActivityLog();
+        }
+    },
+
+    // Notifications system
+    notifications: [],
+    NOTIFICATIONS_STORAGE_KEY: 'cloistr-notifications',
+    lastShareCheck: 0,
+    notificationPollInterval: null,
+
+    loadNotifications() {
+        try {
+            const stored = localStorage.getItem(this.NOTIFICATIONS_STORAGE_KEY);
+            this.notifications = stored ? JSON.parse(stored) : [];
+            this.updateNotificationCount();
+        } catch (e) {
+            this.notifications = [];
+        }
+    },
+
+    saveNotifications() {
+        try {
+            localStorage.setItem(this.NOTIFICATIONS_STORAGE_KEY, JSON.stringify(this.notifications));
+            this.updateNotificationCount();
+        } catch (e) {
+            console.error('Failed to save notifications:', e);
+        }
+    },
+
+    addNotification(type, data) {
+        const notification = {
+            id: Date.now().toString(),
+            type,
+            data,
+            timestamp: Date.now(),
+            read: false,
+        };
+        this.notifications.unshift(notification);
+        this.saveNotifications();
+
+        // Request browser notification permission if not already granted
+        if (Notification.permission === 'granted') {
+            new Notification('Cloistr Drive', {
+                body: this.getNotificationText(notification),
+                icon: '/favicon.svg',
+            });
+        }
+    },
+
+    getNotificationText(notification) {
+        const d = notification.data;
+        switch (notification.type) {
+            case 'share_received':
+                return `${d.from || 'Someone'} shared "${d.name}" with you`;
+            case 'share_folder':
+                return `${d.from || 'Someone'} shared folder "${d.name}" with you`;
+            default:
+                return 'New notification';
+        }
+    },
+
+    markNotificationRead(id) {
+        const notification = this.notifications.find(n => n.id === id);
+        if (notification) {
+            notification.read = true;
+            this.saveNotifications();
+        }
+    },
+
+    markAllNotificationsRead() {
+        this.notifications.forEach(n => n.read = true);
+        this.saveNotifications();
+        this.renderNotifications();
+    },
+
+    getUnreadCount() {
+        return this.notifications.filter(n => !n.read).length;
+    },
+
+    updateNotificationCount() {
+        const badge = document.getElementById('notification-count');
+        const count = this.getUnreadCount();
+        if (badge) {
+            badge.textContent = count > 0 ? (count > 99 ? '99+' : count) : '';
+        }
+    },
+
+    showNotificationsModal() {
+        this.renderNotifications();
+        UI.showModal('notifications-modal');
+    },
+
+    renderNotifications() {
+        const container = document.getElementById('notifications-list');
+
+        if (this.notifications.length === 0) {
+            container.innerHTML = '<div class="no-notifications">No notifications</div>';
+            return;
+        }
+
+        container.innerHTML = this.notifications.map(notification => `
+            <div class="notification-item ${notification.read ? '' : 'unread'}" data-id="${notification.id}">
+                <div class="notification-icon">${this.getNotificationIcon(notification.type)}</div>
+                <div class="notification-content">
+                    <div class="notification-title">${this.getNotificationTitle(notification)}</div>
+                    <div class="notification-description">${this.getNotificationText(notification)}</div>
+                    <div class="notification-time">${this.formatActivityTime(notification.timestamp)}</div>
+                    ${this.getNotificationActions(notification)}
+                </div>
+            </div>
+        `).join('');
+
+        // Add click handlers
+        container.querySelectorAll('.notification-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const id = item.dataset.id;
+                this.markNotificationRead(id);
+                item.classList.remove('unread');
+            });
+        });
+
+        // Add action button handlers
+        container.querySelectorAll('.accept-share-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const id = btn.dataset.id;
+                this.acceptShare(id);
+            });
+        });
+
+        container.querySelectorAll('.decline-share-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const id = btn.dataset.id;
+                this.declineShare(id);
+            });
+        });
+    },
+
+    getNotificationIcon(type) {
+        const icons = {
+            share_received: '&#128101;',
+            share_folder: '&#128193;',
+        };
+        return icons[type] || '&#128276;';
+    },
+
+    getNotificationTitle(notification) {
+        switch (notification.type) {
+            case 'share_received':
+                return 'File Shared';
+            case 'share_folder':
+                return 'Folder Shared';
+            default:
+                return 'Notification';
+        }
+    },
+
+    getNotificationActions(notification) {
+        if (notification.type === 'share_received' || notification.type === 'share_folder') {
+            return `
+                <div class="notification-actions">
+                    <button class="btn btn-primary accept-share-btn" data-id="${notification.id}">Accept</button>
+                    <button class="btn decline-share-btn" data-id="${notification.id}">Decline</button>
+                </div>
+            `;
+        }
+        return '';
+    },
+
+    acceptShare(notificationId) {
+        const notification = this.notifications.find(n => n.id === notificationId);
+        if (notification) {
+            notification.read = true;
+            notification.accepted = true;
+            this.saveNotifications();
+            UI.toast(`Accepted share: ${notification.data.name}`, 'success');
+            this.loadFiles(); // Refresh to show new shared content
+            this.renderNotifications();
+        }
+    },
+
+    declineShare(notificationId) {
+        const notification = this.notifications.find(n => n.id === notificationId);
+        if (notification) {
+            notification.read = true;
+            notification.declined = true;
+            this.saveNotifications();
+            UI.toast('Share declined', 'info');
+            this.renderNotifications();
+        }
+    },
+
+    startNotificationPolling() {
+        // Check for new shares every 30 seconds
+        this.notificationPollInterval = setInterval(() => {
+            this.checkForNewShares();
+        }, 30000);
+
+        // Also check immediately
+        setTimeout(() => this.checkForNewShares(), 5000);
+    },
+
+    async checkForNewShares() {
+        try {
+            if (!Auth.pubkey) return;
+
+            // Query for shares directed to us
+            const shares = await Auth.queryShares(Auth.pubkey);
+
+            // Filter for new shares (not already notified)
+            const existingIds = new Set(
+                this.notifications
+                    .filter(n => n.type === 'share_received' || n.type === 'share_folder')
+                    .map(n => n.data.shareId)
+            );
+
+            for (const share of shares) {
+                if (!existingIds.has(share.id)) {
+                    this.addNotification(
+                        share.isFolder ? 'share_folder' : 'share_received',
+                        {
+                            shareId: share.id,
+                            name: share.name || 'Unknown',
+                            from: share.from ? share.from.slice(0, 8) + '...' : 'Someone',
+                        }
+                    );
+                }
+            }
+        } catch (e) {
+            // Silently fail - this is a background operation
+            console.debug('Share check failed:', e);
+        }
+    },
+
+    stopNotificationPolling() {
+        if (this.notificationPollInterval) {
+            clearInterval(this.notificationPollInterval);
+            this.notificationPollInterval = null;
+        }
+    },
+
+    // Request browser notification permission
+    requestNotificationPermission() {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    },
+
     renderFileTags(container, sha256) {
         const tags = this.getFileTags(sha256);
         container.innerHTML = tags.length === 0
@@ -1244,6 +1806,10 @@ const App = {
 
                 if (successful > 0) {
                     UI.toast(`Uploaded ${successful} file${successful > 1 ? 's' : ''}`, 'success');
+                    // Log activity for each successful upload
+                    items.filter(i => i.status === 'success').forEach(item => {
+                        this.logActivity('upload', { name: item.file?.name || 'Unknown file' });
+                    });
                 }
                 if (failed > 0) {
                     UI.toast(`${failed} file${failed > 1 ? 's' : ''} failed`, 'error');
@@ -1308,6 +1874,7 @@ const App = {
 
             UI.hideModal('new-folder-modal');
             UI.toast(`Created encrypted folder "${name.trim()}"`, 'success');
+            this.logActivity('folder', { name: name.trim() });
 
             // Reload to show new folder
             await this.loadFiles();
@@ -1667,6 +2234,7 @@ const App = {
             await Auth.publishEvent(metadataEvent);
 
             UI.toast(`"${fileName}" moved to trash`, 'success');
+            this.logActivity('delete', { name: fileName });
             await this.loadFiles();
             this.updateTrashCount();
         } catch (err) {
@@ -1799,6 +2367,7 @@ const App = {
             URL.revokeObjectURL(url);
 
             UI.toast(`Downloaded ${file.name}`, 'success');
+            this.logActivity('download', { name: file.name });
 
         } catch (err) {
             console.error('Download failed:', err);
@@ -1877,8 +2446,15 @@ const App = {
     },
 
     // Get preview type category
-    getPreviewType(mimeType) {
+    getPreviewType(mimeType, filename = '') {
         if (!mimeType) return 'unsupported';
+
+        // Check for markdown by extension or mime type
+        const ext = filename.split('.').pop().toLowerCase();
+        if (ext === 'md' || ext === 'markdown' || mimeType === 'text/markdown') {
+            return 'markdown';
+        }
+
         if (mimeType.startsWith('image/')) return 'image';
         if (mimeType.startsWith('video/')) return 'video';
         if (mimeType.startsWith('audio/')) return 'audio';
@@ -1908,10 +2484,11 @@ const App = {
 
         // Hide all preview types
         document.getElementById('preview-image').classList.add('hidden');
-        document.getElementById('preview-text').classList.add('hidden');
-        document.getElementById('preview-pdf').classList.add('hidden');
-        document.getElementById('preview-video').classList.add('hidden');
-        document.getElementById('preview-audio').classList.add('hidden');
+        document.getElementById('preview-code-container').classList.add('hidden');
+        document.getElementById('preview-markdown-container').classList.add('hidden');
+        document.getElementById('preview-pdf-container').classList.add('hidden');
+        document.getElementById('preview-video-container').classList.add('hidden');
+        document.getElementById('preview-audio-container').classList.add('hidden');
         document.getElementById('preview-unsupported').classList.add('hidden');
 
         UI.showModal('preview-modal');
@@ -1961,7 +2538,7 @@ const App = {
             this.previewBlobUrl = URL.createObjectURL(blob);
 
             // Show appropriate preview
-            const previewType = this.getPreviewType(mimeType);
+            const previewType = this.getPreviewType(mimeType, file.name);
             document.getElementById('preview-loading').classList.add('hidden');
             document.getElementById('preview-content').classList.remove('hidden');
 
@@ -1973,28 +2550,41 @@ const App = {
                     break;
 
                 case 'video':
+                    const videoContainer = document.getElementById('preview-video-container');
                     const videoEl = document.getElementById('preview-video');
                     videoEl.src = this.previewBlobUrl;
-                    videoEl.classList.remove('hidden');
+                    videoContainer.classList.remove('hidden');
+                    this.initMediaControls('video');
                     break;
 
                 case 'audio':
+                    const audioContainer = document.getElementById('preview-audio-container');
                     const audioEl = document.getElementById('preview-audio');
                     audioEl.src = this.previewBlobUrl;
-                    audioEl.classList.remove('hidden');
+                    audioContainer.classList.remove('hidden');
+                    this.initMediaControls('audio');
                     break;
 
                 case 'pdf':
-                    const pdfEl = document.getElementById('preview-pdf');
-                    pdfEl.src = this.previewBlobUrl;
-                    pdfEl.classList.remove('hidden');
+                    const pdfContainer = document.getElementById('preview-pdf-container');
+                    pdfContainer.classList.remove('hidden');
+                    this.initPdfViewer(decryptedData);
+                    break;
+
+                case 'markdown':
+                    const mdContainer = document.getElementById('preview-markdown-container');
+                    const mdText = new TextDecoder().decode(decryptedData);
+                    mdContainer.classList.remove('hidden');
+                    this.initMarkdownViewer(mdText);
                     break;
 
                 case 'text':
-                    const textEl = document.getElementById('preview-text');
+                    const codeContainer = document.getElementById('preview-code-container');
+                    const codeEl = document.getElementById('preview-code');
                     const text = new TextDecoder().decode(decryptedData);
-                    textEl.textContent = text;
-                    textEl.classList.remove('hidden');
+                    codeEl.textContent = text;
+                    codeContainer.classList.remove('hidden');
+                    this.initCodeViewer(file.name, text);
                     break;
 
                 default:
@@ -2055,6 +2645,776 @@ const App = {
                 this.closePreview();
             }
         });
+    },
+
+    // Initialize media controls for video/audio player
+    initMediaControls(type) {
+        const prefix = type; // 'video' or 'audio'
+        const mediaEl = document.getElementById(`preview-${type}`);
+        const playBtn = document.getElementById(`${prefix}-play`);
+        const seekBar = document.getElementById(`${prefix}-seek`);
+        const timeDisplay = document.getElementById(`${prefix}-time`);
+        const muteBtn = document.getElementById(`${prefix}-mute`);
+        const volumeSlider = document.getElementById(`${prefix}-volume`);
+        const speedSelect = document.getElementById(`${prefix}-speed`);
+        const pipBtn = document.getElementById(`${prefix}-pip`);
+        const fullscreenBtn = document.getElementById(`${prefix}-fullscreen`);
+
+        // Format time helper
+        const formatTime = (seconds) => {
+            if (isNaN(seconds) || !isFinite(seconds)) return '0:00';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        };
+
+        // Remove existing event listeners by cloning elements
+        const cloneAndReplace = (el) => {
+            if (!el) return null;
+            const clone = el.cloneNode(true);
+            el.parentNode.replaceChild(clone, el);
+            return clone;
+        };
+
+        // Clone to remove old listeners
+        const newPlayBtn = cloneAndReplace(playBtn);
+        const newSeekBar = cloneAndReplace(seekBar);
+        const newMuteBtn = cloneAndReplace(muteBtn);
+        const newVolumeSlider = cloneAndReplace(volumeSlider);
+        const newSpeedSelect = cloneAndReplace(speedSelect);
+        const newPipBtn = pipBtn ? cloneAndReplace(pipBtn) : null;
+        const newFullscreenBtn = fullscreenBtn ? cloneAndReplace(fullscreenBtn) : null;
+
+        // Play/Pause toggle
+        if (newPlayBtn) {
+            newPlayBtn.addEventListener('click', () => {
+                if (mediaEl.paused) {
+                    mediaEl.play();
+                } else {
+                    mediaEl.pause();
+                }
+            });
+        }
+
+        // Update play button icon based on state
+        mediaEl.addEventListener('play', () => {
+            if (newPlayBtn) newPlayBtn.innerHTML = '&#10074;&#10074;'; // Pause icon
+        });
+
+        mediaEl.addEventListener('pause', () => {
+            if (newPlayBtn) newPlayBtn.innerHTML = '&#9654;'; // Play icon
+        });
+
+        // Time update - update seek bar and time display
+        mediaEl.addEventListener('timeupdate', () => {
+            if (mediaEl.duration) {
+                const percent = (mediaEl.currentTime / mediaEl.duration) * 100;
+                if (newSeekBar) newSeekBar.value = percent;
+                if (timeDisplay) {
+                    timeDisplay.textContent = `${formatTime(mediaEl.currentTime)} / ${formatTime(mediaEl.duration)}`;
+                }
+            }
+        });
+
+        // When metadata loads, update duration
+        mediaEl.addEventListener('loadedmetadata', () => {
+            if (timeDisplay) {
+                timeDisplay.textContent = `0:00 / ${formatTime(mediaEl.duration)}`;
+            }
+        });
+
+        // Seek bar interaction
+        if (newSeekBar) {
+            newSeekBar.addEventListener('input', () => {
+                if (mediaEl.duration) {
+                    const time = (newSeekBar.value / 100) * mediaEl.duration;
+                    mediaEl.currentTime = time;
+                }
+            });
+        }
+
+        // Mute toggle
+        if (newMuteBtn) {
+            newMuteBtn.addEventListener('click', () => {
+                mediaEl.muted = !mediaEl.muted;
+                newMuteBtn.innerHTML = mediaEl.muted ? '&#128263;' : '&#128266;'; // Muted vs unmuted icon
+                if (newVolumeSlider) {
+                    newVolumeSlider.value = mediaEl.muted ? 0 : mediaEl.volume * 100;
+                }
+            });
+        }
+
+        // Volume slider
+        if (newVolumeSlider) {
+            newVolumeSlider.addEventListener('input', () => {
+                mediaEl.volume = newVolumeSlider.value / 100;
+                mediaEl.muted = mediaEl.volume === 0;
+                if (newMuteBtn) {
+                    newMuteBtn.innerHTML = mediaEl.muted ? '&#128263;' : '&#128266;';
+                }
+            });
+        }
+
+        // Playback speed
+        if (newSpeedSelect) {
+            newSpeedSelect.value = '1'; // Reset to 1x
+            newSpeedSelect.addEventListener('change', () => {
+                mediaEl.playbackRate = parseFloat(newSpeedSelect.value);
+            });
+        }
+
+        // Picture-in-Picture (video only)
+        if (newPipBtn && type === 'video' && document.pictureInPictureEnabled) {
+            newPipBtn.addEventListener('click', async () => {
+                try {
+                    if (document.pictureInPictureElement) {
+                        await document.exitPictureInPicture();
+                    } else {
+                        await mediaEl.requestPictureInPicture();
+                    }
+                } catch (err) {
+                    console.error('PiP error:', err);
+                }
+            });
+        } else if (newPipBtn) {
+            newPipBtn.style.display = 'none'; // Hide if not supported
+        }
+
+        // Fullscreen (video only)
+        if (newFullscreenBtn && type === 'video') {
+            newFullscreenBtn.addEventListener('click', () => {
+                const container = document.getElementById('preview-video-container');
+                if (document.fullscreenElement) {
+                    document.exitFullscreen();
+                } else if (container.requestFullscreen) {
+                    container.requestFullscreen();
+                } else if (container.webkitRequestFullscreen) {
+                    container.webkitRequestFullscreen();
+                }
+            });
+        }
+
+        // Handle ended event
+        mediaEl.addEventListener('ended', () => {
+            if (newPlayBtn) newPlayBtn.innerHTML = '&#9654;'; // Play icon
+            if (newSeekBar) newSeekBar.value = 0;
+        });
+
+        // Keyboard shortcuts within media player
+        const container = document.getElementById(`preview-${type}-container`);
+        container.addEventListener('keydown', (e) => {
+            switch (e.key) {
+                case ' ':
+                case 'k':
+                    e.preventDefault();
+                    if (mediaEl.paused) mediaEl.play();
+                    else mediaEl.pause();
+                    break;
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    mediaEl.currentTime = Math.max(0, mediaEl.currentTime - 5);
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    mediaEl.currentTime = Math.min(mediaEl.duration, mediaEl.currentTime + 5);
+                    break;
+                case 'ArrowUp':
+                    e.preventDefault();
+                    mediaEl.volume = Math.min(1, mediaEl.volume + 0.1);
+                    if (newVolumeSlider) newVolumeSlider.value = mediaEl.volume * 100;
+                    break;
+                case 'ArrowDown':
+                    e.preventDefault();
+                    mediaEl.volume = Math.max(0, mediaEl.volume - 0.1);
+                    if (newVolumeSlider) newVolumeSlider.value = mediaEl.volume * 100;
+                    break;
+                case 'm':
+                    e.preventDefault();
+                    mediaEl.muted = !mediaEl.muted;
+                    if (newMuteBtn) newMuteBtn.innerHTML = mediaEl.muted ? '&#128263;' : '&#128266;';
+                    break;
+                case 'f':
+                    if (type === 'video') {
+                        e.preventDefault();
+                        if (document.fullscreenElement) {
+                            document.exitFullscreen();
+                        } else {
+                            container.requestFullscreen();
+                        }
+                    }
+                    break;
+            }
+        });
+
+        // Make container focusable for keyboard events
+        container.setAttribute('tabindex', '0');
+    },
+
+    // PDF viewer state
+    pdfDoc: null,
+    pdfPage: 1,
+    pdfScale: 1,
+    pdfRotation: 0,
+    pdfRendering: false,
+
+    // Initialize PDF.js viewer
+    async initPdfViewer(pdfData) {
+        const loadingEl = document.getElementById('pdf-loading');
+        const canvas = document.getElementById('pdf-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Show loading
+        loadingEl.classList.remove('hidden');
+
+        try {
+            // Set PDF.js worker
+            if (window.pdfjsLib) {
+                pdfjsLib.GlobalWorkerOptions.workerSrc =
+                    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            } else {
+                throw new Error('PDF.js library not loaded');
+            }
+
+            // Load PDF from data
+            const loadingTask = pdfjsLib.getDocument({ data: pdfData });
+            this.pdfDoc = await loadingTask.promise;
+
+            // Update total pages
+            document.getElementById('pdf-total-pages').textContent = this.pdfDoc.numPages;
+            document.getElementById('pdf-page-input').max = this.pdfDoc.numPages;
+
+            // Reset state
+            this.pdfPage = 1;
+            this.pdfScale = 1;
+            this.pdfRotation = 0;
+            document.getElementById('pdf-page-input').value = 1;
+            document.getElementById('pdf-zoom-select').value = '1';
+
+            // Hide loading and render first page
+            loadingEl.classList.add('hidden');
+            await this.renderPdfPage();
+
+            // Setup PDF controls
+            this.setupPdfControls();
+
+        } catch (err) {
+            console.error('PDF load error:', err);
+            loadingEl.classList.add('hidden');
+            document.getElementById('preview-pdf-container').classList.add('hidden');
+            document.getElementById('preview-unsupported').classList.remove('hidden');
+            document.getElementById('preview-unsupported').innerHTML = `
+                <p>Failed to load PDF: ${err.message}</p>
+                <button class="btn btn-primary" id="preview-download">Download Instead</button>
+            `;
+        }
+    },
+
+    // Render current PDF page
+    async renderPdfPage() {
+        if (!this.pdfDoc || this.pdfRendering) return;
+
+        this.pdfRendering = true;
+        const canvas = document.getElementById('pdf-canvas');
+        const ctx = canvas.getContext('2d');
+
+        try {
+            const page = await this.pdfDoc.getPage(this.pdfPage);
+
+            // Calculate scale for fit-width or fit-page
+            let scale = this.pdfScale;
+            const viewport = page.getViewport({ scale: 1, rotation: this.pdfRotation });
+            const container = document.getElementById('pdf-viewport');
+
+            if (scale === 'fit-width') {
+                scale = (container.clientWidth - 40) / viewport.width;
+            } else if (scale === 'fit-page') {
+                const scaleX = (container.clientWidth - 40) / viewport.width;
+                const scaleY = (container.clientHeight - 40) / viewport.height;
+                scale = Math.min(scaleX, scaleY);
+            }
+
+            const scaledViewport = page.getViewport({ scale, rotation: this.pdfRotation });
+
+            // Set canvas dimensions
+            canvas.height = scaledViewport.height;
+            canvas.width = scaledViewport.width;
+
+            // Render page
+            await page.render({
+                canvasContext: ctx,
+                viewport: scaledViewport
+            }).promise;
+
+            // Update page input
+            document.getElementById('pdf-page-input').value = this.pdfPage;
+
+        } catch (err) {
+            console.error('PDF render error:', err);
+        }
+
+        this.pdfRendering = false;
+    },
+
+    // Setup PDF control event handlers
+    setupPdfControls() {
+        const prevBtn = document.getElementById('pdf-prev');
+        const nextBtn = document.getElementById('pdf-next');
+        const pageInput = document.getElementById('pdf-page-input');
+        const zoomSelect = document.getElementById('pdf-zoom-select');
+        const zoomInBtn = document.getElementById('pdf-zoom-in');
+        const zoomOutBtn = document.getElementById('pdf-zoom-out');
+        const rotateBtn = document.getElementById('pdf-rotate');
+        const fullscreenBtn = document.getElementById('pdf-fullscreen');
+
+        // Clone and replace to remove old listeners
+        const cloneAndReplace = (el) => {
+            if (!el) return null;
+            const clone = el.cloneNode(true);
+            el.parentNode.replaceChild(clone, el);
+            return clone;
+        };
+
+        const newPrevBtn = cloneAndReplace(prevBtn);
+        const newNextBtn = cloneAndReplace(nextBtn);
+        const newPageInput = cloneAndReplace(pageInput);
+        const newZoomSelect = cloneAndReplace(zoomSelect);
+        const newZoomInBtn = cloneAndReplace(zoomInBtn);
+        const newZoomOutBtn = cloneAndReplace(zoomOutBtn);
+        const newRotateBtn = cloneAndReplace(rotateBtn);
+        const newFullscreenBtn = cloneAndReplace(fullscreenBtn);
+
+        // Previous page
+        if (newPrevBtn) {
+            newPrevBtn.addEventListener('click', () => {
+                if (this.pdfPage > 1) {
+                    this.pdfPage--;
+                    this.renderPdfPage();
+                }
+            });
+        }
+
+        // Next page
+        if (newNextBtn) {
+            newNextBtn.addEventListener('click', () => {
+                if (this.pdfPage < this.pdfDoc.numPages) {
+                    this.pdfPage++;
+                    this.renderPdfPage();
+                }
+            });
+        }
+
+        // Page input
+        if (newPageInput) {
+            newPageInput.addEventListener('change', () => {
+                let page = parseInt(newPageInput.value);
+                if (page >= 1 && page <= this.pdfDoc.numPages) {
+                    this.pdfPage = page;
+                    this.renderPdfPage();
+                } else {
+                    newPageInput.value = this.pdfPage;
+                }
+            });
+        }
+
+        // Zoom select
+        if (newZoomSelect) {
+            newZoomSelect.addEventListener('change', () => {
+                const value = newZoomSelect.value;
+                if (value === 'fit-width' || value === 'fit-page') {
+                    this.pdfScale = value;
+                } else {
+                    this.pdfScale = parseFloat(value);
+                }
+                this.renderPdfPage();
+            });
+        }
+
+        // Zoom in
+        if (newZoomInBtn) {
+            newZoomInBtn.addEventListener('click', () => {
+                if (typeof this.pdfScale === 'number') {
+                    this.pdfScale = Math.min(3, this.pdfScale + 0.25);
+                    newZoomSelect.value = this.pdfScale.toString();
+                    // If not a preset, add custom option
+                    if (!newZoomSelect.value) {
+                        newZoomSelect.value = '1';
+                    }
+                    this.renderPdfPage();
+                }
+            });
+        }
+
+        // Zoom out
+        if (newZoomOutBtn) {
+            newZoomOutBtn.addEventListener('click', () => {
+                if (typeof this.pdfScale === 'number') {
+                    this.pdfScale = Math.max(0.25, this.pdfScale - 0.25);
+                    newZoomSelect.value = this.pdfScale.toString();
+                    if (!newZoomSelect.value) {
+                        newZoomSelect.value = '1';
+                    }
+                    this.renderPdfPage();
+                }
+            });
+        }
+
+        // Rotate
+        if (newRotateBtn) {
+            newRotateBtn.addEventListener('click', () => {
+                this.pdfRotation = (this.pdfRotation + 90) % 360;
+                this.renderPdfPage();
+            });
+        }
+
+        // Fullscreen
+        if (newFullscreenBtn) {
+            newFullscreenBtn.addEventListener('click', () => {
+                const container = document.getElementById('preview-pdf-container');
+                if (document.fullscreenElement) {
+                    document.exitFullscreen();
+                } else if (container.requestFullscreen) {
+                    container.requestFullscreen();
+                }
+            });
+        }
+
+        // Keyboard shortcuts
+        const container = document.getElementById('preview-pdf-container');
+        container.addEventListener('keydown', (e) => {
+            switch (e.key) {
+                case 'ArrowLeft':
+                case 'PageUp':
+                    e.preventDefault();
+                    if (this.pdfPage > 1) {
+                        this.pdfPage--;
+                        this.renderPdfPage();
+                    }
+                    break;
+                case 'ArrowRight':
+                case 'PageDown':
+                case ' ':
+                    e.preventDefault();
+                    if (this.pdfPage < this.pdfDoc.numPages) {
+                        this.pdfPage++;
+                        this.renderPdfPage();
+                    }
+                    break;
+                case 'Home':
+                    e.preventDefault();
+                    this.pdfPage = 1;
+                    this.renderPdfPage();
+                    break;
+                case 'End':
+                    e.preventDefault();
+                    this.pdfPage = this.pdfDoc.numPages;
+                    this.renderPdfPage();
+                    break;
+                case '+':
+                case '=':
+                    e.preventDefault();
+                    if (typeof this.pdfScale === 'number') {
+                        this.pdfScale = Math.min(3, this.pdfScale + 0.25);
+                        this.renderPdfPage();
+                    }
+                    break;
+                case '-':
+                    e.preventDefault();
+                    if (typeof this.pdfScale === 'number') {
+                        this.pdfScale = Math.max(0.25, this.pdfScale - 0.25);
+                        this.renderPdfPage();
+                    }
+                    break;
+                case 'r':
+                    e.preventDefault();
+                    this.pdfRotation = (this.pdfRotation + 90) % 360;
+                    this.renderPdfPage();
+                    break;
+                case 'f':
+                    e.preventDefault();
+                    if (document.fullscreenElement) {
+                        document.exitFullscreen();
+                    } else {
+                        container.requestFullscreen();
+                    }
+                    break;
+            }
+        });
+
+        container.setAttribute('tabindex', '0');
+    },
+
+    // Get programming language from file extension
+    getLanguageFromExtension(filename) {
+        const ext = filename.split('.').pop().toLowerCase();
+        const languageMap = {
+            // JavaScript/TypeScript
+            'js': 'javascript',
+            'jsx': 'javascript',
+            'ts': 'typescript',
+            'tsx': 'typescript',
+            'mjs': 'javascript',
+            'cjs': 'javascript',
+            // Web
+            'html': 'html',
+            'htm': 'html',
+            'css': 'css',
+            'scss': 'scss',
+            'sass': 'scss',
+            'less': 'less',
+            'vue': 'html',
+            'svelte': 'html',
+            // Backend
+            'py': 'python',
+            'rb': 'ruby',
+            'php': 'php',
+            'go': 'go',
+            'rs': 'rust',
+            'java': 'java',
+            'kt': 'kotlin',
+            'scala': 'scala',
+            'cs': 'csharp',
+            'cpp': 'cpp',
+            'c': 'c',
+            'h': 'c',
+            'hpp': 'cpp',
+            'swift': 'swift',
+            // Data/Config
+            'json': 'json',
+            'xml': 'xml',
+            'yaml': 'yaml',
+            'yml': 'yaml',
+            'toml': 'ini',
+            'ini': 'ini',
+            'env': 'ini',
+            'conf': 'ini',
+            // Shell
+            'sh': 'bash',
+            'bash': 'bash',
+            'zsh': 'bash',
+            'fish': 'bash',
+            'ps1': 'powershell',
+            // Database
+            'sql': 'sql',
+            // Docs
+            'md': 'markdown',
+            'markdown': 'markdown',
+            'rst': 'plaintext',
+            'txt': 'plaintext',
+            // Other
+            'dockerfile': 'dockerfile',
+            'makefile': 'makefile',
+            'cmake': 'cmake',
+            'r': 'r',
+            'lua': 'lua',
+            'perl': 'perl',
+            'pl': 'perl',
+            'ex': 'elixir',
+            'exs': 'elixir',
+            'erl': 'erlang',
+            'hs': 'haskell',
+            'clj': 'clojure',
+            'lisp': 'lisp',
+            'vim': 'vim',
+            'diff': 'diff',
+            'patch': 'diff',
+        };
+        return languageMap[ext] || 'plaintext';
+    },
+
+    // Initialize code viewer with syntax highlighting
+    initCodeViewer(filename, content) {
+        const codeEl = document.getElementById('preview-code');
+        const langEl = document.getElementById('code-language');
+        const lineNumbersEl = document.getElementById('line-numbers');
+        const copyBtn = document.getElementById('code-copy');
+        const wrapBtn = document.getElementById('code-wrap-toggle');
+        const preEl = document.getElementById('preview-text');
+
+        // Detect language
+        const language = this.getLanguageFromExtension(filename);
+        langEl.textContent = language;
+
+        // Apply syntax highlighting
+        codeEl.className = `language-${language}`;
+        if (window.hljs) {
+            try {
+                const highlighted = hljs.highlight(content, { language, ignoreIllegals: true });
+                codeEl.innerHTML = highlighted.value;
+            } catch (e) {
+                // Fallback to auto-detection
+                try {
+                    const auto = hljs.highlightAuto(content);
+                    codeEl.innerHTML = auto.value;
+                    langEl.textContent = auto.language || 'plaintext';
+                } catch (e2) {
+                    codeEl.textContent = content;
+                }
+            }
+        }
+
+        // Generate line numbers
+        const lines = content.split('\n');
+        lineNumbersEl.innerHTML = lines.map((_, i) => `<div>${i + 1}</div>`).join('');
+
+        // Clone and replace buttons to remove old listeners
+        const cloneAndReplace = (el) => {
+            if (!el) return null;
+            const clone = el.cloneNode(true);
+            el.parentNode.replaceChild(clone, el);
+            return clone;
+        };
+
+        const newCopyBtn = cloneAndReplace(copyBtn);
+        const newWrapBtn = cloneAndReplace(wrapBtn);
+
+        // Copy button
+        if (newCopyBtn) {
+            newCopyBtn.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(content);
+                    newCopyBtn.textContent = 'Copied!';
+                    newCopyBtn.classList.add('active');
+                    setTimeout(() => {
+                        newCopyBtn.textContent = 'Copy';
+                        newCopyBtn.classList.remove('active');
+                    }, 2000);
+                } catch (err) {
+                    console.error('Copy failed:', err);
+                    newCopyBtn.textContent = 'Failed';
+                    setTimeout(() => {
+                        newCopyBtn.textContent = 'Copy';
+                    }, 2000);
+                }
+            });
+        }
+
+        // Wrap toggle
+        if (newWrapBtn) {
+            // Reset wrap state
+            preEl.classList.remove('wrap');
+            newWrapBtn.classList.remove('active');
+
+            newWrapBtn.addEventListener('click', () => {
+                preEl.classList.toggle('wrap');
+                newWrapBtn.classList.toggle('active');
+            });
+        }
+
+        // Sync line number scroll with code scroll
+        const codeBody = document.querySelector('.code-body');
+        if (codeBody) {
+            codeBody.addEventListener('scroll', () => {
+                lineNumbersEl.style.marginTop = `-${codeBody.scrollTop}px`;
+            });
+        }
+    },
+
+    // Store raw markdown content for copying
+    rawMarkdownContent: '',
+
+    // Initialize markdown viewer with preview/source toggle
+    initMarkdownViewer(content) {
+        this.rawMarkdownContent = content;
+
+        const previewEl = document.getElementById('markdown-preview');
+        const sourceEl = document.getElementById('markdown-source');
+        const rawEl = document.getElementById('markdown-raw');
+        const previewTab = document.getElementById('md-preview-tab');
+        const sourceTab = document.getElementById('md-source-tab');
+        const copyBtn = document.getElementById('md-copy');
+
+        // Configure marked options
+        if (window.marked) {
+            marked.setOptions({
+                breaks: true,
+                gfm: true,
+                headerIds: true,
+                highlight: function(code, lang) {
+                    if (window.hljs && lang && hljs.getLanguage(lang)) {
+                        try {
+                            return hljs.highlight(code, { language: lang }).value;
+                        } catch (e) {
+                            return code;
+                        }
+                    }
+                    return code;
+                }
+            });
+
+            // Render markdown to HTML
+            previewEl.innerHTML = marked.parse(content);
+        } else {
+            // Fallback if marked is not loaded
+            previewEl.innerHTML = `<pre>${this.escapeHtml(content)}</pre>`;
+        }
+
+        // Set source code with syntax highlighting
+        rawEl.textContent = content;
+        if (window.hljs) {
+            rawEl.className = 'language-markdown';
+            hljs.highlightElement(rawEl);
+        }
+
+        // Clone and replace to remove old listeners
+        const cloneAndReplace = (el) => {
+            if (!el) return null;
+            const clone = el.cloneNode(true);
+            el.parentNode.replaceChild(clone, el);
+            return clone;
+        };
+
+        const newPreviewTab = cloneAndReplace(previewTab);
+        const newSourceTab = cloneAndReplace(sourceTab);
+        const newCopyBtn = cloneAndReplace(copyBtn);
+
+        // Reset to preview view
+        previewEl.classList.remove('hidden');
+        sourceEl.classList.add('hidden');
+        newPreviewTab.classList.add('active');
+        newSourceTab.classList.remove('active');
+
+        // Tab switching
+        if (newPreviewTab) {
+            newPreviewTab.addEventListener('click', () => {
+                previewEl.classList.remove('hidden');
+                sourceEl.classList.add('hidden');
+                newPreviewTab.classList.add('active');
+                newSourceTab.classList.remove('active');
+            });
+        }
+
+        if (newSourceTab) {
+            newSourceTab.addEventListener('click', () => {
+                previewEl.classList.add('hidden');
+                sourceEl.classList.remove('hidden');
+                newSourceTab.classList.add('active');
+                newPreviewTab.classList.remove('active');
+            });
+        }
+
+        // Copy button
+        if (newCopyBtn) {
+            newCopyBtn.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(this.rawMarkdownContent);
+                    newCopyBtn.textContent = 'Copied!';
+                    newCopyBtn.classList.add('active');
+                    setTimeout(() => {
+                        newCopyBtn.textContent = 'Copy';
+                        newCopyBtn.classList.remove('active');
+                    }, 2000);
+                } catch (err) {
+                    console.error('Copy failed:', err);
+                }
+            });
+        }
+    },
+
+    // Helper to escape HTML
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     },
 
     setupShareModal() {
@@ -2217,6 +3577,7 @@ const App = {
                 statusEl.classList.add('success');
 
                 UI.toast(`Shared folder "${folder.name}" with ${recipientInput.slice(0, 12)}...`, 'success');
+                this.logActivity('share', { name: folder.name });
 
                 // Close modal after delay
                 setTimeout(() => {
@@ -2274,6 +3635,7 @@ const App = {
             statusEl.classList.add('success');
 
             UI.toast(`Shared "${this.shareFile.name}" with ${recipientInput.slice(0, 12)}...`, 'success');
+            this.logActivity('share', { name: this.shareFile.name });
 
             // Close modal after delay
             setTimeout(() => {
@@ -2995,6 +4357,82 @@ const App = {
                 tagSuggestions.classList.add('hidden');
             }
         });
+
+        // Folder customize modal
+        document.getElementById('folder-customize-close')?.addEventListener('click', () => {
+            UI.hideModal('folder-customize-modal');
+            this.customizingFolder = null;
+        });
+
+        document.getElementById('folder-customize-save')?.addEventListener('click', () => {
+            this.saveFolderCustomization();
+        });
+
+        document.getElementById('folder-customize-reset')?.addEventListener('click', () => {
+            this.resetFolderCustomization();
+        });
+
+        // Comments modal
+        document.getElementById('comments-modal-close')?.addEventListener('click', () => {
+            UI.hideModal('comments-modal');
+            this.commentsModalFile = null;
+        });
+
+        document.getElementById('add-comment-btn')?.addEventListener('click', () => {
+            const input = document.getElementById('comment-input');
+            if (this.commentsModalFile && input.value.trim()) {
+                this.addComment(this.commentsModalFile.sha256, input.value);
+                input.value = '';
+                this.renderComments(
+                    document.getElementById('comments-list'),
+                    this.commentsModalFile.sha256
+                );
+            }
+        });
+
+        // Allow Enter+Ctrl to submit comment
+        document.getElementById('comment-input')?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                document.getElementById('add-comment-btn')?.click();
+            }
+        });
+
+        // Activity modal
+        document.getElementById('activity-modal-close')?.addEventListener('click', () => {
+            UI.hideModal('activity-modal');
+        });
+
+        document.getElementById('activity-filter')?.addEventListener('change', (e) => {
+            this.renderActivityLog(e.target.value);
+        });
+
+        document.getElementById('clear-activity')?.addEventListener('click', () => {
+            this.clearActivityLog();
+        });
+
+        // Activity sidebar navigation
+        document.getElementById('nav-activity')?.addEventListener('click', () => {
+            this.showActivityModal();
+        });
+
+        // Notifications modal
+        document.getElementById('notifications-modal-close')?.addEventListener('click', () => {
+            UI.hideModal('notifications-modal');
+        });
+
+        document.getElementById('mark-all-read')?.addEventListener('click', () => {
+            this.markAllNotificationsRead();
+        });
+
+        document.getElementById('nav-notifications')?.addEventListener('click', () => {
+            this.showNotificationsModal();
+        });
+
+        // Request notification permission when user interacts
+        document.addEventListener('click', () => {
+            this.requestNotificationPermission();
+        }, { once: true });
     },
 
     // Register service worker for offline support
@@ -3088,6 +4526,7 @@ const App = {
             await Auth.publishEvent(metadataEvent);
 
             UI.toast(`Moved ${file.name} to ${targetFolderName}`, 'success');
+            this.logActivity('move', { name: file.name, destination: targetFolderName });
 
             // Refresh files
             await this.loadFiles();

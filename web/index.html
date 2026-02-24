@@ -11,6 +11,13 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.json">
     <link rel="stylesheet" href="/css/style.css">
+    <!-- PDF.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- Highlight.js for code syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <!-- Marked.js for markdown rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
 </head>
 <body>
     <!-- Offline Banner -->
@@ -116,6 +123,15 @@
                             <span class="sidebar-nav-icon" aria-hidden="true">&#128465;</span>
                             <span class="sidebar-nav-name">Trash</span>
                             <span class="sidebar-nav-badge" id="trash-count" aria-live="polite"></span>
+                        </div>
+                        <div class="sidebar-nav-item" id="nav-activity" title="Activity log" role="button" tabindex="0" aria-label="Activity">
+                            <span class="sidebar-nav-icon" aria-hidden="true">&#128203;</span>
+                            <span class="sidebar-nav-name">Activity</span>
+                        </div>
+                        <div class="sidebar-nav-item" id="nav-notifications" title="Share notifications" role="button" tabindex="0" aria-label="Notifications">
+                            <span class="sidebar-nav-icon" aria-hidden="true">&#128276;</span>
+                            <span class="sidebar-nav-name">Notifications</span>
+                            <span class="sidebar-nav-badge notification-badge" id="notification-count"></span>
                         </div>
                     </nav>
                     <div class="storage-usage" id="storage-usage">
@@ -283,6 +299,92 @@
                 </div>
                 <div class="modal-footer">
                     <button class="btn" id="tags-done">Done</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notifications Modal -->
+        <div id="notifications-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Notifications</h2>
+                    <button class="modal-close" id="notifications-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="notifications-list" id="notifications-list"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="mark-all-read">Mark All Read</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Activity Log Modal -->
+        <div id="activity-modal" class="modal hidden">
+            <div class="modal-content modal-wide">
+                <div class="modal-header">
+                    <h2>Activity Log</h2>
+                    <button class="modal-close" id="activity-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="activity-filters">
+                        <select id="activity-filter" class="input">
+                            <option value="all">All Activity</option>
+                            <option value="upload">Uploads</option>
+                            <option value="download">Downloads</option>
+                            <option value="delete">Deletions</option>
+                            <option value="move">Moves</option>
+                            <option value="share">Shares</option>
+                            <option value="comment">Comments</option>
+                        </select>
+                        <button class="btn" id="clear-activity">Clear History</button>
+                    </div>
+                    <div class="activity-list" id="activity-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- File Comments Modal -->
+        <div id="comments-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Comments</h2>
+                    <button class="modal-close" id="comments-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="comments-file-name" id="comments-file-name"></div>
+                    <div class="comments-list" id="comments-list"></div>
+                    <div class="comment-input-area">
+                        <textarea id="comment-input" class="input" placeholder="Add a comment..." rows="3"></textarea>
+                        <button class="btn btn-primary" id="add-comment-btn">Add Comment</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Folder Customize Modal -->
+        <div id="folder-customize-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Customize Folder</h2>
+                    <button class="modal-close" id="folder-customize-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="folder-name-display" id="customize-folder-name"></div>
+
+                    <div class="customize-section">
+                        <label>Color</label>
+                        <div class="color-picker" id="folder-color-picker"></div>
+                    </div>
+
+                    <div class="customize-section">
+                        <label>Icon</label>
+                        <div class="icon-picker" id="folder-icon-picker"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="folder-customize-reset">Reset</button>
+                    <button class="btn btn-primary" id="folder-customize-save">Save</button>
                 </div>
             </div>
         </div>
@@ -476,13 +578,122 @@
                         <!-- Image preview -->
                         <img id="preview-image" class="preview-image hidden" alt="Preview">
                         <!-- Text/code preview -->
-                        <pre id="preview-text" class="preview-text hidden"></pre>
-                        <!-- PDF preview -->
-                        <iframe id="preview-pdf" class="preview-pdf hidden"></iframe>
+                        <!-- Text/code preview with syntax highlighting -->
+                        <div id="preview-code-container" class="preview-code-container hidden">
+                            <div class="code-header">
+                                <span class="code-language" id="code-language"></span>
+                                <div class="code-actions">
+                                    <button class="code-btn" id="code-copy" aria-label="Copy code">Copy</button>
+                                    <button class="code-btn" id="code-wrap-toggle" aria-label="Toggle word wrap">Wrap</button>
+                                </div>
+                            </div>
+                            <div class="code-body">
+                                <div class="line-numbers" id="line-numbers"></div>
+                                <pre id="preview-text" class="preview-text"><code id="preview-code"></code></pre>
+                            </div>
+                        </div>
+                        <!-- Markdown preview -->
+                        <div id="preview-markdown-container" class="preview-markdown-container hidden">
+                            <div class="markdown-header">
+                                <div class="markdown-tabs">
+                                    <button class="markdown-tab active" id="md-preview-tab" data-view="preview">Preview</button>
+                                    <button class="markdown-tab" id="md-source-tab" data-view="source">Source</button>
+                                </div>
+                                <div class="markdown-actions">
+                                    <button class="code-btn" id="md-copy" aria-label="Copy markdown">Copy</button>
+                                </div>
+                            </div>
+                            <div class="markdown-content" id="markdown-preview"></div>
+                            <div class="markdown-source hidden" id="markdown-source">
+                                <pre><code id="markdown-raw"></code></pre>
+                            </div>
+                        </div>
+                        <!-- PDF preview with controls -->
+                        <div id="preview-pdf-container" class="preview-pdf-container hidden">
+                            <div class="pdf-toolbar">
+                                <div class="pdf-nav">
+                                    <button class="pdf-btn" id="pdf-prev" aria-label="Previous page">&#9664;</button>
+                                    <span class="pdf-page-info">
+                                        <input type="number" id="pdf-page-input" min="1" value="1" aria-label="Current page"> / <span id="pdf-total-pages">1</span>
+                                    </span>
+                                    <button class="pdf-btn" id="pdf-next" aria-label="Next page">&#9654;</button>
+                                </div>
+                                <div class="pdf-zoom">
+                                    <button class="pdf-btn" id="pdf-zoom-out" aria-label="Zoom out">&#8722;</button>
+                                    <select id="pdf-zoom-select" aria-label="Zoom level">
+                                        <option value="0.5">50%</option>
+                                        <option value="0.75">75%</option>
+                                        <option value="1" selected>100%</option>
+                                        <option value="1.25">125%</option>
+                                        <option value="1.5">150%</option>
+                                        <option value="2">200%</option>
+                                        <option value="fit-width">Fit Width</option>
+                                        <option value="fit-page">Fit Page</option>
+                                    </select>
+                                    <button class="pdf-btn" id="pdf-zoom-in" aria-label="Zoom in">&#43;</button>
+                                </div>
+                                <div class="pdf-actions">
+                                    <button class="pdf-btn" id="pdf-rotate" aria-label="Rotate">&#8635;</button>
+                                    <button class="pdf-btn" id="pdf-fullscreen" aria-label="Fullscreen">&#x26F6;</button>
+                                </div>
+                            </div>
+                            <div class="pdf-viewport" id="pdf-viewport">
+                                <canvas id="pdf-canvas"></canvas>
+                            </div>
+                            <div class="pdf-loading" id="pdf-loading">
+                                <div class="spinner"></div>
+                                <span>Loading PDF...</span>
+                            </div>
+                        </div>
                         <!-- Video preview -->
-                        <video id="preview-video" class="preview-video hidden" controls></video>
+                        <div id="preview-video-container" class="preview-video-container hidden">
+                            <video id="preview-video" class="preview-video"></video>
+                            <div class="media-controls">
+                                <button class="media-btn play-btn" id="video-play" aria-label="Play/Pause">&#9654;</button>
+                                <div class="media-progress">
+                                    <input type="range" class="media-seek" id="video-seek" min="0" max="100" value="0" aria-label="Seek">
+                                    <span class="media-time" id="video-time">0:00 / 0:00</span>
+                                </div>
+                                <div class="media-right-controls">
+                                    <button class="media-btn volume-btn" id="video-mute" aria-label="Mute">&#128266;</button>
+                                    <input type="range" class="volume-slider" id="video-volume" min="0" max="100" value="100" aria-label="Volume">
+                                    <select class="playback-speed" id="video-speed" aria-label="Playback speed">
+                                        <option value="0.5">0.5x</option>
+                                        <option value="0.75">0.75x</option>
+                                        <option value="1" selected>1x</option>
+                                        <option value="1.25">1.25x</option>
+                                        <option value="1.5">1.5x</option>
+                                        <option value="2">2x</option>
+                                    </select>
+                                    <button class="media-btn pip-btn" id="video-pip" aria-label="Picture in Picture">&#128250;</button>
+                                    <button class="media-btn fullscreen-btn" id="video-fullscreen" aria-label="Fullscreen">&#x26F6;</button>
+                                </div>
+                            </div>
+                        </div>
                         <!-- Audio preview -->
-                        <audio id="preview-audio" class="preview-audio hidden" controls></audio>
+                        <div id="preview-audio-container" class="preview-audio-container hidden">
+                            <div class="audio-visualization" id="audio-visualization"></div>
+                            <audio id="preview-audio" class="preview-audio"></audio>
+                            <div class="media-controls audio-controls">
+                                <button class="media-btn play-btn" id="audio-play" aria-label="Play/Pause">&#9654;</button>
+                                <div class="media-progress">
+                                    <input type="range" class="media-seek" id="audio-seek" min="0" max="100" value="0" aria-label="Seek">
+                                    <span class="media-time" id="audio-time">0:00 / 0:00</span>
+                                </div>
+                                <div class="media-right-controls">
+                                    <button class="media-btn volume-btn" id="audio-mute" aria-label="Mute">&#128266;</button>
+                                    <input type="range" class="volume-slider" id="audio-volume" min="0" max="100" value="100" aria-label="Volume">
+                                    <select class="playback-speed" id="audio-speed" aria-label="Playback speed">
+                                        <option value="0.5">0.5x</option>
+                                        <option value="0.75">0.75x</option>
+                                        <option value="1" selected>1x</option>
+                                        <option value="1.25">1.25x</option>
+                                        <option value="1.5">1.5x</option>
+                                        <option value="2">2x</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
                         <!-- Unsupported message -->
                         <div id="preview-unsupported" class="preview-unsupported hidden">
                             <p>Preview not available for this file type</p>

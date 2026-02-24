@@ -1,5 +1,14 @@
 {
+  "name": "cloistr-drive",
+  "version": "1.0.0",
+  "description": "Zero-knowledge file manager with end-to-end encryption",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:headed": "npx playwright test --headed",
+    "test:ui": "npx playwright test --ui"
+  },
   "devDependencies": {
+    "@playwright/test": "^1.42.0",
     "puppeteer": "^24.37.5"
   },
   "dependencies": {
