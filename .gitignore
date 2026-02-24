@@ -43,3 +43,4 @@ uploads/
 # .claude should not be committed (it's a symlink to shared agents)
 .claude
 config.yml
+node_modules/

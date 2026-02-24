@@ -1,0 +1,8 @@
+{
+  "devDependencies": {
+    "puppeteer": "^24.37.5"
+  },
+  "dependencies": {
+    "libsodium-wrappers": "^0.7.13"
+  }
+}

@@ -343,6 +343,12 @@ const Keys = {
     async clearAllKeys() {
         if (!this.db) await this.openDB();
 
+        // If no user pubkey, clear the cache and return
+        if (!this.userPubkey) {
+            this.clearCache();
+            return;
+        }
+
         return new Promise((resolve, reject) => {
             const tx = this.db.transaction(this.STORE_NAME, 'readwrite');
             const store = tx.objectStore(this.STORE_NAME);

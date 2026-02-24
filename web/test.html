@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloistr Drive - Test Suite</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        h1 { color: #00d4ff; }
+        h2 { color: #888; margin-top: 30px; }
+        .controls { margin: 20px 0; }
+        button {
+            background: #00d4ff;
+            color: #1a1a2e;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+        button:hover { background: #00a8cc; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        #output {
+            background: #0a0a14;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            max-height: 600px;
+            overflow-y: auto;
+            line-height: 1.5;
+        }
+        .pass { color: #00ff88; }
+        .fail { color: #ff4444; }
+        .info { color: #00d4ff; }
+        .section { color: #ffaa00; font-weight: bold; }
+        #summary {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 18px;
+        }
+        #summary.success { background: #0a3020; border: 2px solid #00ff88; }
+        #summary.failure { background: #300a0a; border: 2px solid #ff4444; }
+        #summary.pending { background: #1a1a2e; border: 2px solid #555; }
+    </style>
+</head>
+<body>
+    <h1>Cloistr Drive Test Suite</h1>
+    <p>End-to-end encryption tests for all 4 phases</p>
+
+    <div class="controls">
+        <button id="run-crypto" onclick="runCryptoTests()">Run Crypto Tests</button>
+        <button id="run-integration" onclick="runIntegrationTests()">Run Integration Tests</button>
+        <button id="run-all" onclick="runAllTests()">Run All Tests</button>
+        <button onclick="clearOutput()">Clear</button>
+    </div>
+
+    <div id="summary" class="pending">Ready to run tests</div>
+
+    <h2>Test Output</h2>
+    <div id="output">Click a button above to run tests...</div>
+
+    <!-- Load sodium.js from local vendor directory -->
+    <script src="vendor/libsodium.js"></script>
+    <script src="vendor/libsodium-wrappers.js"></script>
+
+    <!-- Load modules in dependency order -->
+    <script src="js/crypto.js"></script>
+    <script src="js/keys.js"></script>
+    <script src="js/search.js"></script>
+    <script src="js/versioning.js"></script>
+    <script src="js/sharing.js"></script>
+    <script src="js/collaboration.js"></script>
+
+    <!-- Load test files -->
+    <script src="js/tests/crypto.test.js"></script>
+    <script src="js/tests/integration.test.js"></script>
+
+    <script>
+        const output = document.getElementById('output');
+        const summary = document.getElementById('summary');
+
+        // Override console.log to capture output
+        const originalLog = console.log;
+        const originalError = console.error;
+
+        function log(msg, className = '') {
+            const line = document.createElement('div');
+            line.className = className;
+            line.textContent = msg;
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        console.log = function(...args) {
+            const msg = args.join(' ');
+            originalLog.apply(console, args);
+
+            let className = '';
+            if (msg.includes('✓')) className = 'pass';
+            else if (msg.includes('✗')) className = 'fail';
+            else if (msg.includes('===') || msg.includes('---')) className = 'section';
+            else if (msg.includes('RESULTS') || msg.includes('PASS') || msg.includes('FAIL')) className = 'info';
+
+            log(msg, className);
+        };
+
+        console.error = function(...args) {
+            const msg = args.join(' ');
+            originalError.apply(console, args);
+            log(msg, 'fail');
+        };
+
+        function clearOutput() {
+            output.innerHTML = 'Ready...';
+            summary.className = 'pending';
+            summary.textContent = 'Ready to run tests';
+        }
+
+        function updateSummary(passed, failed) {
+            const total = passed + failed;
+            if (failed === 0) {
+                summary.className = 'success';
+                summary.textContent = `All ${total} tests passed!`;
+            } else {
+                summary.className = 'failure';
+                summary.textContent = `${passed} passed, ${failed} failed (${total} total)`;
+            }
+        }
+
+        async function runCryptoTests() {
+            clearOutput();
+            document.getElementById('run-crypto').disabled = true;
+            summary.textContent = 'Running crypto tests...';
+
+            try {
+                const result = await CryptoTests.runAll();
+                updateSummary(result.passed, result.failed);
+            } catch (err) {
+                log('Test error: ' + err.message, 'fail');
+                summary.className = 'failure';
+                summary.textContent = 'Tests failed with error';
+            }
+
+            document.getElementById('run-crypto').disabled = false;
+        }
+
+        async function runIntegrationTests() {
+            clearOutput();
+            document.getElementById('run-integration').disabled = true;
+            summary.textContent = 'Running integration tests...';
+
+            try {
+                const result = await IntegrationTests.runAll();
+                updateSummary(result.passed, result.failed);
+            } catch (err) {
+                log('Test error: ' + err.message, 'fail');
+                summary.className = 'failure';
+                summary.textContent = 'Tests failed with error';
+            }
+
+            document.getElementById('run-integration').disabled = false;
+        }
+
+        async function runAllTests() {
+            clearOutput();
+            document.getElementById('run-all').disabled = true;
+            summary.textContent = 'Running all tests...';
+
+            let totalPassed = 0;
+            let totalFailed = 0;
+
+            try {
+                const cryptoResult = await CryptoTests.runAll();
+                totalPassed += cryptoResult.passed;
+                totalFailed += cryptoResult.failed;
+
+                log('\n', '');
+
+                const integrationResult = await IntegrationTests.runAll();
+                totalPassed += integrationResult.passed;
+                totalFailed += integrationResult.failed;
+
+                updateSummary(totalPassed, totalFailed);
+            } catch (err) {
+                log('Test error: ' + err.message, 'fail');
+                summary.className = 'failure';
+                summary.textContent = 'Tests failed with error';
+            }
+
+            document.getElementById('run-all').disabled = false;
+        }
+
+        // Initialize on load
+        window.addEventListener('DOMContentLoaded', async () => {
+            log('Initializing test environment...', 'info');
+
+            // Wait for sodium to be loaded and ready
+            const waitForSodium = () => {
+                return new Promise((resolve, reject) => {
+                    const checkSodium = () => {
+                        if (typeof sodium !== 'undefined' && sodium.ready) {
+                            sodium.ready.then(resolve).catch(reject);
+                        } else {
+                            setTimeout(checkSodium, 50);
+                        }
+                    };
+                    checkSodium();
+                    // Timeout after 10 seconds
+                    setTimeout(() => reject(new Error('Sodium load timeout')), 10000);
+                });
+            };
+
+            try {
+                await waitForSodium();
+                log('libsodium ready', 'pass');
+            } catch (err) {
+                log('libsodium failed to load: ' + err.message, 'fail');
+                return;
+            }
+
+            // Initialize crypto
+            try {
+                await Crypto.init();
+                log('Crypto module initialized', 'pass');
+            } catch (err) {
+                log('Crypto init failed: ' + err.message, 'fail');
+            }
+
+            log('\nReady to run tests!', 'info');
+        });
+    </script>
+</body>
+</html>
