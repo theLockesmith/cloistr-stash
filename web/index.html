@@ -69,6 +69,7 @@
         <div id="file-explorer" class="explorer hidden">
             <header class="header">
                 <div class="header-left">
+                    <button id="mobile-menu-btn" class="btn btn-icon mobile-menu-btn" title="Menu" style="display: none;">&#9776;</button>
                     <img src="/favicon.svg" alt="Drive" class="header-logo">
                     <h1 class="logo">Drive</h1>
                 </div>
@@ -80,6 +81,9 @@
             </header>
 
             <div class="explorer-content">
+                <!-- Mobile sidebar overlay -->
+                <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
                 <!-- Folder Tree Sidebar -->
                 <aside class="sidebar" id="sidebar">
                     <div class="sidebar-header">

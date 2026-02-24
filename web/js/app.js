@@ -135,6 +135,9 @@ const App = {
 
         // Preview modal
         this.setupPreviewModal();
+
+        // Mobile menu
+        this.setupMobileMenu();
     },
 
     setupUploadModal() {
@@ -652,6 +655,8 @@ const App = {
     },
 
     async openFolder(folderId, folderName) {
+        // Close mobile sidebar if open
+        this.closeMobileSidebar();
         await this.navigateToFolder(folderId, folderName);
     },
 
@@ -921,6 +926,55 @@ const App = {
         if (sidebar) {
             sidebar.classList.toggle('collapsed');
         }
+    },
+
+    // Toggle mobile sidebar
+    toggleMobileSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('sidebar-overlay');
+        if (sidebar) {
+            sidebar.classList.toggle('mobile-open');
+            if (overlay) {
+                overlay.classList.toggle('visible', sidebar.classList.contains('mobile-open'));
+            }
+        }
+    },
+
+    // Close mobile sidebar
+    closeMobileSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('sidebar-overlay');
+        if (sidebar) {
+            sidebar.classList.remove('mobile-open');
+            if (overlay) {
+                overlay.classList.remove('visible');
+            }
+        }
+    },
+
+    // Setup mobile menu
+    setupMobileMenu() {
+        const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+        const overlay = document.getElementById('sidebar-overlay');
+
+        if (mobileMenuBtn) {
+            mobileMenuBtn.addEventListener('click', () => {
+                this.toggleMobileSidebar();
+            });
+        }
+
+        if (overlay) {
+            overlay.addEventListener('click', () => {
+                this.closeMobileSidebar();
+            });
+        }
+
+        // Close sidebar when navigating on mobile
+        window.addEventListener('resize', () => {
+            if (window.innerWidth > 768) {
+                this.closeMobileSidebar();
+            }
+        });
     },
 
     async deleteFile(sha256) {

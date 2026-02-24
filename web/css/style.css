@@ -2072,3 +2072,276 @@ body {
     flex: 1;
     overflow: hidden;
 }
+
+/* ============================================
+   Mobile Responsive Styles
+   ============================================ */
+
+/* Tablet and smaller */
+@media (max-width: 1024px) {
+    .sidebar {
+        width: 200px;
+        min-width: 160px;
+    }
+
+    .file-col.file-date {
+        display: none;
+    }
+
+    .toolbar {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .toolbar-center {
+        order: 3;
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+    .header {
+        padding: 0.75rem 1rem;
+    }
+
+    .header-logo {
+        width: 28px;
+        height: 28px;
+    }
+
+    .logo {
+        font-size: 1.25rem;
+    }
+
+    .user-pubkey {
+        display: none;
+    }
+
+    /* Hide sidebar by default on mobile */
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 60px;
+        bottom: 0;
+        z-index: 100;
+        width: 260px;
+        min-width: 260px;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+    }
+
+    .sidebar.mobile-open {
+        transform: translateX(0);
+    }
+
+    .sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 99;
+    }
+
+    .sidebar-overlay.visible {
+        display: block;
+    }
+
+    .explorer-content {
+        flex-direction: column;
+    }
+
+    .main {
+        width: 100%;
+    }
+
+    .toolbar {
+        padding: 0.75rem;
+        gap: 0.5rem;
+    }
+
+    .toolbar-left {
+        gap: 0.5rem;
+    }
+
+    .toolbar-left .btn {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+    }
+
+    .toolbar-left .btn .icon {
+        margin-right: 0.25rem;
+    }
+
+    .toolbar-center {
+        flex: 1;
+        order: 2;
+    }
+
+    .view-tabs {
+        display: none;
+    }
+
+    .search-box {
+        width: 100%;
+    }
+
+    .toolbar-right {
+        gap: 0.25rem;
+    }
+
+    /* Mobile menu button */
+    .mobile-menu-btn {
+        display: flex !important;
+        order: -1;
+    }
+
+    .file-list-header {
+        display: none;
+    }
+
+    .file-item {
+        padding: 0.75rem;
+    }
+
+    .file-col.file-size,
+    .file-col.file-date {
+        display: none;
+    }
+
+    .file-col.file-name {
+        flex: 1;
+    }
+
+    .file-col.file-actions {
+        display: flex;
+        gap: 0.25rem;
+    }
+
+    .file-col.file-actions .action-btn {
+        padding: 0.5rem;
+        font-size: 0.75rem;
+    }
+
+    /* Hide text labels on action buttons */
+    .file-col.file-actions .action-btn:not(.delete-btn) {
+        font-size: 0;
+    }
+
+    .file-col.file-actions .action-btn::before {
+        font-size: 1rem;
+    }
+
+    .file-col.file-actions .preview-btn::before { content: '\\1F441'; }
+    .file-col.file-actions .edit-btn::before { content: '\\270E'; }
+    .file-col.file-actions .history-btn::before { content: '\\1F4C5'; }
+    .file-col.file-actions .link-btn::before { content: '\\1F517'; }
+    .file-col.file-actions .share-btn::before { content: '\\2197'; }
+    .file-col.file-actions .download-btn::before { content: '\\2193'; }
+    .file-col.file-actions .delete-btn::before { content: '\\2715'; }
+
+    .file-col.file-actions .delete-btn {
+        font-size: 0;
+    }
+
+    /* Grid view adjustments */
+    .grid-container {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.75rem;
+        padding: 0.75rem;
+    }
+
+    .grid-item {
+        padding: 0.75rem;
+    }
+
+    .grid-item-icon {
+        font-size: 2rem;
+    }
+
+    /* Modal adjustments */
+    .modal-content {
+        width: 95%;
+        max-width: none;
+        margin: 1rem;
+        max-height: calc(100vh - 2rem);
+    }
+
+    .modal-content.modal-large {
+        width: 95%;
+        height: calc(100vh - 2rem);
+    }
+
+    .modal-content.modal-small {
+        width: 95%;
+    }
+
+    /* Preview adjustments */
+    .preview-image {
+        max-height: 50vh;
+    }
+
+    .preview-pdf {
+        height: 50vh;
+    }
+
+    /* Landing page */
+    .landing-features {
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .feature {
+        width: 100%;
+    }
+
+    .landing-auth {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .landing-auth .btn {
+        width: 100%;
+    }
+
+    /* Breadcrumbs */
+    .breadcrumb {
+        overflow-x: auto;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .breadcrumb-item {
+        font-size: 0.875rem;
+    }
+}
+
+/* Small mobile */
+@media (max-width: 480px) {
+    .header {
+        padding: 0.5rem 0.75rem;
+    }
+
+    .toolbar-left .btn span.icon + span {
+        display: none;
+    }
+
+    .toolbar-left .btn span.icon {
+        margin-right: 0;
+    }
+
+    .grid-container {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.5rem;
+        padding: 0.5rem;
+    }
+
+    .upload-progress-indicator,
+    .crypto-progress-indicator {
+        left: 0.5rem;
+        right: 0.5rem;
+        bottom: 0.5rem;
+        max-width: none;
+    }
+}
