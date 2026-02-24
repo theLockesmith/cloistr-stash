@@ -385,14 +385,16 @@ const UI = {
             body.innerHTML = html;
             if (searchQuery) {
                 body.innerHTML += '<div class="empty-state"><p>No matches found</p></div>';
-            } else {
+            } else if (emptyState) {
                 body.appendChild(emptyState);
                 emptyState.style.display = 'block';
+            } else {
+                body.innerHTML += '<div class="empty-state"><p>No files yet</p><p class="empty-state-subtext">Drag files here or click Upload to get started</p></div>';
             }
             return;
         }
 
-        emptyState.style.display = 'none';
+        if (emptyState) emptyState.style.display = 'none';
 
         // Combine folders and files for rendering
         const allItems = [

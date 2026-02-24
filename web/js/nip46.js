@@ -604,9 +604,19 @@ const NIP46 = {
             return this.userPubkey;
         } catch (err) {
             console.error('NIP-46: Failed to restore session:', err);
-            // Clear invalid session
-            this.clearSession();
-            this.disconnect();
+            // Don't clear the session on restore failure - user can try again
+            // Only clear if it's an authentication error, not a timeout/network issue
+            if (err.message && (err.message.includes('invalid') || err.message.includes('denied') || err.message.includes('unauthorized'))) {
+                this.clearSession();
+            }
+            // Close relay connections but keep session data
+            this.sockets.forEach(ws => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
+            });
+            this.sockets = [];
+            this.connected = false;
             return null;
         }
     },
