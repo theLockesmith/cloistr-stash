@@ -787,6 +787,34 @@ func (s *Store) ListMyShares(ctx context.Context, ownerPubkey string) ([]*FileSh
 	return shares, nil
 }
 
+// CalculateStorageUsage calculates total storage used by a user
+// This queries the relay for all file metadata and sums the sizes
+// Returns the total bytes stored (encrypted size for encrypted files, original size otherwise)
+func (s *Store) CalculateStorageUsage(ctx context.Context, pubkey string) (int64, error) {
+	files, err := s.ListFiles(ctx, pubkey)
+	if err != nil {
+		return 0, fmt.Errorf("failed to list files: %w", err)
+	}
+
+	var totalSize int64
+	for _, file := range files {
+		// Use encrypted size if available, otherwise original size
+		if file.EncryptedSize > 0 {
+			totalSize += file.EncryptedSize
+		} else {
+			totalSize += file.Size
+		}
+	}
+
+	s.logger.Debug("calculated storage usage",
+		"pubkey", pubkey[:min(16, len(pubkey))],
+		"files", len(files),
+		"total_bytes", totalSize,
+	)
+
+	return totalSize, nil
+}
+
 // CreateDeleteShareEvent creates a kind 5 deletion event for a share
 func CreateDeleteShareEvent(pubkey, shareIdentifier string) *nostr.Event {
 	return &nostr.Event{

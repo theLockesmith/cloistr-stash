@@ -121,8 +121,11 @@ func main() {
 	// Initialize quota manager
 	quotaManager := quota.NewManager(cfg.Quota, logger)
 	if quotaManager.IsEnabled() {
+		// Use metadata store for stateless quota calculation (survives pod restarts)
+		quotaManager.SetUsageCalculator(metadataStore)
 		logger.Info("quota enforcement enabled",
 			"default_limit", cfg.Quota.DefaultLimit,
+			"mode", "relay-based",
 		)
 	}
 

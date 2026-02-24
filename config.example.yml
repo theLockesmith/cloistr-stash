@@ -38,7 +38,9 @@ quota:
   # user_limits:
   #   "pubkey1": 107374182400  # 100 GB
   #   "pubkey2": 53687091200   # 50 GB
-  # Path to persist quota data (optional)
+  # Path to persist quota data (optional, not needed for K8s)
+  # NOTE: Quota usage is now calculated from relay metadata by default,
+  # so this is only needed as a fallback for non-relay deployments.
   data_file: ""
 
 # Rate limiting settings

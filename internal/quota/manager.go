@@ -1,14 +1,28 @@
 package quota
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"sync"
+	"time"
 
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/config"
 )
+
+// UsageCalculator interface for calculating storage usage
+// This allows the quota manager to work with different backends
+type UsageCalculator interface {
+	CalculateStorageUsage(ctx context.Context, pubkey string) (int64, error)
+}
+
+// usageCache holds cached usage data with TTL
+type usageCache struct {
+	usage     int64
+	fetchedAt time.Time
+}
 
 // Manager handles storage quota tracking and enforcement
 type Manager struct {
@@ -18,8 +32,16 @@ type Manager struct {
 	dataFile     string
 	logger       *slog.Logger
 
+	// Usage calculator (e.g., metadata store for relay-based calculation)
+	calculator UsageCalculator
+	cacheTTL   time.Duration
+
 	mu    sync.RWMutex
-	usage map[string]int64 // pubkey -> bytes used
+	usage map[string]int64 // pubkey -> bytes used (incremental tracking)
+
+	// Cache for calculated usage (relay-based)
+	cacheMu    sync.RWMutex
+	usageCache map[string]*usageCache
 }
 
 // Usage represents quota usage information for a user
@@ -40,6 +62,8 @@ func NewManager(cfg config.QuotaConfig, logger *slog.Logger) *Manager {
 		dataFile:     cfg.DataFile,
 		logger:       logger,
 		usage:        make(map[string]int64),
+		usageCache:   make(map[string]*usageCache),
+		cacheTTL:     5 * time.Minute, // Default 5 minute cache
 	}
 
 	// Initialize userLimits map if nil
@@ -47,7 +71,7 @@ func NewManager(cfg config.QuotaConfig, logger *slog.Logger) *Manager {
 		m.userLimits = make(map[string]int64)
 	}
 
-	// Load persisted usage data
+	// Load persisted usage data (file-based fallback)
 	if m.dataFile != "" {
 		if err := m.load(); err != nil {
 			logger.Warn("failed to load quota data", "file", m.dataFile, "error", err)
@@ -55,6 +79,13 @@ func NewManager(cfg config.QuotaConfig, logger *slog.Logger) *Manager {
 	}
 
 	return m
+}
+
+// SetUsageCalculator sets the usage calculator for relay-based usage tracking
+// This enables stateless quota management that survives pod restarts
+func (m *Manager) SetUsageCalculator(calc UsageCalculator) {
+	m.calculator = calc
+	m.logger.Info("quota manager using relay-based usage calculation")
 }
 
 // IsEnabled returns whether quota enforcement is enabled
@@ -73,9 +104,77 @@ func (m *Manager) GetLimit(pubkey string) int64 {
 
 // GetUsage returns the current usage for a pubkey
 func (m *Manager) GetUsage(pubkey string) int64 {
+	// If we have a calculator (relay-based), use cached calculation
+	if m.calculator != nil {
+		return m.getCachedUsage(pubkey)
+	}
+
+	// Fall back to incremental tracking
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.usage[pubkey]
+}
+
+// GetUsageWithContext returns the current usage, potentially fetching from relay
+func (m *Manager) GetUsageWithContext(ctx context.Context, pubkey string) (int64, error) {
+	// If we have a calculator (relay-based), calculate fresh
+	if m.calculator != nil {
+		usage, err := m.calculator.CalculateStorageUsage(ctx, pubkey)
+		if err != nil {
+			return 0, err
+		}
+
+		// Update cache
+		m.cacheMu.Lock()
+		m.usageCache[pubkey] = &usageCache{
+			usage:     usage,
+			fetchedAt: time.Now(),
+		}
+		m.cacheMu.Unlock()
+
+		return usage, nil
+	}
+
+	// Fall back to incremental tracking
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.usage[pubkey], nil
+}
+
+// getCachedUsage returns cached usage or fetches from relay
+func (m *Manager) getCachedUsage(pubkey string) int64 {
+	m.cacheMu.RLock()
+	cached, ok := m.usageCache[pubkey]
+	m.cacheMu.RUnlock()
+
+	// Return cached value if valid
+	if ok && time.Since(cached.fetchedAt) < m.cacheTTL {
+		return cached.usage
+	}
+
+	// Fetch fresh usage in background, return cached or 0
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		usage, err := m.calculator.CalculateStorageUsage(ctx, pubkey)
+		if err != nil {
+			m.logger.Warn("failed to calculate usage", "pubkey", pubkey[:min(16, len(pubkey))], "error", err)
+			return
+		}
+
+		m.cacheMu.Lock()
+		m.usageCache[pubkey] = &usageCache{
+			usage:     usage,
+			fetchedAt: time.Now(),
+		}
+		m.cacheMu.Unlock()
+	}()
+
+	if ok {
+		return cached.usage // Return stale cache while refreshing
+	}
+	return 0 // No cache available
 }
 
 // GetQuotaInfo returns complete quota information for a user
