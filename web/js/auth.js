@@ -164,7 +164,7 @@ const Auth = {
         return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     },
 
-    // Create a file metadata event (kind 30078)
+    // Create a file metadata event (kind 30078) - for unencrypted files (legacy)
     async createFileMetadataEvent(fileInfo) {
         const now = Math.floor(Date.now() / 1000);
 
@@ -199,6 +199,49 @@ const Auth = {
         return this.signEvent(event);
     },
 
+    // Create an encrypted file metadata event (kind 30078)
+    // Contains all info needed to decrypt and identify the file
+    async createEncryptedFileMetadataEvent(fileInfo) {
+        const now = Math.floor(Date.now() / 1000);
+
+        // Content includes encrypted file details
+        // Note: name is stored in plaintext for search (can be encrypted later)
+        const content = JSON.stringify({
+            name: fileInfo.name,                    // Original filename
+            size: fileInfo.size,                    // Original size (plaintext)
+            encrypted_size: fileInfo.encryptedSize, // Encrypted blob size
+            mime_type: fileInfo.mimeType,           // Original MIME type
+            encrypted: true,                        // Flag indicating encryption
+        });
+
+        const event = {
+            kind: 30078,  // File metadata kind
+            created_at: now,
+            tags: [
+                ['d', fileInfo.fileId],                    // File ID (for key derivation)
+                ['x', fileInfo.sha256],                    // Hash of encrypted blob (Blossom hash)
+                ['ox', fileInfo.plaintextHash],            // Original (plaintext) hash
+                ['m', fileInfo.mimeType || 'application/octet-stream'],
+                ['size', fileInfo.size.toString()],        // Original size
+                ['encrypted', 'xchacha20-poly1305'],       // Encryption algorithm
+            ],
+            content: content,
+        };
+
+        // Add folder tag if provided
+        if (fileInfo.folderId) {
+            event.tags.push(['folder', fileInfo.folderId]);
+        }
+
+        // Add version tags if this is a version update
+        if (fileInfo.version) {
+            event.tags.push(['v', fileInfo.sha256, fileInfo.version.toString(), now.toString(), this.pubkey]);
+            event.tags.push(['current', fileInfo.sha256]);
+        }
+
+        return this.signEvent(event);
+    },
+
     // Create a folder metadata event (kind 30079)
     async createFolderEvent(folderInfo) {
         const now = Math.floor(Date.now() / 1000);
@@ -220,6 +263,42 @@ const Auth = {
         // Add parent folder tag if specified
         if (folderInfo.parentId) {
             event.tags.push(['parent', folderInfo.parentId]);
+        }
+
+        return this.signEvent(event);
+    },
+
+    // Create an encrypted folder metadata event (kind 30079)
+    // The folder_key is encrypted with our own pubkey for storage
+    async createEncryptedFolderEvent(folderInfo) {
+        const now = Math.floor(Date.now() / 1000);
+
+        // Content includes folder details (name can be encrypted for privacy)
+        const content = JSON.stringify({
+            name: folderInfo.name,
+            description: folderInfo.description || '',
+            encrypted: true,
+        });
+
+        const event = {
+            kind: 30079,  // Folder metadata kind
+            created_at: now,
+            tags: [
+                ['d', folderInfo.id],           // Identifier (makes it replaceable)
+                ['encrypted', 'true'],           // Flag indicating encrypted folder
+            ],
+            content: content,
+        };
+
+        // Add parent folder tag if specified
+        if (folderInfo.parentId) {
+            event.tags.push(['parent', folderInfo.parentId]);
+        }
+
+        // Add encrypted folder key (encrypted with owner's pubkey)
+        // This allows us to recover the folder key from the event
+        if (folderInfo.encryptedFolderKey) {
+            event.tags.push(['key', folderInfo.encryptedFolderKey]);
         }
 
         return this.signEvent(event);

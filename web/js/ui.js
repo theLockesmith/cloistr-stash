@@ -88,7 +88,21 @@ const UI = {
             const fileName = item.dataset.name;
             const fileSize = parseInt(item.dataset.size) || 0;
             const fileMime = item.dataset.mime || '';
+            const fileId = item.dataset.fileId || '';
+            const folderId = item.dataset.folderId || '';
+            const isEncrypted = item.dataset.encrypted === 'true';
             if (!sha256) return;
+
+            // Build file object for download
+            const fileObj = {
+                sha256,
+                name: fileName,
+                size: fileSize,
+                mime_type: fileMime,
+                file_id: fileId,
+                folder_id: folderId,
+                encrypted: isEncrypted,
+            };
 
             item.querySelector('.share-btn')?.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -102,7 +116,7 @@ const UI = {
 
             item.querySelector('.download-btn')?.addEventListener('click', (e) => {
                 e.stopPropagation();
-                window.open(API.getDownloadURL(sha256), '_blank');
+                App.downloadFile(fileObj);
             });
 
             item.querySelector('.delete-btn')?.addEventListener('click', (e) => {
@@ -117,7 +131,7 @@ const UI = {
                 e.preventDefault();
                 this.showContextMenu(e.clientX, e.clientY, [
                     { label: 'Share', action: () => App.showShareModal({ sha256, name: fileName, size: fileSize, mimeType: fileMime }) },
-                    { label: 'Download', action: () => window.open(API.getDownloadURL(sha256), '_blank') },
+                    { label: 'Download', action: () => App.downloadFile(fileObj) },
                     { label: 'Delete', action: () => { if (confirm('Delete this file?')) App.deleteFile(sha256); } },
                 ]);
             });
@@ -193,16 +207,21 @@ const UI = {
 
     // Render file as list item
     renderFileListItem(file) {
-        const icon = Upload.getFileIcon(file.mime_type);
+        const isEncrypted = file.encrypted || file.encryption;
+        const icon = isEncrypted ? '&#128274;' : Upload.getFileIcon(file.mime_type);
         const size = Upload.formatSize(file.size);
         const date = file.created_at ? new Date(file.created_at * 1000).toLocaleDateString() : '-';
         const fileName = file.name || file.sha256.slice(0, 16) + '...';
+        const fileId = file.file_id || file.fileId || file.d || '';
+        const folderId = file.folder_id || file.folderId || file.folder || '';
+        const encryptedClass = isEncrypted ? 'encrypted-file' : '';
 
         return `
-            <div class="file-item" data-sha256="${file.sha256}" data-name="${this.escapeHtml(fileName)}" data-size="${file.size}" data-mime="${file.mime_type || ''}">
+            <div class="file-item ${encryptedClass}" data-sha256="${file.sha256}" data-name="${this.escapeHtml(fileName)}" data-size="${file.size}" data-mime="${file.mime_type || ''}" data-file-id="${fileId}" data-folder-id="${folderId}" data-encrypted="${isEncrypted || false}">
                 <div class="file-col file-name">
                     <span class="file-icon">${icon}</span>
                     <span class="file-name-text">${this.escapeHtml(fileName)}</span>
+                    ${isEncrypted ? '<span class="encrypted-badge" title="End-to-end encrypted">E2E</span>' : ''}
                 </div>
                 <div class="file-col file-size">${size}</div>
                 <div class="file-col file-date">${date}</div>
@@ -217,13 +236,18 @@ const UI = {
 
     // Render file as grid item
     renderFileGridItem(file) {
-        const icon = Upload.getFileIcon(file.mime_type);
+        const isEncrypted = file.encrypted || file.encryption;
+        const icon = isEncrypted ? '&#128274;' : Upload.getFileIcon(file.mime_type);
         const name = file.name || file.sha256.slice(0, 12) + '...';
+        const fileId = file.file_id || file.fileId || file.d || '';
+        const folderId = file.folder_id || file.folderId || file.folder || '';
+        const encryptedClass = isEncrypted ? 'encrypted-file' : '';
 
         return `
-            <div class="grid-item" data-sha256="${file.sha256}" data-name="${this.escapeHtml(name)}" data-size="${file.size}" data-mime="${file.mime_type || ''}">
+            <div class="grid-item ${encryptedClass}" data-sha256="${file.sha256}" data-name="${this.escapeHtml(name)}" data-size="${file.size}" data-mime="${file.mime_type || ''}" data-file-id="${fileId}" data-folder-id="${folderId}" data-encrypted="${isEncrypted || false}">
                 <div class="grid-item-icon">${icon}</div>
                 <div class="grid-item-name">${this.escapeHtml(name)}</div>
+                ${isEncrypted ? '<span class="encrypted-badge" title="End-to-end encrypted">E2E</span>' : ''}
                 <div class="grid-item-actions">
                     <button class="action-btn share-btn" title="Share">&#8599;</button>
                     <button class="action-btn download-btn" title="Download">↓</button>
@@ -299,11 +323,17 @@ const UI = {
             case 'pending':
                 statusText = 'Pending';
                 break;
+            case 'encrypting':
+                statusText = 'Encrypting...';
+                break;
             case 'hashing':
                 statusText = 'Hashing...';
                 break;
             case 'uploading':
                 statusText = 'Uploading...';
+                break;
+            case 'publishing':
+                statusText = 'Publishing...';
                 break;
             case 'success':
                 statusText = 'Done';

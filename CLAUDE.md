@@ -28,11 +28,13 @@ Drive is the **user-facing file manager** that uses Blossom as storage. Think:
 ```
 User's Nostr Key
        │
-       └── Folder Keys (HKDF derived)
+       └── Root Key (random, stored encrypted)
                 │
-                └── File Keys (HKDF from folder + file_id)
+                └── Folder Keys (HKDF derived OR random)
                          │
-                         └── Encrypted blobs → Blossom
+                         └── File Keys (HKDF from folder + file_id)
+                                  │
+                                  └── XChaCha20-Poly1305 encrypted blobs → Blossom
 ```
 
 | Component | Responsibility |
@@ -42,17 +44,18 @@ User's Nostr Key
 | Blossom | Encrypted blob storage |
 | Nostr relay | Folder/file metadata events |
 
-### Key Features (Target Architecture)
+### Key Features
 
-| Feature | Approach |
-|---------|----------|
-| File encryption | Client-side XChaCha20-Poly1305, HKDF key derivation |
-| Sharing | NIP-44 encrypted folder keys |
-| Public links | Key in URL fragment (never sent to server) |
-| Versioning | Linked encrypted blobs, same file key |
-| Collaboration | Yjs CRDT + WebRTC + encrypted operations |
-| Search | Client-side encrypted index per folder |
-| Revocation | Full re-encrypt (cryptographically correct) |
+| Feature | Approach | Status |
+|---------|----------|--------|
+| File encryption | Client-side XChaCha20-Poly1305, HKDF key derivation | **DONE** |
+| Sharing | NIP-44 encrypted folder/file keys | **DONE** |
+| Public links | Key in URL fragment (never sent to server) | **DONE** |
+| Versioning | Linked encrypted blobs, same file key | **DONE** |
+| Collaboration | Yjs CRDT + WebRTC + encrypted operations | **DONE** |
+| Search | Client-side encrypted index per user | **DONE** |
+| Revocation | Full re-encrypt (cryptographically correct) | **DONE** |
+| Expiring links | Time-limited shares with server validation | **DONE** |
 
 ### Current State
 
@@ -60,12 +63,21 @@ User's Nostr Key
 |---------|--------|
 | Basic file browser | **DONE** |
 | NIP-07 auth | **DONE** |
-| File upload | **DONE** (no encryption yet) |
-| Client-side encryption | **PLANNED** |
-| Folders | **PLANNED** |
-| Sharing | **PLANNED** |
-| Versioning | **PLANNED** |
-| Collaboration | **PLANNED** |
+| NIP-46 remote signer | **DONE** |
+| File upload with encryption | **DONE** |
+| File download with decryption | **DONE** |
+| Client-side encryption (XChaCha20-Poly1305) | **DONE** |
+| Key management (HKDF derivation) | **DONE** |
+| Encrypted folders | **DONE** |
+| NIP-44 file/folder sharing | **DONE** |
+| Public links with key-in-URL | **DONE** |
+| Expiring/timed shares | **DONE** |
+| Revocation with re-encryption | **DONE** |
+| Version tracking | **DONE** |
+| Version history/restore | **DONE** |
+| Yjs CRDT collaboration | **DONE** |
+| WebRTC peer sync | **DONE** |
+| Encrypted search index | **DONE** |
 
 ## Project Structure
 
@@ -81,17 +93,55 @@ cloistr-drive/
 │   └── server/             # HTTP handlers
 └── web/                    # Frontend
     ├── index.html
-    ├── css/
+    ├── css/style.css
     └── js/
         ├── api.js          # API client
-        ├── auth.js         # Nostr auth
-        ├── upload.js       # Upload handling
+        ├── auth.js         # Nostr auth + event signing
+        ├── nip46.js        # NIP-46 remote signer
+        ├── crypto.js       # XChaCha20-Poly1305 encryption
+        ├── keys.js         # HKDF key derivation & management
+        ├── sharing.js      # NIP-44 sharing, public links, revocation
+        ├── versioning.js   # Version tracking & restore
+        ├── collaboration.js # Yjs CRDT + WebRTC
+        ├── search.js       # Encrypted search index
+        ├── upload.js       # Encrypted upload handling
         ├── ui.js           # UI rendering
-        ├── app.js          # Main app
-        ├── crypto.js       # (planned) Encryption
-        ├── keys.js         # (planned) Key management
-        └── sharing.js      # (planned) NIP-44 sharing
+        ├── app.js          # Main app controller
+        └── tests/
+            └── crypto.test.js  # Crypto test suite
 ```
+
+## Cryptographic Details
+
+### Encryption
+- **Algorithm:** XChaCha20-Poly1305 (libsodium)
+- **Key length:** 256 bits
+- **Nonce:** 192 bits (prepended to ciphertext)
+- **Authentication:** Poly1305 MAC (16 bytes)
+
+### Key Derivation
+- **Algorithm:** HKDF-SHA256 (Web Crypto API)
+- **Root key:** Random 256-bit, encrypted with user's Nostr key
+- **Folder keys:** Random OR derived from parent via HKDF
+- **File keys:** HKDF(folder_key, file_id, "cloistr-drive-file-v1")
+
+### Key Storage
+- **Location:** IndexedDB (per-browser)
+- **Encryption:** NIP-04 with user's own pubkey
+- **Cache:** In-memory Map, cleared on disconnect
+
+### Sharing
+- **Protocol:** NIP-04/NIP-44 encrypted key exchange
+- **File share:** Encrypt file_key with recipient's pubkey
+- **Folder share:** Encrypt folder_key with recipient's pubkey
+- **Public links:** Key in URL fragment (never sent to server)
+
+### Nostr Event Kinds
+- **24242:** Blossom upload/delete authorization
+- **30078:** Encrypted file metadata
+- **30079:** Encrypted folder metadata
+- **30080:** File/folder share (NIP-04 encrypted)
+- **30081:** Public share (expiration tracking)
 
 ## Quick Commands
 
@@ -102,6 +152,9 @@ go run ./cmd/server
 
 # Run tests
 go test ./...
+
+# Run crypto tests (in browser console)
+runCryptoTests()
 
 # Build Docker
 docker build -t cloistr-drive .
@@ -117,6 +170,32 @@ ArgoCD GitOps via cloistr-config:
 # Deploy via Atlas
 atlas kube apply cloistr-drive --kube-context atlantis
 ```
+
+## CDN Dependencies
+
+```html
+<!-- libsodium for XChaCha20-Poly1305 -->
+<script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/sodium.js"></script>
+
+<!-- Yjs for CRDT collaboration -->
+<script src="https://cdn.jsdelivr.net/npm/yjs@13.6.10/dist/yjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/y-protocols@1.0.6/dist/y-protocols.min.js"></script>
+
+<!-- Noble curves for Nostr crypto -->
+<script type="module">
+  import { schnorr, secp256k1 } from 'https://esm.sh/@noble/curves@1.6.0/secp256k1';
+  // ...
+</script>
+```
+
+## Security Considerations
+
+1. **Zero-knowledge:** Server never sees plaintext or keys
+2. **Key derivation:** HKDF ensures unique keys per file
+3. **Forward secrecy:** Revocation re-encrypts with new keys
+4. **Memory safety:** Keys wiped from memory after use
+5. **URL fragments:** Never sent to server (browser security)
+6. **Constant-time:** Key comparisons use constant-time operations
 
 ## Autonomous Work Mode
 

@@ -1,4 +1,5 @@
-// Upload handling module
+// Upload handling module with client-side encryption
+// Files are encrypted before upload - server only sees encrypted blobs
 
 const Upload = {
     files: [],
@@ -16,12 +17,15 @@ const Upload = {
             if (!exists) {
                 this.files.push({
                     id: crypto.randomUUID(),
+                    fileId: Crypto.generateFileId(), // Unique ID for key derivation
                     file: file,
-                    status: 'pending', // pending, hashing, uploading, success, error
+                    status: 'pending', // pending, encrypting, hashing, uploading, publishing, success, error
                     progress: 0,
                     error: null,
                     result: null,
-                    hash: null,
+                    plaintextHash: null,   // SHA-256 of original file
+                    encryptedHash: null,   // SHA-256 of encrypted blob (Blossom hash)
+                    encryptedBlob: null,   // Encrypted file data
                 });
             }
         }
@@ -41,13 +45,16 @@ const Upload = {
         this.targetFolderId = null;
     },
 
-    // Upload all pending files with Blossom auth
+    // Upload all pending files with client-side encryption
     async uploadAll(onProgress, onComplete) {
         if (this.isUploading) return;
         this.isUploading = true;
 
+        // Ensure crypto is initialized
+        await Crypto.init();
+
         const pending = this.files.filter(f => f.status === 'pending');
-        console.log(`Upload: Starting upload of ${pending.length} files`);
+        console.log(`Upload: Starting encrypted upload of ${pending.length} files`);
 
         // Show floating progress indicator
         UI.showUploadProgress(0, pending.length);
@@ -58,16 +65,42 @@ const Upload = {
             try {
                 console.log(`Upload: Processing ${item.file.name} (${this.formatSize(item.file.size)})`);
 
-                // Step 1: Hash the file
+                // Step 1: Read file content
+                const fileBuffer = await item.file.arrayBuffer();
+                const fileData = new Uint8Array(fileBuffer);
+
+                // Step 2: Calculate plaintext hash (for our records)
+                item.plaintextHash = await Crypto.hash(fileData);
+                console.log(`Upload: Plaintext hash: ${item.plaintextHash.slice(0, 16)}...`);
+
+                // Step 3: Get encryption key for this file
+                item.status = 'encrypting';
+                if (onProgress) onProgress(item);
+                UI.updateUploadProgress(completed, pending.length, `Encrypting ${item.file.name}...`);
+
+                const folderId = this.targetFolderId || App.currentFolderId || null;
+                let fileKey;
+                if (folderId) {
+                    fileKey = await Keys.deriveFileKey(folderId, item.fileId);
+                } else {
+                    fileKey = await Keys.deriveRootFileKey(item.fileId);
+                }
+
+                // Step 4: Encrypt file content
+                console.log('Upload: Encrypting file...');
+                const encryptedData = await Crypto.encryptFile(fileData, fileKey);
+                item.encryptedBlob = encryptedData;
+                console.log(`Upload: Encrypted size: ${this.formatSize(encryptedData.length)} (overhead: +${encryptedData.length - fileData.length} bytes)`);
+
+                // Step 5: Hash the encrypted content (this is the Blossom hash)
                 item.status = 'hashing';
                 if (onProgress) onProgress(item);
                 UI.updateUploadProgress(completed, pending.length, `Hashing ${item.file.name}...`);
 
-                const fileHash = await Auth.hashFile(item.file);
-                item.hash = fileHash;
-                console.log(`Upload: Hash complete: ${fileHash.slice(0, 16)}...`);
+                item.encryptedHash = await Crypto.hash(encryptedData);
+                console.log(`Upload: Encrypted hash: ${item.encryptedHash.slice(0, 16)}...`);
 
-                // Step 2: Create auth event (if connected)
+                // Step 6: Create auth event for the encrypted hash
                 item.status = 'uploading';
                 if (onProgress) onProgress(item);
                 UI.updateUploadProgress(completed, pending.length, `Uploading ${item.file.name}...`);
@@ -76,44 +109,61 @@ const Upload = {
                 if (Auth.isConnected) {
                     console.log('Upload: Creating upload auth...');
                     authHeader = await Auth.createUploadAuth(
-                        fileHash,
-                        item.file.size,
-                        item.file.type
+                        item.encryptedHash,
+                        encryptedData.length,
+                        'application/octet-stream' // Encrypted files are always octet-stream
                     );
                 }
 
-                // Step 3: Upload with auth
-                console.log('Upload: Sending to server...');
-                const result = await API.uploadFile(item.file, authHeader);
+                // Step 7: Upload encrypted blob
+                console.log('Upload: Sending encrypted blob to server...');
+                const encryptedFile = new File([encryptedData], item.file.name + '.encrypted', {
+                    type: 'application/octet-stream',
+                });
+                const result = await API.uploadFile(encryptedFile, authHeader);
                 console.log(`Upload: Server responded with sha256: ${result.sha256?.slice(0, 16)}...`);
 
-                // Step 4: Publish metadata to relay (client-side, if connected)
+                // Step 8: Publish encrypted file metadata to relay
                 if (Auth.isConnected) {
                     try {
-                        console.log('Upload: Publishing metadata to relay...');
+                        item.status = 'publishing';
+                        if (onProgress) onProgress(item);
+                        console.log('Upload: Publishing encrypted file metadata to relay...');
                         UI.updateUploadProgress(completed, pending.length, `Publishing ${item.file.name}...`);
 
-                        const metadataEvent = await Auth.createFileMetadataEvent({
-                            sha256: result.sha256,
+                        const metadataEvent = await Auth.createEncryptedFileMetadataEvent({
+                            fileId: item.fileId,
+                            sha256: result.sha256,                    // Hash of encrypted blob
+                            plaintextHash: item.plaintextHash,        // Hash of original file
                             name: item.file.name,
-                            size: result.size,
-                            mimeType: result.mime_type,
-                            folderId: this.targetFolderId || App.currentFolderId || null,
+                            size: item.file.size,                     // Original size
+                            encryptedSize: encryptedData.length,      // Encrypted size
+                            mimeType: item.file.type || 'application/octet-stream',
+                            folderId: folderId,
+                            encrypted: true,
                         });
+
                         // Publish directly to relay (client-side)
                         await Auth.publishEvent(metadataEvent);
-                        console.log('Upload: Metadata published');
+                        console.log('Upload: Encrypted metadata published');
                     } catch (metaErr) {
                         console.warn('Upload: Failed to publish metadata:', metaErr);
                         // Continue even if metadata fails - file is still uploaded
                     }
                 }
 
+                // Wipe the encryption key from memory
+                Crypto.wipeKey(fileKey);
+
                 item.status = 'success';
                 item.result = result;
                 item.progress = 100;
                 completed++;
                 console.log(`Upload: Success! (${completed}/${pending.length})`);
+
+                // Clear encrypted data from memory
+                item.encryptedBlob = null;
+
             } catch (err) {
                 item.status = 'error';
                 item.error = err.message;

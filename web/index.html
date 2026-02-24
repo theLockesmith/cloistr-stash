@@ -206,6 +206,9 @@
         <div id="toast-container" class="toast-container"></div>
     </div>
 
+    <!-- libsodium for XChaCha20-Poly1305 encryption -->
+    <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/sodium.js"></script>
+
     <!-- Secp256k1 library for NIP-46 crypto operations -->
     <script type="module">
         import { schnorr, secp256k1 } from 'https://esm.sh/@noble/curves@1.6.0/secp256k1';
@@ -224,9 +227,19 @@
         window.dispatchEvent(new Event('secp256k1-loaded'));
     </script>
 
+    <!-- Yjs CRDT for collaborative editing -->
+    <script src="https://cdn.jsdelivr.net/npm/yjs@13.6.10/dist/yjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/y-protocols@1.0.6/dist/y-protocols.min.js"></script>
+
     <script src="/js/api.js"></script>
     <script src="/js/auth.js"></script>
     <script src="/js/nip46.js"></script>
+    <script src="/js/crypto.js"></script>
+    <script src="/js/keys.js"></script>
+    <script src="/js/sharing.js"></script>
+    <script src="/js/versioning.js"></script>
+    <script src="/js/collaboration.js"></script>
+    <script src="/js/search.js"></script>
     <script src="/js/upload.js"></script>
     <script src="/js/ui.js"></script>
     <script src="/js/app.js"></script>

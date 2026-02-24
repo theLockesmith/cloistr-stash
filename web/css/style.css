@@ -441,12 +441,20 @@ body {
     color: var(--text-secondary);
 }
 
+.upload-item-status.encrypting {
+    color: var(--success);
+}
+
 .upload-item-status.hashing {
     color: var(--warning);
 }
 
 .upload-item-status.uploading {
     color: var(--accent-primary);
+}
+
+.upload-item-status.publishing {
+    color: var(--accent-hover);
 }
 
 .upload-item-status.success {
@@ -1258,6 +1266,38 @@ body {
     background: var(--accent-primary);
     border-radius: 2px;
     transition: width 0.3s ease;
+}
+
+/* ============================================
+   Encrypted Files
+   ============================================ */
+.encrypted-file {
+    background-color: rgba(63, 185, 80, 0.05);
+}
+
+.encrypted-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.125rem 0.375rem;
+    margin-left: 0.5rem;
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    background-color: var(--success);
+    color: var(--bg-primary);
+    border-radius: 4px;
+    letter-spacing: 0.025em;
+}
+
+.grid-item .encrypted-badge {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+}
+
+.grid-item {
+    position: relative;
 }
 
 /* ============================================

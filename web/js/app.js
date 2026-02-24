@@ -441,6 +441,12 @@ const App = {
 
             if (result.authorized) {
                 this.authState = 'authenticated';
+
+                // Initialize crypto and key management
+                console.log('App: Initializing crypto...');
+                await Crypto.init();
+                await Keys.init(Auth.pubkey);
+
                 await this.loadFiles();
                 UI.toast('Connected', 'success');
             } else {
@@ -458,6 +464,9 @@ const App = {
     },
 
     disconnect() {
+        // Clear encryption keys from memory
+        Keys.clearCache();
+
         Auth.disconnect();
         this.authState = 'unauthenticated';
         this.files = [];
@@ -628,17 +637,26 @@ const App = {
             // Generate a unique folder ID
             const folderId = Auth.generateFolderId();
 
-            // Create and sign the folder event
-            const signedEvent = await Auth.createFolderEvent({
+            // Generate and store folder key
+            console.log('App: Generating folder key for', folderId.slice(0, 8) + '...');
+            const folderKey = await Keys.generateFolderKey(folderId);
+
+            // Encrypt the folder key with our own pubkey for storage
+            const folderKeyHex = Crypto.bytesToHex(folderKey);
+            const encryptedFolderKey = await Auth.nip04Encrypt(Auth.pubkey, folderKeyHex);
+
+            // Create and sign the encrypted folder event
+            const signedEvent = await Auth.createEncryptedFolderEvent({
                 id: folderId,
                 name: name.trim(),
                 parentId: this.currentFolderId || null,
+                encryptedFolderKey: encryptedFolderKey,
             });
 
             // Publish directly to relay (client-side)
             await Auth.publishEvent(signedEvent);
 
-            UI.toast(`Created folder "${name.trim()}"`, 'success');
+            UI.toast(`Created encrypted folder "${name.trim()}"`, 'success');
 
             // Reload to show new folder
             await this.loadFiles();
@@ -682,6 +700,126 @@ const App = {
             await this.loadFiles();
         } catch (err) {
             UI.toast(`Delete failed: ${err.message}`, 'error');
+        }
+    },
+
+    // Download and decrypt a file
+    async downloadFile(file) {
+        try {
+            UI.toast(`Downloading ${file.name}...`, 'info');
+
+            // Fetch the encrypted blob from Blossom
+            const downloadUrl = API.getDownloadURL(file.sha256);
+            const response = await fetch(downloadUrl);
+
+            if (!response.ok) {
+                throw new Error(`Download failed: ${response.status}`);
+            }
+
+            const encryptedData = await response.arrayBuffer();
+            console.log(`Download: Fetched ${encryptedData.byteLength} bytes`);
+
+            // Check if file is encrypted
+            const isEncrypted = file.encrypted || file.encryption;
+            let decryptedData;
+
+            if (isEncrypted) {
+                UI.toast(`Decrypting ${file.name}...`, 'info');
+
+                // Get the file key for decryption
+                const fileId = file.file_id || file.fileId || file.d;  // Get file ID from metadata
+                const folderId = file.folder_id || file.folderId || file.folder || null;
+
+                if (!fileId) {
+                    throw new Error('Cannot decrypt: missing file ID');
+                }
+
+                let fileKey;
+                if (folderId) {
+                    fileKey = await Keys.deriveFileKey(folderId, fileId);
+                } else {
+                    fileKey = await Keys.deriveRootFileKey(fileId);
+                }
+
+                // Decrypt the file
+                decryptedData = await Crypto.decryptFile(encryptedData, fileKey);
+
+                // Wipe key from memory
+                Crypto.wipeKey(fileKey);
+
+                console.log(`Download: Decrypted to ${decryptedData.byteLength} bytes`);
+            } else {
+                // Not encrypted, use as-is
+                decryptedData = new Uint8Array(encryptedData);
+            }
+
+            // Create blob and trigger download
+            const mimeType = file.mime_type || file.mimeType || 'application/octet-stream';
+            const blob = new Blob([decryptedData], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = file.name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            URL.revokeObjectURL(url);
+
+            UI.toast(`Downloaded ${file.name}`, 'success');
+
+        } catch (err) {
+            console.error('Download failed:', err);
+            UI.toast(`Download failed: ${err.message}`, 'error');
+        }
+    },
+
+    // Download a shared file (may need different key handling)
+    async downloadSharedFile(file) {
+        try {
+            // For shared files, we need to get the key from the share event
+            // This will be implemented when we add NIP-44 folder key sharing
+            // For now, fall back to direct download (unencrypted shares)
+
+            if (file.folder_key) {
+                // We have the folder key from the share
+                UI.toast(`Downloading shared file ${file.name}...`, 'info');
+
+                const downloadUrl = file.url || API.getDownloadURL(file.sha256);
+                const response = await fetch(downloadUrl);
+
+                if (!response.ok) {
+                    throw new Error(`Download failed: ${response.status}`);
+                }
+
+                const encryptedData = await response.arrayBuffer();
+                const folderKey = Crypto.base64ToBytes(file.folder_key);
+                const fileKey = await Keys.deriveKey(folderKey, file.file_id || file.sha256, Keys.CONTEXT_FILE);
+                const decryptedData = await Crypto.decryptFile(encryptedData, fileKey);
+
+                const mimeType = file.mime_type || 'application/octet-stream';
+                const blob = new Blob([decryptedData], { type: mimeType });
+                const url = URL.createObjectURL(blob);
+
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = file.name;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+
+                URL.revokeObjectURL(url);
+                UI.toast(`Downloaded ${file.name}`, 'success');
+            } else {
+                // No encryption key, try direct download
+                const downloadUrl = file.url || API.getDownloadURL(file.sha256);
+                window.open(downloadUrl, '_blank');
+            }
+
+        } catch (err) {
+            console.error('Download shared file failed:', err);
+            UI.toast(`Download failed: ${err.message}`, 'error');
         }
     },
 
