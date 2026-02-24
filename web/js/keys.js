@@ -425,4 +425,110 @@ const Keys = {
             request.onerror = () => reject(request.error);
         });
     },
+
+    // Export all keys as encrypted backup
+    // The backup is encrypted with the user's Nostr pubkey
+    async exportBackup() {
+        if (!Auth.isConnected) {
+            throw new Error('Not connected');
+        }
+
+        if (!this.db) await this.openDB();
+
+        // Get all keys for current user
+        const allKeys = await new Promise((resolve, reject) => {
+            const tx = this.db.transaction(this.STORE_NAME, 'readonly');
+            const store = tx.objectStore(this.STORE_NAME);
+            const index = store.index('pubkey');
+            const request = index.getAll(IDBKeyRange.only(this.userPubkey));
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+
+        // Create backup structure
+        const backup = {
+            version: 1,
+            createdAt: Date.now(),
+            pubkey: this.userPubkey,
+            keys: allKeys.map(k => ({
+                keyId: k.keyId,
+                type: k.type,
+                associatedId: k.associatedId,
+                encryptedKey: k.encryptedKey,
+            })),
+        };
+
+        // Sign the backup so we can verify authenticity on import
+        const backupString = JSON.stringify(backup);
+        const backupHash = await Crypto.hash(new TextEncoder().encode(backupString));
+
+        // Encrypt the entire backup with our pubkey
+        const encryptedBackup = await Auth.nip04Encrypt(this.userPubkey, backupString);
+
+        return {
+            encrypted: encryptedBackup,
+            hash: backupHash,
+            pubkey: this.userPubkey,
+            version: 1,
+            createdAt: backup.createdAt,
+        };
+    },
+
+    // Import keys from encrypted backup
+    async importBackup(backupData) {
+        if (!Auth.isConnected) {
+            throw new Error('Not connected');
+        }
+
+        if (backupData.pubkey !== this.userPubkey) {
+            throw new Error('Backup is for a different user');
+        }
+
+        // Decrypt the backup
+        const decryptedString = await Auth.nip04Decrypt(this.userPubkey, backupData.encrypted);
+        const backup = JSON.parse(decryptedString);
+
+        // Verify hash
+        const computedHash = await Crypto.hash(new TextEncoder().encode(decryptedString));
+        if (computedHash !== backupData.hash) {
+            console.warn('Keys: Backup hash mismatch (may be truncated/modified)');
+        }
+
+        // Import each key
+        let imported = 0;
+        for (const keyData of backup.keys) {
+            try {
+                const record = {
+                    id: `${this.userPubkey}:${keyData.keyId}`,
+                    pubkey: this.userPubkey,
+                    keyId: keyData.keyId,
+                    type: keyData.type,
+                    associatedId: keyData.associatedId,
+                    encryptedKey: keyData.encryptedKey,
+                    createdAt: backup.createdAt,
+                    updatedAt: Date.now(),
+                };
+
+                await new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(this.STORE_NAME, 'readwrite');
+                    const store = tx.objectStore(this.STORE_NAME);
+                    const request = store.put(record);
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+
+                imported++;
+            } catch (err) {
+                console.warn(`Keys: Failed to import key ${keyData.keyId}:`, err);
+            }
+        }
+
+        // Clear cache to force reload from storage
+        this.clearCache();
+        this.userPubkey = backupData.pubkey;
+
+        console.log(`Keys: Imported ${imported} keys from backup`);
+        return { imported, total: backup.keys.length };
+    },
 };

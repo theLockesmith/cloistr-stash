@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/auth"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/blossom"
@@ -29,6 +30,10 @@ type Server struct {
 	mux        *http.ServeMux
 	webDir     string
 	logger     *slog.Logger
+
+	// Download counting for max-downloads links
+	downloadCounts    map[string]int
+	downloadCountsMux sync.RWMutex
 }
 
 // FileMetadata represents file information returned to the frontend
@@ -66,17 +71,31 @@ type ShareResponse struct {
 	EncryptedContent string `json:"encrypted_content,omitempty"`
 }
 
+// PublicLinkResponse represents a public link metadata
+type PublicLinkResponse struct {
+	ID           string `json:"id"`
+	SHA256       string `json:"sha256"`
+	FileName     string `json:"file_name,omitempty"`
+	FileSize     int64  `json:"file_size,omitempty"`
+	FileMimeType string `json:"file_mime_type,omitempty"`
+	ExpiresAt    int64  `json:"expires_at,omitempty"`
+	MaxDownloads int    `json:"max_downloads,omitempty"`
+	Downloads    int    `json:"downloads,omitempty"`
+	CreatedAt    int64  `json:"created_at"`
+}
+
 // New creates a new HTTP server
 func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metadata.Store, whitelist *auth.Whitelist, webDir string, logger *slog.Logger) *Server {
 	s := &Server{
-		config:     cfg,
-		blossom:    blossomClient,
-		metadata:   metadataStore,
-		whitelist:  whitelist,
-		authMiddle: auth.NewAuthMiddleware(whitelist, logger),
-		mux:        http.NewServeMux(),
-		webDir:     webDir,
-		logger:     logger,
+		config:         cfg,
+		blossom:        blossomClient,
+		metadata:       metadataStore,
+		whitelist:      whitelist,
+		authMiddle:     auth.NewAuthMiddleware(whitelist, logger),
+		mux:            http.NewServeMux(),
+		webDir:         webDir,
+		logger:         logger,
+		downloadCounts: make(map[string]int),
 	}
 
 	s.registerRoutes()
@@ -135,6 +154,13 @@ func (s *Server) registerRoutes() {
 
 	// Revoke share requires whitelist authorization
 	s.mux.Handle("DELETE /api/shares/{id}", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleRevokeShare)))
+
+	// Public links - anonymous access
+	// GET /public/{id} - access a public link (serves download page with blob info)
+	s.mux.HandleFunc("GET /public/{id}", s.handlePublicLink)
+
+	// GET /api/public/{id} - get public link metadata (JSON, for client-side decryption)
+	s.mux.HandleFunc("GET /api/public/{id}", s.handlePublicLinkAPI)
 
 	// Serve static files (web UI)
 	s.mux.HandleFunc("/", s.handleStatic)
@@ -406,6 +432,27 @@ func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if this is a public link download with max downloads limit
+	// The client can pass a max_downloads query param to enforce the limit
+	maxDownloadsStr := r.URL.Query().Get("max_downloads")
+	if maxDownloadsStr != "" {
+		var maxDownloads int
+		fmt.Sscanf(maxDownloadsStr, "%d", &maxDownloads)
+
+		if maxDownloads > 0 {
+			currentCount := s.getDownloadCount(sha256)
+			if currentCount >= maxDownloads {
+				s.logger.Info("max downloads reached for public link",
+					"sha256", sha256[:16],
+					"max", maxDownloads,
+					"current", currentCount,
+				)
+				http.Error(w, "Download limit reached", http.StatusForbidden)
+				return
+			}
+		}
+	}
+
 	// Download from Blossom
 	body, info, err := s.blossom.Download(r.Context(), sha256)
 	if err != nil {
@@ -421,6 +468,15 @@ func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request) {
 
 	// Record successful download
 	metrics.RecordDownload(true)
+
+	// Increment download count for public links
+	if r.URL.Query().Has("public") || maxDownloadsStr != "" {
+		newCount := s.incrementDownloadCount(sha256)
+		s.logger.Info("public link download",
+			"sha256", sha256[:16],
+			"count", newCount,
+		)
+	}
 
 	// Set headers
 	if info.MimeType != "" {
@@ -912,4 +968,204 @@ func (s *Server) handleRevokeShare(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `{"status":"revoked"}`)
 
 	s.logger.Info("share revoked", "share_id", shareID)
+}
+
+// handlePublicLink serves the public link access page
+// The decryption key is in the URL fragment (never sent to server)
+// Format: /public/{sha256}#<base64url-key>
+func (s *Server) handlePublicLink(w http.ResponseWriter, r *http.Request) {
+	sha256 := r.PathValue("id")
+	if sha256 == "" {
+		http.Error(w, "Link ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if file exists in Blossom
+	exists, err := s.blossom.Exists(r.Context(), sha256)
+	if err != nil {
+		s.logger.Error("failed to check file existence for public link",
+			"error", err,
+			"sha256", sha256,
+		)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if !exists {
+		http.Error(w, "File not found or link expired", http.StatusNotFound)
+		return
+	}
+
+	// Serve a simple download page
+	// The client-side JS will extract the key from the URL fragment and decrypt
+	html := `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloistr Drive - Shared File</title>
+    <style>
+        body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .container { text-align: center; padding: 2rem; max-width: 600px; }
+        .logo { font-size: 2rem; margin-bottom: 1rem; }
+        h1 { font-size: 1.5rem; margin-bottom: 1rem; }
+        p { color: #aaa; margin-bottom: 2rem; }
+        .btn { background: #6366f1; color: white; border: none; padding: 1rem 2rem; border-radius: 8px; font-size: 1rem; cursor: pointer; }
+        .btn:hover { background: #4f46e5; }
+        .btn:disabled { background: #444; cursor: not-allowed; }
+        .status { margin-top: 1rem; font-size: 0.9rem; color: #888; }
+        .error { color: #ef4444; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🔐</div>
+        <h1>Encrypted File</h1>
+        <p>This file is end-to-end encrypted. Click download to decrypt and save.</p>
+        <button class="btn" id="download-btn" onclick="downloadAndDecrypt()">Download & Decrypt</button>
+        <div class="status" id="status"></div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/sodium.js"></script>
+    <script>
+        const sha256 = '` + sha256 + `';
+        const apiUrl = '/api/files/' + sha256 + '/download';
+
+        async function downloadAndDecrypt() {
+            const btn = document.getElementById('download-btn');
+            const status = document.getElementById('status');
+
+            // Get key from URL fragment
+            const keyB64 = window.location.hash.slice(1);
+            if (!keyB64) {
+                status.className = 'status error';
+                status.textContent = 'Error: No decryption key in URL';
+                return;
+            }
+
+            btn.disabled = true;
+            status.textContent = 'Downloading encrypted file...';
+
+            try {
+                // Initialize libsodium
+                await window.sodium.ready;
+                const sodium = window.sodium;
+
+                // Decode key from base64url
+                const key = base64urlToBytes(keyB64);
+                if (key.length !== 32) {
+                    throw new Error('Invalid key length');
+                }
+
+                // Download encrypted file
+                const response = await fetch(apiUrl);
+                if (!response.ok) throw new Error('Download failed: ' + response.status);
+
+                status.textContent = 'Decrypting...';
+                const encrypted = new Uint8Array(await response.arrayBuffer());
+
+                // Decrypt (nonce is prepended to ciphertext)
+                const nonce = encrypted.slice(0, sodium.crypto_secretbox_NONCEBYTES);
+                const ciphertext = encrypted.slice(sodium.crypto_secretbox_NONCEBYTES);
+                const decrypted = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
+
+                // Trigger download
+                const blob = new Blob([decrypted]);
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'download';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                status.textContent = 'Download complete!';
+
+            } catch (err) {
+                status.className = 'status error';
+                status.textContent = 'Error: ' + err.message;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function base64urlToBytes(str) {
+            str = str.replace(/-/g, '+').replace(/_/g, '/');
+            while (str.length % 4) str += '=';
+            const binary = atob(str);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes;
+        }
+    </script>
+</body>
+</html>`
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, html)
+
+	s.logger.Info("public link accessed", "sha256", sha256[:16])
+}
+
+// handlePublicLinkAPI returns JSON metadata for a public link
+// Used by the client to check validity before decrypting
+func (s *Server) handlePublicLinkAPI(w http.ResponseWriter, r *http.Request) {
+	sha256 := r.PathValue("id")
+	if sha256 == "" {
+		http.Error(w, "Link ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if file exists in Blossom
+	exists, err := s.blossom.Exists(r.Context(), sha256)
+	if err != nil {
+		s.logger.Error("failed to check file existence for public link",
+			"error", err,
+			"sha256", sha256,
+		)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if !exists {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, `{"error":"not_found","message":"File not found or link expired"}`)
+		return
+	}
+
+	// Get download count
+	s.downloadCountsMux.RLock()
+	downloads := s.downloadCounts[sha256]
+	s.downloadCountsMux.RUnlock()
+
+	// Return basic info (no key ever on server)
+	response := PublicLinkResponse{
+		ID:        sha256,
+		SHA256:    sha256,
+		Downloads: downloads,
+		CreatedAt: 0, // Unknown from Blossom alone
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// incrementDownloadCount increments and returns the new count for a public link
+func (s *Server) incrementDownloadCount(sha256 string) int {
+	s.downloadCountsMux.Lock()
+	defer s.downloadCountsMux.Unlock()
+
+	s.downloadCounts[sha256]++
+	return s.downloadCounts[sha256]
+}
+
+// getDownloadCount returns the current download count for a public link
+func (s *Server) getDownloadCount(sha256 string) int {
+	s.downloadCountsMux.RLock()
+	defer s.downloadCountsMux.RUnlock()
+
+	return s.downloadCounts[sha256]
 }

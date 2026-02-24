@@ -22,6 +22,7 @@ const App = {
         // Setup event listeners
         this.setupEventListeners();
         this.setupDragAndDrop();
+        this.setupModalEventListeners();
 
         // Try to restore saved session
         if (Auth.hasSavedSession()) {
@@ -237,6 +238,10 @@ const App = {
         this.renderCurrentView();
     },
 
+    // Debounce timer for search
+    searchDebounceTimer: null,
+    useEncryptedSearch: false,
+
     handleSearch(query) {
         this.searchQuery = query.toLowerCase().trim();
 
@@ -244,8 +249,56 @@ const App = {
         const searchClear = document.getElementById('search-clear');
         searchClear.classList.toggle('hidden', !this.searchQuery);
 
-        // Re-render with filter
-        this.renderCurrentView();
+        // Debounce encrypted search
+        if (this.searchDebounceTimer) {
+            clearTimeout(this.searchDebounceTimer);
+        }
+
+        // Use encrypted search for content queries (3+ chars)
+        if (this.searchQuery.length >= 3 && Search.indexKey) {
+            this.searchDebounceTimer = setTimeout(() => {
+                this.performEncryptedSearch(this.searchQuery);
+            }, 300);
+        } else {
+            // Use simple filter for short queries or when search not initialized
+            this.renderCurrentView();
+        }
+    },
+
+    async performEncryptedSearch(query) {
+        try {
+            const results = await Search.search(query);
+
+            if (results.length > 0) {
+                // Convert search results to file format
+                const searchFiles = results.map(r => ({
+                    sha256: r.sha256,
+                    name: r.name,
+                    size: r.size,
+                    mime_type: r.mimeType,
+                    file_id: r.fileId,
+                    encrypted: true,
+                    _searchScore: r.score,
+                }));
+
+                // Merge with existing files, prioritize search results
+                const fileIds = new Set(searchFiles.map(f => f.file_id || f.sha256));
+                const filteredExisting = this.files.filter(f => {
+                    const id = f.file_id || f.fileId || f.sha256;
+                    return fileIds.has(id);
+                });
+
+                // Render with search results
+                UI.renderFileList(filteredExisting.length > 0 ? filteredExisting : searchFiles, [], query);
+            } else {
+                // Fall back to simple filter
+                this.renderCurrentView();
+            }
+        } catch (err) {
+            console.error('Encrypted search failed:', err);
+            // Fall back to simple filter
+            this.renderCurrentView();
+        }
     },
 
     clearSearch() {
@@ -325,8 +378,15 @@ const App = {
 
             // Decrypt share content and build file list
             this.sharedFiles = [];
+            const now = Math.floor(Date.now() / 1000);
 
             for (const share of shares) {
+                // Check if share has expired
+                if (share.expires_at && share.expires_at < now) {
+                    console.log('Skipping expired share:', share.id?.slice(0, 8));
+                    continue;
+                }
+
                 try {
                     // Decrypt the share content
                     const decryptedContent = await Auth.nip04Decrypt(
@@ -346,6 +406,8 @@ const App = {
                         owner_pubkey: share.owner_pubkey,
                         message: content.message,
                         created_at: share.created_at,
+                        expires_at: share.expires_at,
+                        permission: share.permission,
                     });
                 } catch (decryptErr) {
                     console.warn('Failed to decrypt share:', decryptErr);
@@ -356,6 +418,7 @@ const App = {
                         name: '(Encrypted)',
                         owner_pubkey: share.owner_pubkey,
                         created_at: share.created_at,
+                        expires_at: share.expires_at,
                         encrypted: true,
                     });
                 }
@@ -447,6 +510,13 @@ const App = {
                 await Crypto.init();
                 await Keys.init(Auth.pubkey);
 
+                // Initialize search index
+                console.log('App: Initializing search...');
+                await Search.init(Auth.pubkey);
+
+                // Initialize versioning
+                await Versioning.init();
+
                 await this.loadFiles();
                 UI.toast('Connected', 'success');
             } else {
@@ -467,10 +537,17 @@ const App = {
         // Clear encryption keys from memory
         Keys.clearCache();
 
+        // Clear search index key
+        Search.clearKey();
+
+        // Clear versioning cache
+        Versioning.clearCache();
+
         Auth.disconnect();
         this.authState = 'unauthenticated';
         this.files = [];
         this.folders = [];
+        this.sharedFiles = [];
         this.currentFolderId = '';
         this.folderPath = [];
         this.updateAuthUI();
@@ -982,6 +1059,486 @@ const App = {
         } finally {
             confirmBtn.disabled = false;
         }
+    },
+};
+
+    // === Version History Modal ===
+    versionFile: null,
+
+    async showVersionHistory(file) {
+        this.versionFile = file;
+        const fileId = file.file_id || file.fileId || file.d;
+
+        // Update modal content
+        document.getElementById('version-file-name').textContent = file.name;
+        const versionList = document.getElementById('version-list');
+        versionList.innerHTML = '<div class="empty-state">Loading versions...</div>';
+
+        UI.showModal('version-modal');
+
+        try {
+            await Versioning.init();
+            const versions = await Versioning.getVersionHistory(fileId);
+
+            if (versions.length === 0) {
+                versionList.innerHTML = '<div class="empty-state">No version history available</div>';
+                return;
+            }
+
+            versionList.innerHTML = versions.map((v, idx) => `
+                <div class="version-item" data-version="${v.version}">
+                    <div class="version-info">
+                        <span class="version-number">v${v.version}</span>
+                        <span class="version-time">${Versioning.formatTimeAgo(v.timestamp)}</span>
+                        <span class="version-size">${Upload.formatSize(v.size)}</span>
+                        ${v.note ? `<span class="version-note">${UI.escapeHtml(v.note)}</span>` : ''}
+                        ${v.autoSave ? '<span class="version-autosave">auto-save</span>' : ''}
+                    </div>
+                    <div class="version-actions">
+                        <button class="btn btn-small version-download-btn" data-version="${v.version}">Download</button>
+                        ${idx > 0 ? `<button class="btn btn-small version-restore-btn" data-version="${v.version}">Restore</button>` : '<span class="version-current">Current</span>'}
+                    </div>
+                </div>
+            `).join('');
+
+            // Attach event listeners
+            versionList.querySelectorAll('.version-download-btn').forEach(btn => {
+                btn.addEventListener('click', () => this.downloadVersion(parseInt(btn.dataset.version)));
+            });
+
+            versionList.querySelectorAll('.version-restore-btn').forEach(btn => {
+                btn.addEventListener('click', () => this.restoreVersion(parseInt(btn.dataset.version)));
+            });
+
+        } catch (err) {
+            console.error('Failed to load version history:', err);
+            versionList.innerHTML = `<div class="empty-state error">Failed to load versions: ${err.message}</div>`;
+        }
+    },
+
+    async downloadVersion(versionNumber) {
+        try {
+            UI.toast(`Downloading version ${versionNumber}...`, 'info');
+            const data = await Versioning.downloadVersion(this.versionFile, versionNumber);
+
+            const blob = new Blob([data], { type: this.versionFile.mime_type || 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${this.versionFile.name}.v${versionNumber}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            UI.toast('Version downloaded', 'success');
+        } catch (err) {
+            UI.toast(`Download failed: ${err.message}`, 'error');
+        }
+    },
+
+    async restoreVersion(versionNumber) {
+        if (!confirm(`Restore version ${versionNumber}? This will create a new version from the old content.`)) {
+            return;
+        }
+
+        try {
+            UI.toast(`Restoring version ${versionNumber}...`, 'info');
+            await Versioning.restoreVersion(this.versionFile, versionNumber);
+            UI.toast(`Restored to version ${versionNumber}`, 'success');
+
+            // Refresh the version list
+            await this.showVersionHistory(this.versionFile);
+            await this.loadFiles();
+        } catch (err) {
+            UI.toast(`Restore failed: ${err.message}`, 'error');
+        }
+    },
+
+    // === Public Link Modal ===
+    publicLinkFile: null,
+
+    showPublicLinkModal(file) {
+        this.publicLinkFile = file;
+
+        document.getElementById('public-link-file-name').textContent = file.name;
+        document.getElementById('public-link-expiry').value = '0';
+        document.getElementById('public-link-result').classList.add('hidden');
+        document.getElementById('public-link-status').classList.add('hidden');
+        document.getElementById('public-link-url').value = '';
+
+        UI.showModal('public-link-modal');
+    },
+
+    async generatePublicLink() {
+        const expirySeconds = parseInt(document.getElementById('public-link-expiry').value);
+        const statusEl = document.getElementById('public-link-status');
+        const resultEl = document.getElementById('public-link-result');
+        const urlInput = document.getElementById('public-link-url');
+        const generateBtn = document.getElementById('public-link-generate');
+
+        statusEl.textContent = 'Generating link...';
+        statusEl.classList.remove('hidden', 'error', 'success');
+        generateBtn.disabled = true;
+
+        try {
+            const expiresAt = expirySeconds > 0 ? Math.floor(Date.now() / 1000) + expirySeconds : null;
+
+            const publicLink = await Sharing.generatePublicLink(this.publicLinkFile, {
+                expiresAt: expiresAt,
+            });
+
+            urlInput.value = publicLink.url;
+            resultEl.classList.remove('hidden');
+            statusEl.classList.add('hidden');
+
+            UI.toast('Public link created', 'success');
+
+        } catch (err) {
+            console.error('Failed to generate public link:', err);
+            statusEl.textContent = `Failed: ${err.message}`;
+            statusEl.classList.add('error');
+        } finally {
+            generateBtn.disabled = false;
+        }
+    },
+
+    copyPublicLink() {
+        const urlInput = document.getElementById('public-link-url');
+        urlInput.select();
+        document.execCommand('copy');
+        UI.toast('Link copied to clipboard', 'success');
+    },
+
+    // === Collaboration Editor ===
+    editorFile: null,
+    editorSession: null,
+
+    async openEditor(file) {
+        const mimeType = file.mime_type || file.mimeType || '';
+        if (!Collaboration.isCollaborativeFileType(mimeType)) {
+            UI.toast('This file type cannot be edited', 'error');
+            return;
+        }
+
+        this.editorFile = file;
+        document.getElementById('editor-file-name').textContent = `Edit: ${file.name}`;
+        document.getElementById('editor-textarea').value = 'Loading...';
+        document.getElementById('editor-status').textContent = 'Loading...';
+        document.getElementById('editor-collaborators').innerHTML = '';
+
+        UI.showModal('editor-modal');
+
+        try {
+            // Start collaboration session
+            this.editorSession = await Collaboration.startSession(file, {
+                onSync: (session) => {
+                    document.getElementById('editor-status').textContent = 'Ready';
+                },
+                onAwarenessChange: (changes, states) => {
+                    this.updateCollaboratorsList(states);
+                },
+            });
+
+            // Bind to textarea
+            const textarea = document.getElementById('editor-textarea');
+            Collaboration.bindToTextarea(this.editorSession, textarea);
+
+            document.getElementById('editor-status').textContent = 'Ready';
+
+        } catch (err) {
+            console.error('Failed to open editor:', err);
+            document.getElementById('editor-textarea').value = `Error: ${err.message}`;
+            document.getElementById('editor-status').textContent = 'Error';
+        }
+    },
+
+    updateCollaboratorsList(states) {
+        const container = document.getElementById('editor-collaborators');
+        const collaborators = Array.from(states.values())
+            .filter(s => s.user)
+            .map(s => s.user);
+
+        container.innerHTML = collaborators.map(user => `
+            <span class="collaborator" style="background-color: ${user.color}" title="${user.name}">
+                ${user.name.slice(0, 2).toUpperCase()}
+            </span>
+        `).join('');
+    },
+
+    async saveEditor() {
+        if (!this.editorSession) return;
+
+        try {
+            document.getElementById('editor-status').textContent = 'Saving...';
+            await Collaboration.saveDocument(this.editorSession);
+            document.getElementById('editor-status').textContent = 'Saved';
+            UI.toast('File saved', 'success');
+        } catch (err) {
+            document.getElementById('editor-status').textContent = 'Save failed';
+            UI.toast(`Save failed: ${err.message}`, 'error');
+        }
+    },
+
+    async closeEditor(save = false) {
+        if (save && this.editorSession) {
+            await this.saveEditor();
+        }
+
+        if (this.editorSession) {
+            const fileId = this.editorFile?.file_id || this.editorFile?.fileId || this.editorFile?.d;
+            await Collaboration.endSession(fileId);
+            this.editorSession = null;
+        }
+
+        this.editorFile = null;
+        UI.hideModal('editor-modal');
+        await this.loadFiles();
+    },
+
+    async inviteCollaborator() {
+        if (!this.editorSession) return;
+
+        const npub = prompt('Enter collaborator npub or hex pubkey:');
+        if (!npub || !npub.trim()) return;
+
+        try {
+            const pubkey = this.npubToHex(npub.trim());
+            const fileId = this.editorFile?.file_id || this.editorFile?.fileId || this.editorFile?.d;
+            await Collaboration.inviteCollaborator(fileId, pubkey);
+            UI.toast('Collaborator invited', 'success');
+        } catch (err) {
+            UI.toast(`Invite failed: ${err.message}`, 'error');
+        }
+    },
+
+    // === Key Backup Modal ===
+    showBackupModal() {
+        document.getElementById('backup-status').classList.add('hidden');
+        UI.showModal('backup-modal');
+    },
+
+    async exportKeyBackup() {
+        const statusEl = document.getElementById('backup-status');
+
+        try {
+            statusEl.textContent = 'Generating backup...';
+            statusEl.classList.remove('hidden', 'error', 'success');
+
+            const backup = await Keys.exportBackup();
+
+            // Download the backup
+            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `cloistr-drive-backup-${Date.now()}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            statusEl.textContent = 'Backup downloaded!';
+            statusEl.classList.add('success');
+            UI.toast('Key backup exported', 'success');
+
+        } catch (err) {
+            statusEl.textContent = `Export failed: ${err.message}`;
+            statusEl.classList.add('error');
+            UI.toast(`Backup failed: ${err.message}`, 'error');
+        }
+    },
+
+    async importKeyBackup(file) {
+        const statusEl = document.getElementById('backup-status');
+
+        try {
+            statusEl.textContent = 'Importing backup...';
+            statusEl.classList.remove('hidden', 'error', 'success');
+
+            const text = await file.text();
+            const backup = JSON.parse(text);
+
+            await Keys.importBackup(backup);
+
+            statusEl.textContent = 'Backup restored!';
+            statusEl.classList.add('success');
+            UI.toast('Keys restored from backup', 'success');
+
+        } catch (err) {
+            statusEl.textContent = `Import failed: ${err.message}`;
+            statusEl.classList.add('error');
+            UI.toast(`Import failed: ${err.message}`, 'error');
+        }
+    },
+
+    // === Migration Tool ===
+    async checkMigration() {
+        // Check for unencrypted files that can be migrated
+        const unencryptedFiles = this.files.filter(f => !f.encrypted && !f.encryption);
+
+        if (unencryptedFiles.length > 0) {
+            document.getElementById('migration-files').innerHTML = `
+                <p>Found ${unencryptedFiles.length} unencrypted file(s):</p>
+                <ul>
+                    ${unencryptedFiles.slice(0, 10).map(f => `<li>${UI.escapeHtml(f.name)}</li>`).join('')}
+                    ${unencryptedFiles.length > 10 ? `<li>...and ${unencryptedFiles.length - 10} more</li>` : ''}
+                </ul>
+            `;
+            UI.showModal('migration-modal');
+        }
+    },
+
+    async migrateFiles() {
+        const unencryptedFiles = this.files.filter(f => !f.encrypted && !f.encryption);
+        const progressEl = document.getElementById('migration-progress');
+        const barEl = document.getElementById('migration-bar');
+        const statusEl = document.getElementById('migration-status-text');
+        const startBtn = document.getElementById('migration-start');
+
+        progressEl.classList.remove('hidden');
+        startBtn.disabled = true;
+
+        let migrated = 0;
+        let failed = 0;
+
+        for (let i = 0; i < unencryptedFiles.length; i++) {
+            const file = unencryptedFiles[i];
+            statusEl.textContent = `Migrating ${file.name}...`;
+            barEl.style.width = `${((i + 1) / unencryptedFiles.length) * 100}%`;
+
+            try {
+                // Download the file
+                const downloadUrl = API.getDownloadURL(file.sha256);
+                const response = await fetch(downloadUrl);
+                const data = await response.arrayBuffer();
+
+                // Re-upload encrypted
+                await Upload.uploadEncryptedFile(new Uint8Array(data), file.name, file.mime_type, this.currentFolderId);
+
+                // Delete the old unencrypted file
+                await API.deleteFile(file.sha256, await Auth.createDeleteAuth(file.sha256));
+
+                migrated++;
+            } catch (err) {
+                console.error(`Failed to migrate ${file.name}:`, err);
+                failed++;
+            }
+        }
+
+        statusEl.textContent = `Complete: ${migrated} migrated, ${failed} failed`;
+        startBtn.disabled = false;
+
+        await this.loadFiles();
+        UI.toast(`Migration complete: ${migrated} files encrypted`, 'success');
+    },
+
+    // Helper: Download file data (used by Collaboration)
+    async downloadFileData(file) {
+        const downloadUrl = API.getDownloadURL(file.sha256);
+        const response = await fetch(downloadUrl);
+
+        if (!response.ok) {
+            throw new Error(`Download failed: ${response.status}`);
+        }
+
+        const encryptedData = await response.arrayBuffer();
+        const isEncrypted = file.encrypted || file.encryption;
+
+        if (isEncrypted) {
+            const fileId = file.file_id || file.fileId || file.d;
+            const folderId = file.folder_id || file.folderId || file.folder || null;
+
+            let fileKey;
+            if (folderId) {
+                fileKey = await Keys.deriveFileKey(folderId, fileId);
+            } else {
+                fileKey = await Keys.deriveRootFileKey(fileId);
+            }
+
+            const decryptedData = await Crypto.decryptFile(encryptedData, fileKey);
+            Crypto.wipeKey(fileKey);
+
+            return decryptedData;
+        }
+
+        return new Uint8Array(encryptedData);
+    },
+
+    // Setup additional modal event listeners
+    setupModalEventListeners() {
+        // Version modal
+        document.getElementById('version-modal-close').addEventListener('click', () => {
+            UI.hideModal('version-modal');
+        });
+        document.getElementById('version-close').addEventListener('click', () => {
+            UI.hideModal('version-modal');
+        });
+
+        // Public link modal
+        document.getElementById('public-link-modal-close').addEventListener('click', () => {
+            UI.hideModal('public-link-modal');
+        });
+        document.getElementById('public-link-cancel').addEventListener('click', () => {
+            UI.hideModal('public-link-modal');
+        });
+        document.getElementById('public-link-generate').addEventListener('click', () => {
+            this.generatePublicLink();
+        });
+        document.getElementById('public-link-copy').addEventListener('click', () => {
+            this.copyPublicLink();
+        });
+
+        // Editor modal
+        document.getElementById('editor-modal-close').addEventListener('click', () => {
+            this.closeEditor(false);
+        });
+        document.getElementById('editor-close').addEventListener('click', () => {
+            this.closeEditor(false);
+        });
+        document.getElementById('editor-save').addEventListener('click', () => {
+            this.saveEditor();
+        });
+        document.getElementById('editor-save-close').addEventListener('click', () => {
+            this.closeEditor(true);
+        });
+        document.getElementById('editor-invite').addEventListener('click', () => {
+            this.inviteCollaborator();
+        });
+
+        // Backup modal
+        document.getElementById('backup-btn').addEventListener('click', () => {
+            this.showBackupModal();
+        });
+        document.getElementById('backup-modal-close').addEventListener('click', () => {
+            UI.hideModal('backup-modal');
+        });
+        document.getElementById('backup-close').addEventListener('click', () => {
+            UI.hideModal('backup-modal');
+        });
+        document.getElementById('backup-export-btn').addEventListener('click', () => {
+            this.exportKeyBackup();
+        });
+        document.getElementById('backup-import-btn').addEventListener('click', () => {
+            document.getElementById('backup-file-input').click();
+        });
+        document.getElementById('backup-file-input').addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                this.importKeyBackup(e.target.files[0]);
+                e.target.value = '';
+            }
+        });
+
+        // Migration modal
+        document.getElementById('migration-modal-close').addEventListener('click', () => {
+            UI.hideModal('migration-modal');
+        });
+        document.getElementById('migration-cancel').addEventListener('click', () => {
+            UI.hideModal('migration-modal');
+        });
+        document.getElementById('migration-start').addEventListener('click', () => {
+            this.migrateFiles();
+        });
     },
 };
 

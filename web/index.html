@@ -74,6 +74,7 @@
                 </div>
                 <div class="header-right">
                     <span id="user-pubkey" class="user-pubkey"></span>
+                    <button id="backup-btn" class="btn btn-icon" title="Key Backup">&#128273;</button>
                     <button id="logout-btn" class="btn">Disconnect</button>
                 </div>
             </header>
@@ -195,6 +196,135 @@
                 <div class="modal-footer">
                     <button class="btn" id="share-cancel">Cancel</button>
                     <button class="btn btn-primary" id="share-confirm">Share</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Version History Modal -->
+        <div id="version-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Version History</h2>
+                    <button class="modal-close" id="version-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="version-file-name" id="version-file-name"></p>
+                    <div id="version-list" class="version-list">
+                        <div class="empty-state">Loading versions...</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="version-close">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Public Link Modal -->
+        <div id="public-link-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Create Public Link</h2>
+                    <button class="modal-close" id="public-link-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="public-link-file-name" id="public-link-file-name"></p>
+                    <div class="form-group">
+                        <label for="public-link-expiry">Link expires in:</label>
+                        <select id="public-link-expiry" class="input">
+                            <option value="0">Never</option>
+                            <option value="3600">1 hour</option>
+                            <option value="86400">1 day</option>
+                            <option value="604800">1 week</option>
+                            <option value="2592000">30 days</option>
+                        </select>
+                    </div>
+                    <div id="public-link-result" class="public-link-result hidden">
+                        <label>Your public link:</label>
+                        <div class="public-link-url-container">
+                            <input type="text" id="public-link-url" class="input" readonly>
+                            <button id="public-link-copy" class="btn btn-primary">Copy</button>
+                        </div>
+                        <p class="public-link-warning">Anyone with this link can download the file. The decryption key is embedded in the URL.</p>
+                    </div>
+                    <div id="public-link-status" class="share-status hidden"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="public-link-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="public-link-generate">Generate Link</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Text Editor Modal (Collaboration) -->
+        <div id="editor-modal" class="modal hidden">
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2 id="editor-file-name">Edit File</h2>
+                    <div class="editor-toolbar">
+                        <div id="editor-collaborators" class="editor-collaborators"></div>
+                        <button class="btn btn-small" id="editor-invite">Invite</button>
+                        <button class="btn btn-small" id="editor-save">Save</button>
+                    </div>
+                    <button class="modal-close" id="editor-modal-close">&times;</button>
+                </div>
+                <div class="modal-body editor-body">
+                    <textarea id="editor-textarea" class="editor-textarea" placeholder="Loading..."></textarea>
+                </div>
+                <div class="modal-footer">
+                    <span id="editor-status" class="editor-status">Ready</span>
+                    <button class="btn" id="editor-close">Close</button>
+                    <button class="btn btn-primary" id="editor-save-close">Save & Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Key Backup Modal -->
+        <div id="backup-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Key Backup</h2>
+                    <button class="modal-close" id="backup-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div id="backup-export" class="backup-section">
+                        <h3>Export Keys</h3>
+                        <p class="modal-description">Download an encrypted backup of your encryption keys. You'll need your Nostr key to restore.</p>
+                        <button class="btn btn-primary" id="backup-export-btn">Download Backup</button>
+                    </div>
+                    <div id="backup-import" class="backup-section">
+                        <h3>Import Keys</h3>
+                        <p class="modal-description">Restore keys from a backup file.</p>
+                        <input type="file" id="backup-file-input" accept=".json" hidden>
+                        <button class="btn" id="backup-import-btn">Select Backup File</button>
+                    </div>
+                    <div id="backup-status" class="share-status hidden"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="backup-close">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Migration Modal -->
+        <div id="migration-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Migrate Files</h2>
+                    <button class="modal-close" id="migration-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-description">You have unencrypted files that can be migrated to the new encrypted format.</p>
+                    <div id="migration-files" class="migration-files"></div>
+                    <div id="migration-progress" class="migration-progress hidden">
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="migration-bar"></div>
+                        </div>
+                        <span id="migration-status-text">Migrating...</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="migration-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="migration-start">Migrate All</button>
                 </div>
             </div>
         </div>

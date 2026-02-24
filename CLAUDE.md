@@ -78,6 +78,15 @@ User's Nostr Key
 | Yjs CRDT collaboration | **DONE** |
 | WebRTC peer sync | **DONE** |
 | Encrypted search index | **DONE** |
+| Version history UI | **DONE** |
+| Collaboration editor UI | **DONE** |
+| Public link generation modal | **DONE** |
+| Search integration | **DONE** |
+| Key backup/recovery | **DONE** |
+| Migration tool (unencrypted files) | **DONE** |
+| Crypto progress indicators | **DONE** |
+| Download counting | **DONE** |
+| Share expiration validation | **DONE** |
 
 ## Project Structure
 
@@ -142,6 +151,34 @@ cloistr-drive/
 - **30079:** Encrypted folder metadata
 - **30080:** File/folder share (NIP-04 encrypted)
 - **30081:** Public share (expiration tracking)
+
+## API Endpoints
+
+### File Operations
+- `GET /api/files` - List files (query: pubkey, folder)
+- `POST /api/files` - Upload file (requires whitelist)
+- `GET /api/files/{sha256}` - Get file metadata
+- `DELETE /api/files/{sha256}` - Delete file (requires whitelist)
+- `GET /api/files/{sha256}/download` - Download file
+
+### Folder Operations
+- `GET /api/folders` - List folders (query: pubkey, parent)
+- `POST /api/folders` - Create folder (requires whitelist)
+- `GET /api/folders/{id}` - Get folder metadata
+- `DELETE /api/folders/{id}` - Delete folder (requires whitelist)
+
+### Share Operations
+- `GET /api/shares` - List shares (query: pubkey, type)
+- `POST /api/shares` - Create share (requires whitelist)
+- `DELETE /api/shares/{id}` - Revoke share (requires whitelist)
+
+### Public Links
+- `GET /public/{sha256}` - Access public link (serves download page)
+- `GET /api/public/{sha256}` - Get public link metadata (JSON)
+
+### Metadata & Auth
+- `POST /api/metadata` - Publish Nostr metadata event (requires whitelist)
+- `GET /api/auth/status` - Check auth status
 
 ## Quick Commands
 

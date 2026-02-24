@@ -126,14 +126,42 @@ const UI = {
                 }
             });
 
+            // History button
+            item.querySelector('.history-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                App.showVersionHistory(fileObj);
+            });
+
+            // Public link button
+            item.querySelector('.link-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                App.showPublicLinkModal(fileObj);
+            });
+
+            // Edit button (for text files)
+            item.querySelector('.edit-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                App.openEditor(fileObj);
+            });
+
             // Context menu on right-click
             item.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
-                this.showContextMenu(e.clientX, e.clientY, [
-                    { label: 'Share', action: () => App.showShareModal({ sha256, name: fileName, size: fileSize, mimeType: fileMime }) },
+                const menuItems = [
                     { label: 'Download', action: () => App.downloadFile(fileObj) },
-                    { label: 'Delete', action: () => { if (confirm('Delete this file?')) App.deleteFile(sha256); } },
-                ]);
+                    { label: 'Share', action: () => App.showShareModal({ sha256, name: fileName, size: fileSize, mimeType: fileMime }) },
+                    { label: 'Public Link', action: () => App.showPublicLinkModal(fileObj) },
+                    { label: 'Version History', action: () => App.showVersionHistory(fileObj) },
+                ];
+
+                // Add edit option for text files
+                if (Collaboration.isCollaborativeFileType(fileMime)) {
+                    menuItems.push({ label: 'Edit', action: () => App.openEditor(fileObj) });
+                }
+
+                menuItems.push({ label: 'Delete', action: () => { if (confirm('Delete this file?')) App.deleteFile(sha256); }, className: 'danger' });
+
+                this.showContextMenu(e.clientX, e.clientY, menuItems);
             });
         });
     },
@@ -215,9 +243,11 @@ const UI = {
         const fileId = file.file_id || file.fileId || file.d || '';
         const folderId = file.folder_id || file.folderId || file.folder || '';
         const encryptedClass = isEncrypted ? 'encrypted-file' : '';
+        const mimeType = file.mime_type || '';
+        const isEditable = Collaboration.isCollaborativeFileType(mimeType);
 
         return `
-            <div class="file-item ${encryptedClass}" data-sha256="${file.sha256}" data-name="${this.escapeHtml(fileName)}" data-size="${file.size}" data-mime="${file.mime_type || ''}" data-file-id="${fileId}" data-folder-id="${folderId}" data-encrypted="${isEncrypted || false}">
+            <div class="file-item ${encryptedClass}" data-sha256="${file.sha256}" data-name="${this.escapeHtml(fileName)}" data-size="${file.size}" data-mime="${mimeType}" data-file-id="${fileId}" data-folder-id="${folderId}" data-encrypted="${isEncrypted || false}">
                 <div class="file-col file-name">
                     <span class="file-icon">${icon}</span>
                     <span class="file-name-text">${this.escapeHtml(fileName)}</span>
@@ -226,7 +256,10 @@ const UI = {
                 <div class="file-col file-size">${size}</div>
                 <div class="file-col file-date">${date}</div>
                 <div class="file-col file-actions">
-                    <button class="action-btn share-btn share-btn" title="Share">Share</button>
+                    ${isEditable ? '<button class="action-btn edit-btn" title="Edit">Edit</button>' : ''}
+                    <button class="action-btn history-btn" title="Version History">History</button>
+                    <button class="action-btn link-btn" title="Public Link">Link</button>
+                    <button class="action-btn share-btn" title="Share">Share</button>
                     <button class="action-btn download-btn">Download</button>
                     <button class="action-btn delete delete-btn">Delete</button>
                 </div>
@@ -242,13 +275,18 @@ const UI = {
         const fileId = file.file_id || file.fileId || file.d || '';
         const folderId = file.folder_id || file.folderId || file.folder || '';
         const encryptedClass = isEncrypted ? 'encrypted-file' : '';
+        const mimeType = file.mime_type || '';
+        const isEditable = Collaboration.isCollaborativeFileType(mimeType);
 
         return `
-            <div class="grid-item ${encryptedClass}" data-sha256="${file.sha256}" data-name="${this.escapeHtml(name)}" data-size="${file.size}" data-mime="${file.mime_type || ''}" data-file-id="${fileId}" data-folder-id="${folderId}" data-encrypted="${isEncrypted || false}">
+            <div class="grid-item ${encryptedClass}" data-sha256="${file.sha256}" data-name="${this.escapeHtml(name)}" data-size="${file.size}" data-mime="${mimeType}" data-file-id="${fileId}" data-folder-id="${folderId}" data-encrypted="${isEncrypted || false}">
                 <div class="grid-item-icon">${icon}</div>
                 <div class="grid-item-name">${this.escapeHtml(name)}</div>
                 ${isEncrypted ? '<span class="encrypted-badge" title="End-to-end encrypted">E2E</span>' : ''}
                 <div class="grid-item-actions">
+                    ${isEditable ? '<button class="action-btn edit-btn" title="Edit">&#9998;</button>' : ''}
+                    <button class="action-btn history-btn" title="History">&#128337;</button>
+                    <button class="action-btn link-btn" title="Link">&#128279;</button>
                     <button class="action-btn share-btn" title="Share">&#8599;</button>
                     <button class="action-btn download-btn" title="Download">↓</button>
                     <button class="action-btn delete delete-btn" title="Delete">✕</button>
@@ -441,18 +479,21 @@ const UI = {
         const size = file.size ? Upload.formatSize(file.size) : '-';
         const date = file.created_at ? new Date(file.created_at * 1000).toLocaleDateString() : '-';
         const ownerShort = file.owner_pubkey ? file.owner_pubkey.slice(0, 8) + '...' : '';
+        const expiration = file.expires_at ? Sharing.formatExpiration(file.expires_at) : '';
+        const isExpired = file.expires_at && Sharing.isShareExpired(file);
 
         return `
-            <div class="file-item shared-item" data-sha256="${file.sha256 || ''}" data-url="${file.url || ''}" data-encrypted="${file.encrypted || false}">
+            <div class="file-item shared-item ${isExpired ? 'expired' : ''}" data-sha256="${file.sha256 || ''}" data-url="${file.url || ''}" data-encrypted="${file.encrypted || false}">
                 <div class="file-col file-name">
                     <span class="file-icon">${icon}</span>
                     <span class="file-name-text">${this.escapeHtml(file.name)}</span>
                     <span class="shared-by">from ${ownerShort}</span>
+                    ${expiration ? `<span class="share-expires ${isExpired ? 'expired' : ''}">${expiration}</span>` : ''}
                 </div>
                 <div class="file-col file-size">${size}</div>
                 <div class="file-col file-date">${date}</div>
                 <div class="file-col file-actions">
-                    <button class="action-btn download-btn" ${file.encrypted ? 'disabled' : ''}>Download</button>
+                    <button class="action-btn download-btn" ${file.encrypted || isExpired ? 'disabled' : ''}>Download</button>
                 </div>
             </div>
         `;
@@ -539,6 +580,53 @@ const UI = {
     // Hide floating upload progress
     hideUploadProgress() {
         const indicator = document.getElementById('upload-progress-indicator');
+        if (indicator) {
+            indicator.classList.add('hidden');
+        }
+    },
+
+    // Show crypto progress indicator
+    showCryptoProgress(operation, fileName) {
+        let indicator = document.getElementById('crypto-progress-indicator');
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.id = 'crypto-progress-indicator';
+            indicator.className = 'crypto-progress-indicator';
+            indicator.innerHTML = `
+                <div class="crypto-progress-content">
+                    <div class="crypto-progress-spinner"></div>
+                    <div class="crypto-progress-text">
+                        <span class="crypto-progress-operation">Encrypting...</span>
+                        <span class="crypto-progress-file"></span>
+                    </div>
+                </div>
+                <div class="crypto-progress-bar-container">
+                    <div class="crypto-progress-bar" style="width: 0%"></div>
+                </div>
+            `;
+            document.body.appendChild(indicator);
+        }
+
+        indicator.querySelector('.crypto-progress-operation').textContent = operation;
+        indicator.querySelector('.crypto-progress-file').textContent = fileName || '';
+        indicator.querySelector('.crypto-progress-bar').style.width = '0%';
+        indicator.classList.remove('hidden');
+    },
+
+    // Update crypto progress
+    updateCryptoProgress(percent, statusText) {
+        const indicator = document.getElementById('crypto-progress-indicator');
+        if (!indicator) return;
+
+        if (statusText) {
+            indicator.querySelector('.crypto-progress-operation').textContent = statusText;
+        }
+        indicator.querySelector('.crypto-progress-bar').style.width = `${percent}%`;
+    },
+
+    // Hide crypto progress indicator
+    hideCryptoProgress() {
+        const indicator = document.getElementById('crypto-progress-indicator');
         if (indicator) {
             indicator.classList.add('hidden');
         }
