@@ -378,16 +378,21 @@ const Auth = {
     },
 
     // Create a file share event (kind 30080)
+    // For encrypted files, includes the file key so recipient can decrypt
     async createShareEvent(shareInfo) {
         const now = Math.floor(Date.now() / 1000);
 
         // Create the share content to encrypt
+        // Includes the file key for zero-knowledge sharing
         const shareContent = JSON.stringify({
             fileName: shareInfo.fileName,
             fileSize: shareInfo.fileSize,
             fileMimeType: shareInfo.fileMimeType,
             fileSHA256: shareInfo.fileSHA256,
             fileURL: shareInfo.fileURL,
+            fileKey: shareInfo.fileKey || null,     // File decryption key (hex)
+            fileId: shareInfo.fileId || null,       // File ID for key reference
+            encrypted: shareInfo.encrypted || false, // Whether file is encrypted
             message: shareInfo.message || '',
         });
 
@@ -412,6 +417,11 @@ const Auth = {
 
         if (shareInfo.expiresAt) {
             event.tags.push(['expiration', shareInfo.expiresAt.toString()]);
+        }
+
+        // Add encrypted flag if file is encrypted
+        if (shareInfo.encrypted) {
+            event.tags.push(['encrypted', 'true']);
         }
 
         return this.signEvent(event);

@@ -173,8 +173,11 @@ func ParseFileEvent(event *nostr.Event) (*FileMetadata, error) {
 		switch tag[0] {
 		case "d":
 			file.Identifier = tag[1]
+			file.FileID = tag[1] // Same as identifier for encrypted files
 		case "x":
 			file.SHA256 = tag[1]
+		case "ox":
+			file.PlaintextHash = tag[1]
 		case "url":
 			file.URL = tag[1]
 		case "m":
@@ -183,6 +186,9 @@ func ParseFileEvent(event *nostr.Event) (*FileMetadata, error) {
 			fmt.Sscanf(tag[1], "%d", &file.Size)
 		case "folder":
 			file.FolderID = tag[1]
+		case "encrypted":
+			file.Encrypted = true
+			file.Encryption = tag[1]
 		}
 	}
 
@@ -195,6 +201,12 @@ func ParseFileEvent(event *nostr.Event) (*FileMetadata, error) {
 			}
 			if desc, ok := content["description"].(string); ok {
 				file.Description = desc
+			}
+			if encrypted, ok := content["encrypted"].(bool); ok {
+				file.Encrypted = encrypted
+			}
+			if encSize, ok := content["encrypted_size"].(float64); ok {
+				file.EncryptedSize = int64(encSize)
 			}
 		}
 	}

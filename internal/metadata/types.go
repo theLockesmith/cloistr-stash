@@ -8,20 +8,35 @@ import (
 // Stored as Nostr kind 30078 parameterized replaceable event
 type FileMetadata struct {
 	// Identifier is the unique ID for this file (used as 'd' tag)
-	// Typically the SHA256 hash of the file
+	// For encrypted files, this is the file_id used for key derivation
 	Identifier string `json:"id"`
 
-	// SHA256 hash of the file content
+	// FileID is the unique identifier for key derivation (same as Identifier for encrypted files)
+	FileID string `json:"file_id,omitempty"`
+
+	// SHA256 hash of the file content (encrypted blob hash for encrypted files)
 	SHA256 string `json:"sha256"`
+
+	// PlaintextHash is the SHA256 of the original unencrypted content
+	PlaintextHash string `json:"plaintext_hash,omitempty"`
 
 	// Original filename
 	Name string `json:"name,omitempty"`
 
-	// File size in bytes
+	// File size in bytes (original size)
 	Size int64 `json:"size"`
+
+	// EncryptedSize is the size of the encrypted blob
+	EncryptedSize int64 `json:"encrypted_size,omitempty"`
 
 	// MIME type
 	MimeType string `json:"mime_type,omitempty"`
+
+	// Encrypted indicates if this file is encrypted
+	Encrypted bool `json:"encrypted,omitempty"`
+
+	// Encryption algorithm used (e.g., "xchacha20-poly1305")
+	Encryption string `json:"encryption,omitempty"`
 
 	// Blossom server URL where the file is stored
 	URL string `json:"url,omitempty"`

@@ -713,9 +713,17 @@ const App = {
         );
     },
 
-    async promptNewFolder() {
-        const name = prompt('Folder name:');
+    promptNewFolder() {
+        // Show the new folder modal
+        const input = document.getElementById('new-folder-name');
+        input.value = '';
+        UI.showModal('new-folder-modal');
+        setTimeout(() => input.focus(), 100);
+    },
+
+    async createFolder(name) {
         if (!name || !name.trim()) {
+            UI.toast('Please enter a folder name', 'error');
             return;
         }
 
@@ -742,6 +750,7 @@ const App = {
             // Publish directly to relay (client-side)
             await Auth.publishEvent(signedEvent);
 
+            UI.hideModal('new-folder-modal');
             UI.toast(`Created encrypted folder "${name.trim()}"`, 'success');
 
             // Reload to show new folder
@@ -1425,19 +1434,41 @@ const App = {
 
         try {
             const shareId = Auth.generateShareId();
+            const file = this.shareFile;
+
+            // Get the file key if file is encrypted
+            let fileKeyHex = null;
+            const isEncrypted = file.encrypted || file.encryption;
+            const fileId = file.file_id || file.fileId || file.d;
+
+            if (isEncrypted && fileId) {
+                // Derive the file key
+                const folderId = file.folder_id || file.folderId || file.folder || null;
+                let fileKey;
+                if (folderId) {
+                    fileKey = await Keys.deriveFileKey(folderId, fileId);
+                } else {
+                    fileKey = await Keys.deriveRootFileKey(fileId);
+                }
+                fileKeyHex = Crypto.bytesToHex(fileKey);
+                // Wipe key from memory after converting
+                Crypto.wipeKey(fileKey);
+            }
 
             // Create and sign the share event
             const signedEvent = await Auth.createShareEvent({
                 id: shareId,
-                fileId: this.shareFile.sha256,
-                fileName: this.shareFile.name,
-                fileSize: this.shareFile.size,
-                fileMimeType: this.shareFile.mimeType,
-                fileSHA256: this.shareFile.sha256,
-                fileURL: API.getDownloadURL(this.shareFile.sha256),
+                fileId: fileId || file.sha256,
+                fileName: file.name,
+                fileSize: file.size,
+                fileMimeType: file.mimeType || file.mime_type,
+                fileSHA256: file.sha256,
+                fileURL: API.getDownloadURL(file.sha256),
                 recipientPubkey: recipientPubkey,
                 message: message,
                 permission: 'download',
+                encrypted: isEncrypted,
+                fileKey: fileKeyHex,
             });
 
             // Publish directly to relay (client-side)
@@ -1942,6 +1973,27 @@ const App = {
         });
         document.getElementById('migration-start').addEventListener('click', () => {
             this.migrateFiles();
+        });
+
+        // New folder modal
+        document.getElementById('new-folder-modal-close').addEventListener('click', () => {
+            UI.hideModal('new-folder-modal');
+        });
+        document.getElementById('new-folder-cancel').addEventListener('click', () => {
+            UI.hideModal('new-folder-modal');
+        });
+        document.getElementById('new-folder-create').addEventListener('click', () => {
+            const name = document.getElementById('new-folder-name').value;
+            this.createFolder(name);
+        });
+        document.getElementById('new-folder-name').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const name = document.getElementById('new-folder-name').value;
+                this.createFolder(name);
+            } else if (e.key === 'Escape') {
+                UI.hideModal('new-folder-modal');
+            }
         });
     },
 };
