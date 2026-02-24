@@ -448,9 +448,12 @@ const Auth = {
             return NIP46.publishEvent(signedEvent);
         }
 
-        // NIP-07: Would need direct relay connection with NIP-42 auth
-        // For now, throw an error - this needs implementation
-        throw new Error('Direct relay publishing not yet supported for NIP-07. Use a NIP-46 signer.');
+        // NIP-07: Use direct relay connection
+        if (typeof Relay !== 'undefined') {
+            return Relay.publish(signedEvent);
+        }
+
+        throw new Error('Relay module not loaded');
     },
 
     // Disconnect
