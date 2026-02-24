@@ -12,11 +12,21 @@ const App = {
     shareFile: null,      // File currently being shared
 
     async init() {
+        // Register service worker for offline support
+        this.registerServiceWorker();
+
+        // Setup offline detection
+        this.setupOfflineHandlers();
+
         // Check server health first
         try {
             await API.health();
         } catch (err) {
-            UI.toast('Cannot connect to server', 'error');
+            if (this.isOffline()) {
+                UI.toast('You are offline', 'warning');
+            } else {
+                UI.toast('Cannot connect to server', 'error');
+            }
         }
 
         // Setup event listeners
@@ -592,10 +602,13 @@ const App = {
     },
 
     async loadFiles() {
-        try {
-            const pubkey = Auth.isConnected ? Auth.pubkey : null;
-            if (!pubkey) return;
+        const pubkey = Auth.isConnected ? Auth.pubkey : null;
+        if (!pubkey) return;
 
+        // Show loading state
+        UI.showLoadingSkeleton();
+
+        try {
             // Load folders and files for current folder
             const [foldersResponse, filesResponse] = await Promise.all([
                 API.listFolders(pubkey, this.currentFolderId),
@@ -609,6 +622,12 @@ const App = {
             this.renderBreadcrumbs();
         } catch (err) {
             console.error('Failed to load files:', err);
+
+            if (this.isOffline()) {
+                UI.showErrorState('You are offline. Files will load when reconnected.');
+            } else {
+                UI.showErrorState('Failed to load files', () => this.loadFiles());
+            }
         }
     },
 
@@ -1347,11 +1366,34 @@ const App = {
         });
     },
 
+    shareFolder: null,    // Folder currently being shared
+
     showShareModal(file) {
         this.shareFile = file;
+        this.shareFolder = null;
 
         // Update modal content
+        document.querySelector('#share-modal h2').textContent = 'Share File';
         document.getElementById('share-file-name').textContent = file.name;
+        document.getElementById('share-recipient').value = '';
+        document.getElementById('share-message').value = '';
+
+        // Reset status
+        const statusEl = document.getElementById('share-status');
+        statusEl.classList.add('hidden');
+        statusEl.classList.remove('success', 'error');
+
+        UI.showModal('share-modal');
+        document.getElementById('share-recipient').focus();
+    },
+
+    showShareFolderModal(folder) {
+        this.shareFolder = folder;
+        this.shareFile = null;
+
+        // Update modal content for folder
+        document.querySelector('#share-modal h2').textContent = 'Share Folder';
+        document.getElementById('share-file-name').textContent = `📁 ${folder.name}`;
         document.getElementById('share-recipient').value = '';
         document.getElementById('share-message').value = '';
 
@@ -1446,6 +1488,34 @@ const App = {
 
         try {
             const shareId = Auth.generateShareId();
+
+            // Handle folder sharing
+            if (this.shareFolder) {
+                const folder = this.shareFolder;
+
+                // Use Sharing module for folder sharing
+                await Sharing.shareFolder(folder, recipientPubkey, {
+                    message: message,
+                    permission: Sharing.PERMISSION_DOWNLOAD,
+                });
+
+                // Show success
+                statusEl.textContent = 'Folder shared successfully!';
+                statusEl.classList.remove('error');
+                statusEl.classList.add('success');
+
+                UI.toast(`Shared folder "${folder.name}" with ${recipientInput.slice(0, 12)}...`, 'success');
+
+                // Close modal after delay
+                setTimeout(() => {
+                    UI.hideModal('share-modal');
+                    this.shareFolder = null;
+                }, 1500);
+
+                return;
+            }
+
+            // Handle file sharing
             const file = this.shareFile;
 
             // Get the file key if file is encrypted
@@ -1655,6 +1725,126 @@ const App = {
         urlInput.select();
         document.execCommand('copy');
         UI.toast('Link copied to clipboard', 'success');
+    },
+
+    // === Manage Shares Modal ===
+    manageSharesFile: null,
+
+    async showManageSharesModal(file) {
+        this.manageSharesFile = file;
+        const fileId = file.file_id || file.fileId || file.d;
+
+        document.getElementById('manage-shares-file-name').textContent = file.name;
+        const sharesList = document.getElementById('manage-shares-list');
+        sharesList.innerHTML = '<div class="empty-state">Loading shares...</div>';
+        document.getElementById('manage-shares-status').classList.add('hidden');
+
+        UI.showModal('manage-shares-modal');
+
+        try {
+            // Get outgoing shares for this file
+            const shares = await Sharing.listOutgoingShares();
+            const fileShares = shares.filter(s => {
+                // Match by file reference tag
+                const fileTag = s.tags?.find(t => t[0] === 'file');
+                return fileTag && fileTag[1]?.includes(fileId);
+            });
+
+            if (fileShares.length === 0) {
+                sharesList.innerHTML = '<div class="empty-state">No active shares for this file</div>';
+                return;
+            }
+
+            sharesList.innerHTML = fileShares.map(share => {
+                const recipientTag = share.tags?.find(t => t[0] === 'p');
+                const recipient = recipientTag ? recipientTag[1] : 'Unknown';
+                const permTag = share.tags?.find(t => t[0] === 'permission');
+                const permission = permTag ? permTag[1] : 'view';
+                const expTag = share.tags?.find(t => t[0] === 'expiration');
+                const expiresAt = expTag ? parseInt(expTag[1]) : null;
+                const isExpired = expiresAt && expiresAt < Math.floor(Date.now() / 1000);
+
+                return `
+                    <div class="share-item ${isExpired ? 'expired' : ''}" data-share-id="${share.id || ''}">
+                        <div class="share-info">
+                            <span class="share-recipient">${recipient.slice(0, 8)}...${recipient.slice(-8)}</span>
+                            <span class="share-permission">${permission}</span>
+                            <span class="share-expiry">${Sharing.formatExpiration(expiresAt)}</span>
+                        </div>
+                        <button class="btn btn-small btn-danger revoke-share-btn" data-share-id="${share.id || ''}">Revoke</button>
+                    </div>
+                `;
+            }).join('');
+
+            // Attach revoke handlers
+            sharesList.querySelectorAll('.revoke-share-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const shareId = btn.dataset.shareId;
+                    if (shareId && confirm('Revoke this share?')) {
+                        await this.revokeShare(shareId);
+                    }
+                });
+            });
+
+        } catch (err) {
+            console.error('Failed to load shares:', err);
+            sharesList.innerHTML = `<div class="empty-state error">Failed to load shares: ${err.message}</div>`;
+        }
+    },
+
+    async revokeShare(shareId) {
+        const statusEl = document.getElementById('manage-shares-status');
+        try {
+            statusEl.textContent = 'Revoking share...';
+            statusEl.classList.remove('hidden', 'error', 'success');
+
+            await Sharing.revokeShare(shareId);
+
+            statusEl.textContent = 'Share revoked';
+            statusEl.classList.add('success');
+            UI.toast('Share revoked', 'success');
+
+            // Refresh the list
+            await this.showManageSharesModal(this.manageSharesFile);
+
+        } catch (err) {
+            statusEl.textContent = `Failed: ${err.message}`;
+            statusEl.classList.add('error');
+            UI.toast(`Revoke failed: ${err.message}`, 'error');
+        }
+    },
+
+    async rekeyFile() {
+        if (!this.manageSharesFile) return;
+
+        const statusEl = document.getElementById('manage-shares-status');
+        const file = this.manageSharesFile;
+
+        if (!confirm(`Re-encrypt "${file.name}"?\n\nThis will:\n- Generate a new encryption key\n- Re-upload the file encrypted with the new key\n- Invalidate all existing shares and public links\n\nThis cannot be undone.`)) {
+            return;
+        }
+
+        try {
+            statusEl.textContent = 'Re-encrypting file...';
+            statusEl.classList.remove('hidden', 'error', 'success');
+
+            const result = await Sharing.revokeAndReencryptFile(file);
+
+            statusEl.textContent = 'File re-encrypted with new key';
+            statusEl.classList.add('success');
+            UI.toast('File re-encrypted successfully', 'success');
+
+            // Refresh files list
+            await this.loadFiles();
+
+            // Close modal after delay
+            setTimeout(() => UI.hideModal('manage-shares-modal'), 1500);
+
+        } catch (err) {
+            statusEl.textContent = `Re-encryption failed: ${err.message}`;
+            statusEl.classList.add('error');
+            UI.toast(`Re-encryption failed: ${err.message}`, 'error');
+        }
     },
 
     // === Collaboration Editor ===
@@ -1976,6 +2166,17 @@ const App = {
             }
         });
 
+        // Manage Shares modal
+        document.getElementById('manage-shares-modal-close').addEventListener('click', () => {
+            UI.hideModal('manage-shares-modal');
+        });
+        document.getElementById('manage-shares-close').addEventListener('click', () => {
+            UI.hideModal('manage-shares-modal');
+        });
+        document.getElementById('rekey-file-btn').addEventListener('click', () => {
+            this.rekeyFile();
+        });
+
         // Migration modal
         document.getElementById('migration-modal-close').addEventListener('click', () => {
             UI.hideModal('migration-modal');
@@ -2007,6 +2208,73 @@ const App = {
                 UI.hideModal('new-folder-modal');
             }
         });
+    },
+
+    // Register service worker for offline support
+    registerServiceWorker() {
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', async () => {
+                try {
+                    const registration = await navigator.serviceWorker.register('/sw.js', {
+                        scope: '/',
+                    });
+
+                    console.log('ServiceWorker registered:', registration.scope);
+
+                    // Check for updates
+                    registration.addEventListener('updatefound', () => {
+                        const newWorker = registration.installing;
+                        newWorker.addEventListener('statechange', () => {
+                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                // New version available
+                                UI.toast('New version available. Refresh to update.', 'info');
+                            }
+                        });
+                    });
+                } catch (err) {
+                    console.warn('ServiceWorker registration failed:', err);
+                }
+            });
+        }
+    },
+
+    // Check if app is running offline
+    isOffline() {
+        return !navigator.onLine;
+    },
+
+    // Handle online/offline events
+    setupOfflineHandlers() {
+        const offlineBanner = document.getElementById('offline-banner');
+
+        // Initial check
+        if (!navigator.onLine && offlineBanner) {
+            offlineBanner.classList.add('visible');
+        }
+
+        window.addEventListener('online', () => {
+            if (offlineBanner) offlineBanner.classList.remove('visible');
+            UI.toast('Back online', 'success');
+            // Sync any pending operations
+            this.syncPendingOperations();
+        });
+
+        window.addEventListener('offline', () => {
+            if (offlineBanner) offlineBanner.classList.add('visible');
+            UI.toast('You are offline. Changes will sync when reconnected.', 'warning');
+        });
+    },
+
+    // Sync pending operations when back online
+    async syncPendingOperations() {
+        // Trigger background sync if supported
+        if ('serviceWorker' in navigator && 'sync' in window.registration) {
+            try {
+                await window.registration.sync.register('upload-sync');
+            } catch (err) {
+                console.warn('Background sync not available:', err);
+            }
+        }
     },
 };
 

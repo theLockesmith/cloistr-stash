@@ -24,6 +24,48 @@ const UI = {
         document.getElementById(id).classList.add('hidden');
     },
 
+    // Show loading skeleton in file list
+    showLoadingSkeleton(count = 5) {
+        const body = document.getElementById('file-list-body');
+        const emptyState = document.getElementById('empty-state');
+
+        if (emptyState) emptyState.classList.add('hidden');
+
+        const skeletons = [];
+        for (let i = 0; i < count; i++) {
+            skeletons.push(`
+                <div class="skeleton-row">
+                    <div class="skeleton skeleton-icon"></div>
+                    <div class="skeleton skeleton-text"></div>
+                    <div class="skeleton skeleton-text-short"></div>
+                    <div class="skeleton skeleton-text-short"></div>
+                </div>
+            `);
+        }
+
+        body.innerHTML = skeletons.join('');
+    },
+
+    // Show error state in file list
+    showErrorState(message, onRetry = null) {
+        const body = document.getElementById('file-list-body');
+        const emptyState = document.getElementById('empty-state');
+
+        if (emptyState) emptyState.classList.add('hidden');
+
+        body.innerHTML = `
+            <div class="error-state">
+                <div class="error-state-icon">&#9888;</div>
+                <p>${this.escapeHtml(message)}</p>
+                ${onRetry ? '<button class="btn retry-btn">Retry</button>' : ''}
+            </div>
+        `;
+
+        if (onRetry) {
+            body.querySelector('.retry-btn')?.addEventListener('click', onRetry);
+        }
+    },
+
     // Render file list (supports grid and list views)
     renderFileList(files, folders = [], searchQuery = '') {
         const fileList = document.getElementById('file-list');
@@ -163,6 +205,7 @@ const UI = {
                 menuItems.push({ label: 'Download', action: () => App.downloadFile(fileObj) });
                 menuItems.push({ label: 'Share', action: () => App.showShareModal({ sha256, name: fileName, size: fileSize, mimeType: fileMime }) });
                 menuItems.push({ label: 'Public Link', action: () => App.showPublicLinkModal(fileObj) });
+                menuItems.push({ label: 'Manage Shares', action: () => App.showManageSharesModal(fileObj) });
                 menuItems.push({ label: 'Version History', action: () => App.showVersionHistory(fileObj) });
 
                 // Add edit option for text files
@@ -204,9 +247,11 @@ const UI = {
             // Context menu on right-click
             item.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
+                const folder = App.folders.find(f => f.id === folderId) || { id: folderId, name: folderName };
                 this.showContextMenu(e.clientX, e.clientY, [
                     { label: 'Open', action: () => App.openFolder(folderId, folderName) },
-                    { label: 'Delete', action: () => App.deleteFolder(folderId, folderName) },
+                    { label: 'Share', action: () => App.showShareFolderModal(folder) },
+                    { label: 'Delete', action: () => App.deleteFolder(folderId, folderName), className: 'danger' },
                 ]);
             });
         });

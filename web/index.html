@@ -4,12 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Drive - Cloistr</title>
+    <meta name="description" content="Nostr-native file storage with end-to-end encryption. Own your data.">
+    <meta name="theme-color" content="#1a1a2e">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.json">
     <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
+    <!-- Offline Banner -->
+    <div id="offline-banner" class="offline-banner">You are offline. Some features may be unavailable.</div>
+
     <div id="app">
         <!-- Landing Page (shown when not authenticated) -->
         <div id="landing-page" class="landing">
@@ -217,6 +223,31 @@
                 <div class="modal-footer">
                     <button class="btn" id="share-cancel">Cancel</button>
                     <button class="btn btn-primary" id="share-confirm">Share</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Manage Shares Modal -->
+        <div id="manage-shares-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Manage Shares</h2>
+                    <button class="modal-close" id="manage-shares-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="share-file-name" id="manage-shares-file-name"></p>
+                    <div id="manage-shares-list" class="share-list">
+                        <div class="empty-state">Loading shares...</div>
+                    </div>
+                    <div class="share-actions-section">
+                        <h4>Revoke All Access</h4>
+                        <p class="modal-description">Re-encrypt this file with a new key. All existing shares and public links will stop working.</p>
+                        <button class="btn btn-danger" id="rekey-file-btn">Re-encrypt File</button>
+                    </div>
+                    <div id="manage-shares-status" class="share-status hidden"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="manage-shares-close">Close</button>
                 </div>
             </div>
         </div>
