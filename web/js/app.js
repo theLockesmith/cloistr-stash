@@ -132,6 +132,9 @@ const App = {
 
         // Share modal
         this.setupShareModal();
+
+        // Preview modal
+        this.setupPreviewModal();
     },
 
     setupUploadModal() {
@@ -898,6 +901,199 @@ const App = {
             console.error('Download shared file failed:', err);
             UI.toast(`Download failed: ${err.message}`, 'error');
         }
+    },
+
+    // Check if file type is previewable
+    isPreviewable(mimeType) {
+        if (!mimeType) return false;
+        return (
+            mimeType.startsWith('image/') ||
+            mimeType.startsWith('video/') ||
+            mimeType.startsWith('audio/') ||
+            mimeType.startsWith('text/') ||
+            mimeType === 'application/pdf' ||
+            mimeType === 'application/json' ||
+            mimeType === 'application/javascript' ||
+            mimeType === 'application/xml'
+        );
+    },
+
+    // Get preview type category
+    getPreviewType(mimeType) {
+        if (!mimeType) return 'unsupported';
+        if (mimeType.startsWith('image/')) return 'image';
+        if (mimeType.startsWith('video/')) return 'video';
+        if (mimeType.startsWith('audio/')) return 'audio';
+        if (mimeType === 'application/pdf') return 'pdf';
+        if (mimeType.startsWith('text/') ||
+            mimeType === 'application/json' ||
+            mimeType === 'application/javascript' ||
+            mimeType === 'application/xml') return 'text';
+        return 'unsupported';
+    },
+
+    // Preview file state
+    previewFile: null,
+    previewBlobUrl: null,
+
+    // Preview a file
+    async showPreview(file) {
+        this.previewFile = file;
+
+        // Show modal and loading state
+        document.getElementById('preview-file-name').textContent = file.name;
+        document.getElementById('preview-loading').classList.remove('hidden');
+        document.getElementById('preview-content').classList.add('hidden');
+
+        // Hide all preview types
+        document.getElementById('preview-image').classList.add('hidden');
+        document.getElementById('preview-text').classList.add('hidden');
+        document.getElementById('preview-pdf').classList.add('hidden');
+        document.getElementById('preview-video').classList.add('hidden');
+        document.getElementById('preview-audio').classList.add('hidden');
+        document.getElementById('preview-unsupported').classList.add('hidden');
+
+        UI.showModal('preview-modal');
+
+        try {
+            // Fetch and decrypt the file
+            const downloadUrl = API.getDownloadURL(file.sha256);
+            const response = await fetch(downloadUrl);
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch file: ${response.status}`);
+            }
+
+            const encryptedData = await response.arrayBuffer();
+            let decryptedData;
+
+            const isEncrypted = file.encrypted || file.encryption;
+            if (isEncrypted) {
+                const fileId = file.file_id || file.fileId || file.d;
+                const folderId = file.folder_id || file.folderId || file.folder || null;
+
+                if (!fileId) {
+                    throw new Error('Cannot decrypt: missing file ID');
+                }
+
+                let fileKey;
+                if (folderId) {
+                    fileKey = await Keys.deriveFileKey(folderId, fileId);
+                } else {
+                    fileKey = await Keys.deriveRootFileKey(fileId);
+                }
+
+                decryptedData = await Crypto.decryptFile(encryptedData, fileKey);
+                Crypto.wipeKey(fileKey);
+            } else {
+                decryptedData = new Uint8Array(encryptedData);
+            }
+
+            // Create blob for preview
+            const mimeType = file.mime_type || file.mimeType || 'application/octet-stream';
+            const blob = new Blob([decryptedData], { type: mimeType });
+
+            // Clean up previous blob URL
+            if (this.previewBlobUrl) {
+                URL.revokeObjectURL(this.previewBlobUrl);
+            }
+            this.previewBlobUrl = URL.createObjectURL(blob);
+
+            // Show appropriate preview
+            const previewType = this.getPreviewType(mimeType);
+            document.getElementById('preview-loading').classList.add('hidden');
+            document.getElementById('preview-content').classList.remove('hidden');
+
+            switch (previewType) {
+                case 'image':
+                    const imgEl = document.getElementById('preview-image');
+                    imgEl.src = this.previewBlobUrl;
+                    imgEl.classList.remove('hidden');
+                    break;
+
+                case 'video':
+                    const videoEl = document.getElementById('preview-video');
+                    videoEl.src = this.previewBlobUrl;
+                    videoEl.classList.remove('hidden');
+                    break;
+
+                case 'audio':
+                    const audioEl = document.getElementById('preview-audio');
+                    audioEl.src = this.previewBlobUrl;
+                    audioEl.classList.remove('hidden');
+                    break;
+
+                case 'pdf':
+                    const pdfEl = document.getElementById('preview-pdf');
+                    pdfEl.src = this.previewBlobUrl;
+                    pdfEl.classList.remove('hidden');
+                    break;
+
+                case 'text':
+                    const textEl = document.getElementById('preview-text');
+                    const text = new TextDecoder().decode(decryptedData);
+                    textEl.textContent = text;
+                    textEl.classList.remove('hidden');
+                    break;
+
+                default:
+                    document.getElementById('preview-unsupported').classList.remove('hidden');
+            }
+
+        } catch (err) {
+            console.error('Preview failed:', err);
+            document.getElementById('preview-loading').classList.add('hidden');
+            document.getElementById('preview-content').classList.remove('hidden');
+            document.getElementById('preview-unsupported').classList.remove('hidden');
+            document.getElementById('preview-unsupported').innerHTML = `
+                <p>Preview failed: ${err.message}</p>
+                <button class="btn btn-primary" id="preview-download">Download Instead</button>
+            `;
+        }
+    },
+
+    // Close preview and cleanup
+    closePreview() {
+        UI.hideModal('preview-modal');
+
+        // Stop any playing media
+        const videoEl = document.getElementById('preview-video');
+        const audioEl = document.getElementById('preview-audio');
+        if (videoEl) videoEl.pause();
+        if (audioEl) audioEl.pause();
+
+        // Clean up blob URL
+        if (this.previewBlobUrl) {
+            URL.revokeObjectURL(this.previewBlobUrl);
+            this.previewBlobUrl = null;
+        }
+
+        this.previewFile = null;
+    },
+
+    // Setup preview modal events
+    setupPreviewModal() {
+        document.getElementById('preview-modal-close').addEventListener('click', () => {
+            this.closePreview();
+        });
+
+        document.getElementById('preview-close').addEventListener('click', () => {
+            this.closePreview();
+        });
+
+        document.getElementById('preview-download-btn').addEventListener('click', () => {
+            if (this.previewFile) {
+                this.downloadFile(this.previewFile);
+            }
+        });
+
+        // Handle download button in unsupported preview
+        document.getElementById('preview-content').addEventListener('click', (e) => {
+            if (e.target.id === 'preview-download' && this.previewFile) {
+                this.downloadFile(this.previewFile);
+                this.closePreview();
+            }
+        });
     },
 
     setupShareModal() {

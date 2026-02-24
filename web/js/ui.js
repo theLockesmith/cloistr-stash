@@ -144,15 +144,26 @@ const UI = {
                 App.openEditor(fileObj);
             });
 
+            // Preview button
+            item.querySelector('.preview-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                App.showPreview(fileObj);
+            });
+
             // Context menu on right-click
             item.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
-                const menuItems = [
-                    { label: 'Download', action: () => App.downloadFile(fileObj) },
-                    { label: 'Share', action: () => App.showShareModal({ sha256, name: fileName, size: fileSize, mimeType: fileMime }) },
-                    { label: 'Public Link', action: () => App.showPublicLinkModal(fileObj) },
-                    { label: 'Version History', action: () => App.showVersionHistory(fileObj) },
-                ];
+                const menuItems = [];
+
+                // Add preview option for previewable files
+                if (App.isPreviewable(fileMime)) {
+                    menuItems.push({ label: 'Preview', action: () => App.showPreview(fileObj) });
+                }
+
+                menuItems.push({ label: 'Download', action: () => App.downloadFile(fileObj) });
+                menuItems.push({ label: 'Share', action: () => App.showShareModal({ sha256, name: fileName, size: fileSize, mimeType: fileMime }) });
+                menuItems.push({ label: 'Public Link', action: () => App.showPublicLinkModal(fileObj) });
+                menuItems.push({ label: 'Version History', action: () => App.showVersionHistory(fileObj) });
 
                 // Add edit option for text files
                 if (Collaboration.isCollaborativeFileType(fileMime)) {
@@ -245,6 +256,7 @@ const UI = {
         const encryptedClass = isEncrypted ? 'encrypted-file' : '';
         const mimeType = file.mime_type || '';
         const isEditable = Collaboration.isCollaborativeFileType(mimeType);
+        const isPreviewable = typeof App !== 'undefined' && App.isPreviewable ? App.isPreviewable(mimeType) : false;
 
         return `
             <div class="file-item ${encryptedClass}" data-sha256="${file.sha256}" data-name="${this.escapeHtml(fileName)}" data-size="${file.size}" data-mime="${mimeType}" data-file-id="${fileId}" data-folder-id="${folderId}" data-encrypted="${isEncrypted || false}">
@@ -256,6 +268,7 @@ const UI = {
                 <div class="file-col file-size">${size}</div>
                 <div class="file-col file-date">${date}</div>
                 <div class="file-col file-actions">
+                    ${isPreviewable ? '<button class="action-btn preview-btn" title="Preview">Preview</button>' : ''}
                     ${isEditable ? '<button class="action-btn edit-btn" title="Edit">Edit</button>' : ''}
                     <button class="action-btn history-btn" title="Version History">History</button>
                     <button class="action-btn link-btn" title="Public Link">Link</button>
@@ -277,6 +290,7 @@ const UI = {
         const encryptedClass = isEncrypted ? 'encrypted-file' : '';
         const mimeType = file.mime_type || '';
         const isEditable = Collaboration.isCollaborativeFileType(mimeType);
+        const isPreviewable = typeof App !== 'undefined' && App.isPreviewable ? App.isPreviewable(mimeType) : false;
 
         return `
             <div class="grid-item ${encryptedClass}" data-sha256="${file.sha256}" data-name="${this.escapeHtml(name)}" data-size="${file.size}" data-mime="${mimeType}" data-file-id="${fileId}" data-folder-id="${folderId}" data-encrypted="${isEncrypted || false}">
@@ -284,6 +298,7 @@ const UI = {
                 <div class="grid-item-name">${this.escapeHtml(name)}</div>
                 ${isEncrypted ? '<span class="encrypted-badge" title="End-to-end encrypted">E2E</span>' : ''}
                 <div class="grid-item-actions">
+                    ${isPreviewable ? '<button class="action-btn preview-btn" title="Preview">&#128065;</button>' : ''}
                     ${isEditable ? '<button class="action-btn edit-btn" title="Edit">&#9998;</button>' : ''}
                     <button class="action-btn history-btn" title="History">&#128337;</button>
                     <button class="action-btn link-btn" title="Link">&#128279;</button>

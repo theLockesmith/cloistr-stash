@@ -329,6 +329,43 @@
             </div>
         </div>
 
+        <!-- File Preview Modal -->
+        <div id="preview-modal" class="modal hidden">
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2 id="preview-file-name">Preview</h2>
+                    <button class="modal-close" id="preview-modal-close">&times;</button>
+                </div>
+                <div class="modal-body preview-body">
+                    <div id="preview-loading" class="preview-loading">
+                        <div class="spinner"></div>
+                        <span>Loading preview...</span>
+                    </div>
+                    <div id="preview-content" class="preview-content hidden">
+                        <!-- Image preview -->
+                        <img id="preview-image" class="preview-image hidden" alt="Preview">
+                        <!-- Text/code preview -->
+                        <pre id="preview-text" class="preview-text hidden"></pre>
+                        <!-- PDF preview -->
+                        <iframe id="preview-pdf" class="preview-pdf hidden"></iframe>
+                        <!-- Video preview -->
+                        <video id="preview-video" class="preview-video hidden" controls></video>
+                        <!-- Audio preview -->
+                        <audio id="preview-audio" class="preview-audio hidden" controls></audio>
+                        <!-- Unsupported message -->
+                        <div id="preview-unsupported" class="preview-unsupported hidden">
+                            <p>Preview not available for this file type</p>
+                            <button class="btn btn-primary" id="preview-download">Download Instead</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="preview-close">Close</button>
+                    <button class="btn btn-primary" id="preview-download-btn">Download</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Context Menu (created dynamically) -->
         <div id="context-menu" class="context-menu hidden"></div>
 
