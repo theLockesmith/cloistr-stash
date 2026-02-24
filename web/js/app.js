@@ -1060,7 +1060,6 @@ const App = {
             confirmBtn.disabled = false;
         }
     },
-};
 
     // === Version History Modal ===
     versionFile: null,
