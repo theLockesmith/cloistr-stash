@@ -249,6 +249,62 @@ body {
     border-bottom: none;
 }
 
+.file-item.selected {
+    background-color: rgba(88, 166, 255, 0.1);
+}
+
+/* Batch toolbar */
+.batch-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background-color: var(--bg-tertiary);
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+}
+
+.batch-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.batch-info input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.batch-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+/* File checkbox column */
+.file-col.file-select {
+    width: 30px;
+    flex-shrink: 0;
+}
+
+.file-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+/* Drag and drop states */
+.file-item.dragging {
+    opacity: 0.5;
+}
+
+.folder-item.drag-target,
+.folder-grid-item.drag-target {
+    background-color: rgba(88, 166, 255, 0.2);
+    outline: 2px dashed var(--accent-primary);
+    outline-offset: -2px;
+}
+
 .file-item .file-icon {
     width: 24px;
     height: 24px;
@@ -256,6 +312,25 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+/* Image thumbnails */
+.file-thumbnail {
+    width: 32px;
+    height: 32px;
+    margin-right: 0.75rem;
+    object-fit: cover;
+    border-radius: 4px;
+    background-color: var(--bg-tertiary);
+    transition: opacity 0.2s;
+}
+
+.file-thumbnail:not(.loaded) {
+    opacity: 0.3;
+}
+
+.file-thumbnail.loaded {
+    opacity: 1;
     font-size: 1rem;
 }
 
@@ -2241,6 +2316,62 @@ body {
     font-style: italic;
 }
 
+/* Storage usage indicator */
+.storage-usage {
+    padding: 1rem;
+    border-top: 1px solid var(--border-color);
+    margin-top: auto;
+}
+
+.storage-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.storage-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.storage-value {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.storage-bar {
+    height: 4px;
+    background-color: var(--bg-tertiary);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.storage-bar-fill {
+    height: 100%;
+    background-color: var(--accent-primary);
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.storage-bar-fill.warning {
+    background-color: var(--warning);
+}
+
+.storage-bar-fill.danger {
+    background-color: var(--error);
+}
+
+.storage-details {
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
 /* Main content adjustment when sidebar is present */
 .explorer-content .main {
     flex: 1;
@@ -2518,4 +2649,102 @@ body {
         bottom: 0.5rem;
         max-width: none;
     }
+}
+
+/* ============================================
+   Touch Interactions
+   ============================================ */
+
+/* Touch feedback */
+.file-item.touch-active,
+.folder-item.touch-active {
+    background-color: var(--bg-tertiary);
+    transform: scale(0.98);
+    transition: transform 0.1s ease, background-color 0.1s ease;
+}
+
+/* Larger touch targets on mobile */
+@media (hover: none) and (pointer: coarse) {
+    .file-item {
+        min-height: 56px;
+        padding: 0.875rem 1rem;
+    }
+
+    .folder-item {
+        min-height: 56px;
+        padding: 0.875rem 1rem;
+    }
+
+    .file-checkbox {
+        width: 24px;
+        height: 24px;
+    }
+
+    .action-btn {
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0.75rem;
+    }
+
+    .btn {
+        min-height: 44px;
+        padding: 0.75rem 1rem;
+    }
+
+    .context-menu-item {
+        min-height: 48px;
+        padding: 0.875rem 1rem;
+        display: flex;
+        align-items: center;
+    }
+
+    /* Swipe actions */
+    .file-item {
+        position: relative;
+        overflow: hidden;
+    }
+
+    .file-item.swipe-left {
+        transform: translateX(-80px);
+        transition: transform 0.2s ease;
+    }
+
+    .file-item.swipe-left::after {
+        content: 'Delete';
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 80px;
+        background-color: var(--error);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 500;
+    }
+}
+
+/* Prevent text selection during touch */
+.file-item,
+.folder-item {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
+/* Pull to refresh indicator (future enhancement placeholder) */
+.pull-to-refresh {
+    height: 0;
+    overflow: hidden;
+    text-align: center;
+    color: var(--text-secondary);
+    transition: height 0.2s ease;
+}
+
+.pull-to-refresh.active {
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }

@@ -1,6 +1,143 @@
 // UI helper functions
 
 const UI = {
+    // Thumbnail cache
+    thumbnailCache: new Map(),
+    thumbnailDB: null,
+    THUMBNAIL_SIZE: 48,
+    THUMBNAIL_DB_NAME: 'cloistr-thumbnails',
+
+    // Initialize thumbnail cache
+    async initThumbnails() {
+        try {
+            const request = indexedDB.open(this.THUMBNAIL_DB_NAME, 1);
+            request.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains('thumbnails')) {
+                    db.createObjectStore('thumbnails', { keyPath: 'sha256' });
+                }
+            };
+            request.onsuccess = (e) => {
+                this.thumbnailDB = e.target.result;
+            };
+        } catch (err) {
+            console.warn('Thumbnail DB init failed:', err);
+        }
+    },
+
+    // Get cached thumbnail
+    async getThumbnail(sha256) {
+        // Check memory cache
+        if (this.thumbnailCache.has(sha256)) {
+            return this.thumbnailCache.get(sha256);
+        }
+
+        // Check IndexedDB
+        if (this.thumbnailDB) {
+            try {
+                const tx = this.thumbnailDB.transaction('thumbnails', 'readonly');
+                const store = tx.objectStore('thumbnails');
+                const result = await new Promise((resolve, reject) => {
+                    const req = store.get(sha256);
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error);
+                });
+                if (result?.dataUrl) {
+                    this.thumbnailCache.set(sha256, result.dataUrl);
+                    return result.dataUrl;
+                }
+            } catch (err) {
+                // Ignore cache errors
+            }
+        }
+        return null;
+    },
+
+    // Store thumbnail
+    async storeThumbnail(sha256, dataUrl) {
+        this.thumbnailCache.set(sha256, dataUrl);
+
+        if (this.thumbnailDB) {
+            try {
+                const tx = this.thumbnailDB.transaction('thumbnails', 'readwrite');
+                const store = tx.objectStore('thumbnails');
+                store.put({ sha256, dataUrl, createdAt: Date.now() });
+            } catch (err) {
+                // Ignore storage errors
+            }
+        }
+    },
+
+    // Generate thumbnail from image data
+    async generateThumbnail(imageData, mimeType) {
+        return new Promise((resolve, reject) => {
+            const blob = new Blob([imageData], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+
+            img.onload = () => {
+                // Calculate thumbnail dimensions
+                let width = this.THUMBNAIL_SIZE;
+                let height = this.THUMBNAIL_SIZE;
+
+                if (img.width > img.height) {
+                    height = (img.height / img.width) * width;
+                } else {
+                    width = (img.width / img.height) * height;
+                }
+
+                // Draw to canvas
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Convert to data URL
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+
+                URL.revokeObjectURL(url);
+                resolve(dataUrl);
+            };
+
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error('Failed to load image'));
+            };
+
+            img.src = url;
+        });
+    },
+
+    // Load thumbnail for a file (async, updates DOM when ready)
+    async loadThumbnail(file, imgElement) {
+        const mimeType = file.mime_type || '';
+        if (!mimeType.startsWith('image/')) return;
+
+        const sha256 = file.sha256;
+
+        // Check cache first
+        const cached = await this.getThumbnail(sha256);
+        if (cached) {
+            imgElement.src = cached;
+            imgElement.classList.add('loaded');
+            return;
+        }
+
+        // Download and decrypt the image
+        try {
+            const data = await App.downloadFileData(file);
+            if (data) {
+                const dataUrl = await this.generateThumbnail(data, mimeType);
+                await this.storeThumbnail(sha256, dataUrl);
+                imgElement.src = dataUrl;
+                imgElement.classList.add('loaded');
+            }
+        } catch (err) {
+            console.warn('Thumbnail generation failed:', err);
+        }
+    },
+
     // Show a toast notification
     toast(message, type = 'info') {
         const container = document.getElementById('toast-container');
@@ -146,6 +283,37 @@ const UI = {
                 encrypted: isEncrypted,
             };
 
+            // Checkbox for batch selection
+            const checkbox = item.querySelector('.file-checkbox');
+            if (checkbox) {
+                checkbox.addEventListener('change', (e) => {
+                    e.stopPropagation();
+                    App.toggleFileSelection(sha256);
+                });
+
+                checkbox.addEventListener('click', (e) => {
+                    e.stopPropagation(); // Prevent row click
+                });
+            }
+
+            // Drag and drop for moving files
+            item.draggable = true;
+            item.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', sha256);
+                e.dataTransfer.setData('application/x-cloistr-file', JSON.stringify(fileObj));
+                e.dataTransfer.effectAllowed = 'move';
+                item.classList.add('dragging');
+            });
+            item.addEventListener('dragend', () => {
+                item.classList.remove('dragging');
+            });
+
+            // Load thumbnail for images
+            const thumbnail = item.querySelector('.file-thumbnail');
+            if (thumbnail && fileMime.startsWith('image/')) {
+                this.loadThumbnail(fileObj, thumbnail);
+            }
+
             item.querySelector('.share-btn')?.addEventListener('click', (e) => {
                 e.stopPropagation();
                 App.showShareModal({
@@ -195,28 +363,64 @@ const UI = {
             // Context menu on right-click
             item.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
-                const menuItems = [];
-
-                // Add preview option for previewable files
-                if (App.isPreviewable(fileMime)) {
-                    menuItems.push({ label: 'Preview', action: () => App.showPreview(fileObj) });
-                }
-
-                menuItems.push({ label: 'Download', action: () => App.downloadFile(fileObj) });
-                menuItems.push({ label: 'Share', action: () => App.showShareModal({ sha256, name: fileName, size: fileSize, mimeType: fileMime }) });
-                menuItems.push({ label: 'Public Link', action: () => App.showPublicLinkModal(fileObj) });
-                menuItems.push({ label: 'Manage Shares', action: () => App.showManageSharesModal(fileObj) });
-                menuItems.push({ label: 'Version History', action: () => App.showVersionHistory(fileObj) });
-
-                // Add edit option for text files
-                if (Collaboration.isCollaborativeFileType(fileMime)) {
-                    menuItems.push({ label: 'Edit', action: () => App.openEditor(fileObj) });
-                }
-
-                menuItems.push({ label: 'Delete', action: () => { if (confirm('Delete this file?')) App.deleteFile(sha256); }, className: 'danger' });
-
-                this.showContextMenu(e.clientX, e.clientY, menuItems);
+                this.showFileContextMenu(e.clientX, e.clientY, fileObj, fileMime);
             });
+
+            // Touch: Long press for context menu
+            let longPressTimer = null;
+            let touchStartX = 0;
+            let touchStartY = 0;
+
+            item.addEventListener('touchstart', (e) => {
+                const touch = e.touches[0];
+                touchStartX = touch.clientX;
+                touchStartY = touch.clientY;
+
+                longPressTimer = setTimeout(() => {
+                    // Vibrate for haptic feedback if available
+                    if (navigator.vibrate) navigator.vibrate(50);
+                    this.showFileContextMenu(touch.clientX, touch.clientY, fileObj, fileMime);
+                }, 500);
+
+                item.classList.add('touch-active');
+            }, { passive: true });
+
+            item.addEventListener('touchmove', (e) => {
+                const touch = e.touches[0];
+                const dx = touch.clientX - touchStartX;
+                const dy = touch.clientY - touchStartY;
+
+                // Cancel long press if moved too much
+                if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+
+                // Swipe gesture detection
+                if (Math.abs(dx) > 50 && Math.abs(dy) < 30) {
+                    clearTimeout(longPressTimer);
+                    if (dx < -50) {
+                        // Swipe left - show quick actions
+                        item.classList.add('swipe-left');
+                    } else if (dx > 50) {
+                        // Swipe right - close quick actions
+                        item.classList.remove('swipe-left');
+                    }
+                }
+            }, { passive: true });
+
+            item.addEventListener('touchend', () => {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+                item.classList.remove('touch-active');
+            }, { passive: true });
+
+            item.addEventListener('touchcancel', () => {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+                item.classList.remove('touch-active');
+                item.classList.remove('swipe-left');
+            }, { passive: true });
         });
     },
 
@@ -242,6 +446,31 @@ const UI = {
             item.querySelector('.delete-btn')?.addEventListener('click', (e) => {
                 e.stopPropagation();
                 App.deleteFolder(folderId, folderName);
+            });
+
+            // Drop target for moving files into folder
+            item.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                item.classList.add('drag-target');
+            });
+            item.addEventListener('dragleave', (e) => {
+                if (!item.contains(e.relatedTarget)) {
+                    item.classList.remove('drag-target');
+                }
+            });
+            item.addEventListener('drop', (e) => {
+                e.preventDefault();
+                item.classList.remove('drag-target');
+                const fileData = e.dataTransfer.getData('application/x-cloistr-file');
+                if (fileData) {
+                    try {
+                        const file = JSON.parse(fileData);
+                        App.moveFileToFolder(file, folderId, folderName);
+                    } catch (err) {
+                        console.error('Drop failed:', err);
+                    }
+                }
             });
 
             // Context menu on right-click
@@ -292,21 +521,32 @@ const UI = {
     // Render file as list item
     renderFileListItem(file) {
         const isEncrypted = file.encrypted || file.encryption;
-        const icon = isEncrypted ? '&#128274;' : Upload.getFileIcon(file.mime_type);
+        const mimeType = file.mime_type || '';
+        const isImage = mimeType.startsWith('image/');
+        const icon = isEncrypted ? '&#128274;' : Upload.getFileIcon(mimeType);
         const size = Upload.formatSize(file.size);
         const date = file.created_at ? new Date(file.created_at * 1000).toLocaleDateString() : '-';
         const fileName = file.name || file.sha256.slice(0, 16) + '...';
         const fileId = file.file_id || file.fileId || file.d || '';
         const folderId = file.folder_id || file.folderId || file.folder || '';
         const encryptedClass = isEncrypted ? 'encrypted-file' : '';
-        const mimeType = file.mime_type || '';
         const isEditable = Collaboration.isCollaborativeFileType(mimeType);
         const isPreviewable = typeof App !== 'undefined' && App.isPreviewable ? App.isPreviewable(mimeType) : false;
 
+        const isSelected = typeof App !== 'undefined' && App.selectedFiles?.has(file.sha256);
+
+        // For images, use a thumbnail placeholder
+        const iconHtml = isImage
+            ? `<img class="file-thumbnail" data-sha256="${file.sha256}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect fill='%23333' width='24' height='24'/%3E%3C/svg%3E" alt="">`
+            : `<span class="file-icon">${icon}</span>`;
+
         return `
-            <div class="file-item ${encryptedClass}" data-sha256="${file.sha256}" data-name="${this.escapeHtml(fileName)}" data-size="${file.size}" data-mime="${mimeType}" data-file-id="${fileId}" data-folder-id="${folderId}" data-encrypted="${isEncrypted || false}">
+            <div class="file-item ${encryptedClass} ${isSelected ? 'selected' : ''}" data-sha256="${file.sha256}" data-name="${this.escapeHtml(fileName)}" data-size="${file.size}" data-mime="${mimeType}" data-file-id="${fileId}" data-folder-id="${folderId}" data-encrypted="${isEncrypted || false}">
+                <div class="file-col file-select">
+                    <input type="checkbox" class="file-checkbox" data-sha256="${file.sha256}" ${isSelected ? 'checked' : ''}>
+                </div>
                 <div class="file-col file-name">
-                    <span class="file-icon">${icon}</span>
+                    ${iconHtml}
                     <span class="file-name-text">${this.escapeHtml(fileName)}</span>
                     ${isEncrypted ? '<span class="encrypted-badge" title="End-to-end encrypted">E2E</span>' : ''}
                 </div>
@@ -356,10 +596,35 @@ const UI = {
     },
 
     // Show context menu
+    // Show context menu for a file
+    showFileContextMenu(x, y, fileObj, fileMime) {
+        const menuItems = [];
+
+        // Add preview option for previewable files
+        if (App.isPreviewable(fileMime)) {
+            menuItems.push({ label: 'Preview', action: () => App.showPreview(fileObj) });
+        }
+
+        menuItems.push({ label: 'Download', action: () => App.downloadFile(fileObj) });
+        menuItems.push({ label: 'Share', action: () => App.showShareModal({ sha256: fileObj.sha256, name: fileObj.name, size: fileObj.size, mimeType: fileMime }) });
+        menuItems.push({ label: 'Public Link', action: () => App.showPublicLinkModal(fileObj) });
+        menuItems.push({ label: 'Manage Shares', action: () => App.showManageSharesModal(fileObj) });
+        menuItems.push({ label: 'Version History', action: () => App.showVersionHistory(fileObj) });
+
+        // Add edit option for text files
+        if (Collaboration.isCollaborativeFileType(fileMime)) {
+            menuItems.push({ label: 'Edit', action: () => App.openEditor(fileObj) });
+        }
+
+        menuItems.push({ label: 'Delete', action: () => { if (confirm('Delete this file?')) App.deleteFile(fileObj.sha256); }, className: 'danger' });
+
+        this.showContextMenu(x, y, menuItems);
+    },
+
     showContextMenu(x, y, items) {
         const menu = document.getElementById('context-menu');
         menu.innerHTML = items.map(item =>
-            `<div class="context-menu-item">${item.label}</div>`
+            `<div class="context-menu-item ${item.className || ''}">${item.label}</div>`
         ).join('');
 
         // Position menu

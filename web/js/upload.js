@@ -69,9 +69,22 @@ const Upload = {
                 const fileBuffer = await item.file.arrayBuffer();
                 const fileData = new Uint8Array(fileBuffer);
 
-                // Step 2: Calculate plaintext hash (for our records)
+                // Step 2: Calculate plaintext hash (for our records and deduplication)
                 item.plaintextHash = await Crypto.hash(fileData);
                 console.log(`Upload: Plaintext hash: ${item.plaintextHash.slice(0, 16)}...`);
+
+                // Step 2.5: Check for duplicate (same content already uploaded)
+                const existingFile = App.files.find(f => f.plaintext_hash === item.plaintextHash || f.plaintextHash === item.plaintextHash);
+                if (existingFile) {
+                    console.log(`Upload: Duplicate detected - ${existingFile.name} has same content`);
+                    item.status = 'duplicate';
+                    item.error = `Duplicate of "${existingFile.name}"`;
+                    item.duplicateOf = existingFile;
+                    completed++;
+                    if (onProgress) onProgress(item);
+                    UI.updateUploadProgress(completed, pending.length);
+                    continue; // Skip uploading this file
+                }
 
                 // Step 3: Get encryption key for this file
                 item.status = 'encrypting';
@@ -88,7 +101,10 @@ const Upload = {
 
                 // Step 4: Encrypt file content
                 console.log('Upload: Encrypting file...');
-                const encryptedData = await Crypto.encryptFile(fileData, fileKey);
+                const encryptedData = await Crypto.encryptFile(fileData, fileKey, (progress) => {
+                    item.progress = Math.round(progress * 50); // Encryption is 0-50%
+                    if (onProgress) onProgress(item);
+                });
                 item.encryptedBlob = encryptedData;
                 console.log(`Upload: Encrypted size: ${this.formatSize(encryptedData.length)} (overhead: +${encryptedData.length - fileData.length} bytes)`);
 

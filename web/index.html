@@ -103,6 +103,16 @@
                         </div>
                         <div class="folder-tree-children" id="folder-tree-root"></div>
                     </div>
+                    <div class="storage-usage" id="storage-usage">
+                        <div class="storage-info">
+                            <span class="storage-label">Storage</span>
+                            <span class="storage-value" id="storage-value">-</span>
+                        </div>
+                        <div class="storage-bar">
+                            <div class="storage-bar-fill" id="storage-bar-fill"></div>
+                        </div>
+                        <div class="storage-details" id="storage-details"></div>
+                    </div>
                 </aside>
 
                 <main class="main">
@@ -136,8 +146,22 @@
                     </div>
                 </div>
 
+                <!-- Batch Action Toolbar -->
+                <div id="batch-toolbar" class="batch-toolbar hidden">
+                    <div class="batch-info">
+                        <input type="checkbox" id="select-all-checkbox" title="Select all">
+                        <span id="selected-count">0 selected</span>
+                    </div>
+                    <div class="batch-actions">
+                        <button class="btn btn-small" id="batch-download-btn">Download</button>
+                        <button class="btn btn-small btn-danger" id="batch-delete-btn">Delete</button>
+                        <button class="btn btn-small" id="batch-cancel-btn">Cancel</button>
+                    </div>
+                </div>
+
                 <div id="file-list" class="file-list">
                     <div class="file-list-header">
+                        <div class="file-col file-select"></div>
                         <div class="file-col file-name">Name</div>
                         <div class="file-col file-size">Size</div>
                         <div class="file-col file-date">Modified</div>

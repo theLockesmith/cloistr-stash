@@ -56,6 +56,14 @@ User's Nostr Key
 | Search | Client-side encrypted index per user | **DONE** |
 | Revocation | Full re-encrypt (cryptographically correct) | **DONE** |
 | Expiring links | Time-limited shares with server validation | **DONE** |
+| Offline support | Service Worker + cache-first strategy | **DONE** |
+| Chunked encryption | Large files split into 5MB encrypted chunks | **DONE** |
+| File deduplication | Plaintext hash comparison before upload | **DONE** |
+| Batch operations | Multi-select, bulk delete/download | **DONE** |
+| Drag-and-drop | Move files between folders | **DONE** |
+| Image thumbnails | IndexedDB cached, lazy-loaded | **DONE** |
+| Storage usage | Real-time display in sidebar | **DONE** |
+| Mobile touch | Long-press menu, swipe actions | **DONE** |
 
 ### Current State
 
@@ -87,6 +95,17 @@ User's Nostr Key
 | Crypto progress indicators | **DONE** |
 | Download counting | **DONE** |
 | Share expiration validation | **DONE** |
+| Offline support (PWA) | **DONE** |
+| Service worker caching | **DONE** |
+| Chunked encryption (>10MB files) | **DONE** |
+| File deduplication | **DONE** |
+| Batch operations (multi-select) | **DONE** |
+| Drag-and-drop file moving | **DONE** |
+| Image thumbnails | **DONE** |
+| Storage usage display | **DONE** |
+| Mobile touch gestures | **DONE** |
+| Long-press context menu | **DONE** |
+| Swipe actions | **DONE** |
 
 ## Project Structure
 
@@ -102,20 +121,22 @@ cloistr-drive/
 │   └── server/             # HTTP handlers
 └── web/                    # Frontend
     ├── index.html
+    ├── manifest.json       # PWA manifest
+    ├── sw.js               # Service worker for offline
     ├── css/style.css
     └── js/
         ├── api.js          # API client
         ├── auth.js         # Nostr auth + event signing
         ├── nip46.js        # NIP-46 remote signer
-        ├── crypto.js       # XChaCha20-Poly1305 encryption
+        ├── crypto.js       # XChaCha20-Poly1305 + chunked encryption
         ├── keys.js         # HKDF key derivation & management
         ├── sharing.js      # NIP-44 sharing, public links, revocation
         ├── versioning.js   # Version tracking & restore
         ├── collaboration.js # Yjs CRDT + WebRTC
         ├── search.js       # Encrypted search index
-        ├── upload.js       # Encrypted upload handling
-        ├── ui.js           # UI rendering
-        ├── app.js          # Main app controller
+        ├── upload.js       # Encrypted upload + deduplication
+        ├── ui.js           # UI rendering + thumbnails + touch
+        ├── app.js          # Main app controller + batch ops
         └── tests/
             └── crypto.test.js  # Crypto test suite
 ```
@@ -127,6 +148,13 @@ cloistr-drive/
 - **Key length:** 256 bits
 - **Nonce:** 192 bits (prepended to ciphertext)
 - **Authentication:** Poly1305 MAC (16 bytes)
+
+### Chunked Encryption (Large Files)
+Files over 10MB are encrypted in chunks for memory efficiency:
+- **Chunk size:** 5MB (plaintext)
+- **Format:** `CLCH` magic (4 bytes) + version (1) + chunk_size (4) + chunk_count (4) + base_nonce (24) + encrypted chunks
+- **Nonce derivation:** XOR base_nonce with chunk index (last 4 bytes)
+- **Authentication:** Per-chunk Poly1305 MAC
 
 ### Key Derivation
 - **Algorithm:** HKDF-SHA256 (Web Crypto API)

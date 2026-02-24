@@ -10,7 +10,8 @@ const Crypto = {
     KEY_LENGTH: 32,           // 256 bits for XChaCha20
     NONCE_LENGTH: 24,         // 192 bits for XChaCha20
     TAG_LENGTH: 16,           // Poly1305 authentication tag
-    CHUNK_SIZE: 64 * 1024,    // 64KB chunks for streaming encryption
+    CHUNK_SIZE: 5 * 1024 * 1024,    // 5MB chunks for large file processing
+    CHUNKED_THRESHOLD: 10 * 1024 * 1024, // Use chunked mode for files > 10MB
 
     // Initialize libsodium
     async init() {
@@ -137,7 +138,7 @@ const Crypto = {
 
     // Encrypt a file (ArrayBuffer or Uint8Array)
     // Returns encrypted blob ready for upload
-    async encryptFile(fileData, key) {
+    async encryptFile(fileData, key, onProgress = null) {
         this.ensureInit();
 
         // Convert ArrayBuffer to Uint8Array if needed
@@ -145,9 +146,22 @@ const Crypto = {
             ? fileData
             : new Uint8Array(fileData);
 
-        // For large files, we could implement streaming encryption
-        // For now, encrypt in one shot (works well up to ~100MB)
+        // Use chunked encryption for large files
+        if (data.length > this.CHUNKED_THRESHOLD) {
+            console.log(`Crypto: Using chunked encryption for ${this.formatSize(data.length)} file`);
+            return this.encryptChunked(data, key, onProgress);
+        }
+
+        // Small files: encrypt in one shot
         return this.encrypt(data, key);
+    },
+
+    // Format file size for logging
+    formatSize(bytes) {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+        return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
     },
 
     // Decrypt a file
@@ -158,7 +172,183 @@ const Crypto = {
             ? encryptedData
             : new Uint8Array(encryptedData);
 
+        // Check if this is chunked data (starts with magic header)
+        if (this.isChunkedData(data)) {
+            return this.decryptChunked(data, key);
+        }
+
         return this.decrypt(data, key);
+    },
+
+    // Check if data is chunked format
+    isChunkedData(data) {
+        // Magic header: "CLCH" (Cloistr Chunked)
+        return data.length >= 4 &&
+               data[0] === 0x43 && data[1] === 0x4C &&
+               data[2] === 0x43 && data[3] === 0x48;
+    },
+
+    // Encrypt large file in chunks
+    // Format: CLCH (4) | version (1) | chunk_size (4) | chunk_count (4) | base_nonce (24) | [chunk_data...]
+    // Each chunk: encrypted_chunk (chunk_size + TAG_LENGTH)
+    async encryptChunked(fileData, key, onProgress = null) {
+        this.ensureInit();
+
+        const data = fileData instanceof Uint8Array ? fileData : new Uint8Array(fileData);
+        const chunkSize = this.CHUNK_SIZE;
+        const chunkCount = Math.ceil(data.length / chunkSize);
+
+        // Generate base nonce
+        const baseNonce = this.generateNonce();
+
+        // Calculate total output size
+        // Header: 4 + 1 + 4 + 4 + 24 = 37 bytes
+        // Each chunk: data + TAG_LENGTH
+        const headerSize = 37;
+        const totalChunksSize = data.length + (chunkCount * this.TAG_LENGTH);
+        const totalSize = headerSize + totalChunksSize;
+
+        const output = new Uint8Array(totalSize);
+        let offset = 0;
+
+        // Write header
+        // Magic: CLCH
+        output[offset++] = 0x43; // C
+        output[offset++] = 0x4C; // L
+        output[offset++] = 0x43; // C
+        output[offset++] = 0x48; // H
+
+        // Version: 1
+        output[offset++] = 0x01;
+
+        // Chunk size (4 bytes, big-endian)
+        output[offset++] = (chunkSize >> 24) & 0xFF;
+        output[offset++] = (chunkSize >> 16) & 0xFF;
+        output[offset++] = (chunkSize >> 8) & 0xFF;
+        output[offset++] = chunkSize & 0xFF;
+
+        // Chunk count (4 bytes, big-endian)
+        output[offset++] = (chunkCount >> 24) & 0xFF;
+        output[offset++] = (chunkCount >> 16) & 0xFF;
+        output[offset++] = (chunkCount >> 8) & 0xFF;
+        output[offset++] = chunkCount & 0xFF;
+
+        // Base nonce
+        output.set(baseNonce, offset);
+        offset += this.NONCE_LENGTH;
+
+        // Encrypt each chunk
+        for (let i = 0; i < chunkCount; i++) {
+            const start = i * chunkSize;
+            const end = Math.min(start + chunkSize, data.length);
+            const chunk = data.slice(start, end);
+
+            // Derive nonce for this chunk (XOR base_nonce with chunk index)
+            const chunkNonce = this.deriveChunkNonce(baseNonce, i);
+
+            // Encrypt chunk
+            const encrypted = this.sodium.crypto_secretbox_easy(chunk, chunkNonce, key);
+            output.set(encrypted, offset);
+            offset += encrypted.length;
+
+            // Report progress
+            if (onProgress) {
+                onProgress((i + 1) / chunkCount);
+            }
+
+            // Yield to prevent blocking UI
+            if (i % 10 === 0) {
+                await new Promise(r => setTimeout(r, 0));
+            }
+        }
+
+        return output;
+    },
+
+    // Decrypt chunked file
+    async decryptChunked(encryptedData, key, onProgress = null) {
+        this.ensureInit();
+
+        let offset = 4; // Skip magic header
+
+        // Read version
+        const version = encryptedData[offset++];
+        if (version !== 1) {
+            throw new Error(`Unsupported chunk version: ${version}`);
+        }
+
+        // Read chunk size
+        const chunkSize = (encryptedData[offset] << 24) |
+                         (encryptedData[offset + 1] << 16) |
+                         (encryptedData[offset + 2] << 8) |
+                         encryptedData[offset + 3];
+        offset += 4;
+
+        // Read chunk count
+        const chunkCount = (encryptedData[offset] << 24) |
+                          (encryptedData[offset + 1] << 16) |
+                          (encryptedData[offset + 2] << 8) |
+                          encryptedData[offset + 3];
+        offset += 4;
+
+        // Read base nonce
+        const baseNonce = encryptedData.slice(offset, offset + this.NONCE_LENGTH);
+        offset += this.NONCE_LENGTH;
+
+        // Calculate output size
+        const encryptedChunkSize = chunkSize + this.TAG_LENGTH;
+        const lastChunkEncryptedSize = encryptedData.length - offset - (chunkCount - 1) * encryptedChunkSize;
+        const lastChunkPlainSize = lastChunkEncryptedSize - this.TAG_LENGTH;
+        const totalPlainSize = (chunkCount - 1) * chunkSize + lastChunkPlainSize;
+
+        const output = new Uint8Array(totalPlainSize);
+        let outputOffset = 0;
+
+        // Decrypt each chunk
+        for (let i = 0; i < chunkCount; i++) {
+            const isLastChunk = i === chunkCount - 1;
+            const thisEncryptedSize = isLastChunk ? lastChunkEncryptedSize : encryptedChunkSize;
+            const encryptedChunk = encryptedData.slice(offset, offset + thisEncryptedSize);
+            offset += thisEncryptedSize;
+
+            // Derive nonce for this chunk
+            const chunkNonce = this.deriveChunkNonce(baseNonce, i);
+
+            // Decrypt chunk
+            const decrypted = this.sodium.crypto_secretbox_open_easy(encryptedChunk, chunkNonce, key);
+            output.set(decrypted, outputOffset);
+            outputOffset += decrypted.length;
+
+            // Report progress
+            if (onProgress) {
+                onProgress((i + 1) / chunkCount);
+            }
+
+            // Yield to prevent blocking UI
+            if (i % 10 === 0) {
+                await new Promise(r => setTimeout(r, 0));
+            }
+        }
+
+        return output;
+    },
+
+    // Derive nonce for a specific chunk (XOR base nonce with chunk index)
+    deriveChunkNonce(baseNonce, chunkIndex) {
+        const nonce = new Uint8Array(baseNonce);
+        // XOR the last 4 bytes with chunk index
+        const indexBytes = new Uint8Array(4);
+        indexBytes[0] = (chunkIndex >> 24) & 0xFF;
+        indexBytes[1] = (chunkIndex >> 16) & 0xFF;
+        indexBytes[2] = (chunkIndex >> 8) & 0xFF;
+        indexBytes[3] = chunkIndex & 0xFF;
+
+        nonce[20] ^= indexBytes[0];
+        nonce[21] ^= indexBytes[1];
+        nonce[22] ^= indexBytes[2];
+        nonce[23] ^= indexBytes[3];
+
+        return nonce;
     },
 
     // Encrypt a string (UTF-8)

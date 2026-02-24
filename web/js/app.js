@@ -10,6 +10,8 @@ const App = {
     currentView: 'my-files', // 'my-files' | 'shared'
     searchQuery: '',      // Current search query
     shareFile: null,      // File currently being shared
+    selectedFiles: new Set(), // Selected file sha256 hashes for batch operations
+    selectionMode: false, // Whether in multi-select mode
 
     async init() {
         // Register service worker for offline support
@@ -33,6 +35,9 @@ const App = {
         this.setupEventListeners();
         this.setupDragAndDrop();
         this.setupModalEventListeners();
+
+        // Initialize thumbnail cache
+        UI.initThumbnails();
 
         // Try to restore saved session
         if (Auth.hasSavedSession()) {
@@ -620,6 +625,7 @@ const App = {
 
             this.renderCurrentView();
             this.renderBreadcrumbs();
+            this.updateStorageUsage();
         } catch (err) {
             console.error('Failed to load files:', err);
 
@@ -2104,6 +2110,24 @@ const App = {
 
     // Setup additional modal event listeners
     setupModalEventListeners() {
+        // Batch toolbar
+        document.getElementById('select-all-checkbox')?.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                this.selectAllFiles();
+            } else {
+                this.clearSelection();
+            }
+        });
+        document.getElementById('batch-download-btn')?.addEventListener('click', () => {
+            this.bulkDownload();
+        });
+        document.getElementById('batch-delete-btn')?.addEventListener('click', () => {
+            this.bulkDelete();
+        });
+        document.getElementById('batch-cancel-btn')?.addEventListener('click', () => {
+            this.clearSelection();
+        });
+
         // Version modal
         document.getElementById('version-modal-close').addEventListener('click', () => {
             UI.hideModal('version-modal');
@@ -2275,6 +2299,183 @@ const App = {
                 console.warn('Background sync not available:', err);
             }
         }
+    },
+
+    // === File Operations ===
+
+    // Move file to a different folder
+    async moveFileToFolder(file, targetFolderId, targetFolderName) {
+        try {
+            UI.toast(`Moving ${file.name} to ${targetFolderName}...`, 'info');
+
+            // Update the file metadata event with new folder tag
+            const metadataEvent = await Auth.createEncryptedFileMetadataEvent({
+                fileId: file.file_id,
+                sha256: file.sha256,
+                plaintextHash: file.plaintext_hash || file.plaintextHash,
+                name: file.name,
+                size: file.size,
+                encryptedSize: file.encrypted_size || file.encryptedSize,
+                mimeType: file.mime_type,
+                folderId: targetFolderId, // New folder
+                encrypted: file.encrypted,
+            });
+
+            // Publish the updated metadata
+            await Auth.publishEvent(metadataEvent);
+
+            UI.toast(`Moved ${file.name} to ${targetFolderName}`, 'success');
+
+            // Refresh files
+            await this.loadFiles();
+
+        } catch (err) {
+            console.error('Move file failed:', err);
+            UI.toast(`Failed to move file: ${err.message}`, 'error');
+        }
+    },
+
+    // === Batch Operations ===
+
+    // Toggle file selection
+    toggleFileSelection(sha256) {
+        if (this.selectedFiles.has(sha256)) {
+            this.selectedFiles.delete(sha256);
+        } else {
+            this.selectedFiles.add(sha256);
+        }
+        this.updateSelectionUI();
+    },
+
+    // Select all files in current view
+    selectAllFiles() {
+        this.files.forEach(f => this.selectedFiles.add(f.sha256));
+        this.updateSelectionUI();
+    },
+
+    // Clear all selections
+    clearSelection() {
+        this.selectedFiles.clear();
+        this.selectionMode = false;
+        this.updateSelectionUI();
+    },
+
+    // Update selection UI (checkboxes, toolbar)
+    updateSelectionUI() {
+        const count = this.selectedFiles.size;
+        const toolbar = document.getElementById('batch-toolbar');
+
+        if (count > 0) {
+            this.selectionMode = true;
+            if (toolbar) {
+                toolbar.classList.remove('hidden');
+                document.getElementById('selected-count').textContent = `${count} selected`;
+            }
+        } else {
+            this.selectionMode = false;
+            if (toolbar) toolbar.classList.add('hidden');
+        }
+
+        // Update checkboxes
+        document.querySelectorAll('.file-checkbox').forEach(cb => {
+            const sha256 = cb.dataset.sha256;
+            cb.checked = this.selectedFiles.has(sha256);
+        });
+    },
+
+    // Bulk delete selected files
+    async bulkDelete() {
+        const count = this.selectedFiles.size;
+        if (count === 0) return;
+
+        if (!confirm(`Delete ${count} file${count > 1 ? 's' : ''}? This cannot be undone.`)) {
+            return;
+        }
+
+        UI.toast(`Deleting ${count} files...`, 'info');
+
+        let deleted = 0;
+        let failed = 0;
+
+        for (const sha256 of this.selectedFiles) {
+            try {
+                await this.deleteFile(sha256, true); // silent mode
+                deleted++;
+            } catch (err) {
+                console.error(`Failed to delete ${sha256}:`, err);
+                failed++;
+            }
+        }
+
+        this.clearSelection();
+        await this.loadFiles();
+
+        if (failed === 0) {
+            UI.toast(`Deleted ${deleted} files`, 'success');
+        } else {
+            UI.toast(`Deleted ${deleted}, failed ${failed}`, 'warning');
+        }
+    },
+
+    // Bulk download selected files (as individual downloads)
+    async bulkDownload() {
+        const count = this.selectedFiles.size;
+        if (count === 0) return;
+
+        UI.toast(`Downloading ${count} files...`, 'info');
+
+        for (const sha256 of this.selectedFiles) {
+            const file = this.files.find(f => f.sha256 === sha256);
+            if (file) {
+                await this.downloadFile(file);
+                // Small delay between downloads
+                await new Promise(r => setTimeout(r, 500));
+            }
+        }
+
+        this.clearSelection();
+    },
+
+    // === Storage Usage ===
+
+    // Calculate and display storage usage
+    updateStorageUsage() {
+        const valueEl = document.getElementById('storage-value');
+        const barFill = document.getElementById('storage-bar-fill');
+        const detailsEl = document.getElementById('storage-details');
+
+        if (!valueEl || !barFill) return;
+
+        // Calculate total storage used
+        let totalBytes = 0;
+        let fileCount = 0;
+
+        for (const file of this.files) {
+            // Use encrypted_size if available, otherwise size
+            const size = file.encrypted_size || file.encryptedSize || file.size || 0;
+            totalBytes += size;
+            fileCount++;
+        }
+
+        // Also count files in subfolders (we may not have them all loaded, so just show current view)
+        const formattedSize = Upload.formatSize(totalBytes);
+        valueEl.textContent = formattedSize;
+
+        // For the bar, use a soft cap of 10GB for visualization
+        const softCap = 10 * 1024 * 1024 * 1024; // 10GB
+        const percentage = Math.min((totalBytes / softCap) * 100, 100);
+        barFill.style.width = percentage + '%';
+
+        // Color coding based on usage
+        barFill.classList.remove('warning', 'danger');
+        if (percentage > 90) {
+            barFill.classList.add('danger');
+        } else if (percentage > 70) {
+            barFill.classList.add('warning');
+        }
+
+        // Details
+        detailsEl.textContent = `${fileCount} file${fileCount !== 1 ? 's' : ''} in current folder`;
     },
 };
 
