@@ -4,14 +4,20 @@ const App = {
     files: [],
     folders: [],
     sharedFiles: [],      // Files shared with current user
+    trashedFiles: [],     // Files in trash (soft deleted)
+    starredFiles: new Set(), // SHA256 hashes of starred files
+    recentFiles: [],      // Recently accessed files
     currentFolderId: '',  // Empty string = root folder
     folderPath: [],       // Array of {id, name} for breadcrumb navigation
     authState: 'unauthenticated', // 'unauthenticated' | 'authenticated' | 'denied'
-    currentView: 'my-files', // 'my-files' | 'shared'
+    currentView: 'my-files', // 'my-files' | 'shared' | 'starred' | 'recent' | 'trash'
     searchQuery: '',      // Current search query
     shareFile: null,      // File currently being shared
     selectedFiles: new Set(), // Selected file sha256 hashes for batch operations
     selectionMode: false, // Whether in multi-select mode
+    TRASH_RETENTION_DAYS: 30, // Auto-purge after 30 days
+    fileTags: {},  // Map of sha256 -> array of tags
+    availableTags: [], // All known tags for autocomplete
 
     async init() {
         // Register service worker for offline support
@@ -38,6 +44,11 @@ const App = {
 
         // Initialize thumbnail cache
         UI.initThumbnails();
+
+        // Load local state (starred, recent, tags)
+        this.loadStarredState();
+        this.loadRecentState();
+        this.loadTagsState();
 
         // Try to restore saved session
         if (Auth.hasSavedSession()) {
@@ -153,6 +164,219 @@ const App = {
 
         // Mobile menu
         this.setupMobileMenu();
+
+        // Sidebar navigation
+        this.setupSidebarNav();
+
+        // Keyboard shortcuts
+        this.setupKeyboardShortcuts();
+    },
+
+    setupSidebarNav() {
+        // Starred
+        document.getElementById('nav-starred')?.addEventListener('click', () => {
+            this.switchView('starred');
+        });
+
+        // Recent
+        document.getElementById('nav-recent')?.addEventListener('click', () => {
+            this.switchView('recent');
+        });
+
+        // Trash
+        document.getElementById('nav-trash')?.addEventListener('click', () => {
+            this.switchView('trash');
+        });
+
+        // My Drive (root folder)
+        document.querySelector('.folder-tree-item.root')?.addEventListener('click', () => {
+            this.currentFolderId = '';
+            this.folderPath = [];
+            this.switchView('my-files');
+        });
+    },
+
+    switchView(view) {
+        this.currentView = view;
+        this.clearSelection();
+        this.closeMobileSidebar();
+
+        // Update active state in sidebar
+        document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        document.querySelectorAll('.folder-tree-item').forEach(item => {
+            item.classList.remove('active');
+        });
+
+        const navItem = document.getElementById(`nav-${view}`);
+        if (navItem) navItem.classList.add('active');
+
+        if (view === 'my-files') {
+            document.querySelector('.folder-tree-item.root')?.classList.add('active');
+        }
+
+        // Render appropriate view
+        switch (view) {
+            case 'my-files':
+                this.loadFiles();
+                break;
+            case 'shared':
+                this.loadSharedFiles();
+                break;
+            case 'starred':
+                this.loadStarredFiles();
+                break;
+            case 'recent':
+                this.loadRecentFiles();
+                break;
+            case 'trash':
+                this.loadTrashFiles();
+                break;
+        }
+    },
+
+    setupKeyboardShortcuts() {
+        document.addEventListener('keydown', (e) => {
+            // Don't handle shortcuts when typing in inputs
+            if (e.target.matches('input, textarea, [contenteditable]')) {
+                // Escape should still work to blur inputs
+                if (e.key === 'Escape') {
+                    e.target.blur();
+                }
+                return;
+            }
+
+            // Don't handle if not authenticated
+            if (this.authState !== 'authenticated') return;
+
+            const hasSelection = this.selectedFiles.size > 0;
+            const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+            const ctrlKey = isMac ? e.metaKey : e.ctrlKey;
+
+            switch (e.key) {
+                case 'a':
+                    // Ctrl+A: Select all
+                    if (ctrlKey) {
+                        e.preventDefault();
+                        this.selectAllFiles();
+                    }
+                    break;
+
+                case 'Escape':
+                    // Escape: Clear selection or close modal
+                    if (hasSelection) {
+                        this.clearSelection();
+                    } else {
+                        UI.hideAllModals();
+                    }
+                    break;
+
+                case 'Delete':
+                case 'Backspace':
+                    // Delete selected files
+                    if (hasSelection && !ctrlKey) {
+                        e.preventDefault();
+                        this.bulkDelete();
+                    }
+                    break;
+
+                case 'd':
+                    // Ctrl+D: Download selected
+                    if (ctrlKey && hasSelection) {
+                        e.preventDefault();
+                        this.bulkDownload();
+                    }
+                    break;
+
+                case 'f':
+                    // Ctrl+F: Focus search
+                    if (ctrlKey) {
+                        e.preventDefault();
+                        const searchInput = document.getElementById('search-input');
+                        if (searchInput) searchInput.focus();
+                    }
+                    break;
+
+                case 'n':
+                    // Ctrl+N: New folder
+                    if (ctrlKey) {
+                        e.preventDefault();
+                        UI.showModal('new-folder-modal');
+                        document.getElementById('new-folder-name')?.focus();
+                    }
+                    break;
+
+                case 'u':
+                    // Ctrl+U: Upload
+                    if (ctrlKey) {
+                        e.preventDefault();
+                        Upload.clear();
+                        UI.renderUploadList([]);
+                        UI.showModal('upload-modal');
+                    }
+                    break;
+
+                case 'Enter':
+                    // Enter: Open/preview first selected file
+                    if (hasSelection) {
+                        e.preventDefault();
+                        const sha256 = Array.from(this.selectedFiles)[0];
+                        const file = this.files.find(f => f.sha256 === sha256);
+                        if (file) {
+                            if (this.isPreviewable(file.mime_type)) {
+                                this.showPreview(file);
+                            } else {
+                                this.downloadFile(file);
+                            }
+                        }
+                    }
+                    break;
+
+                case 'ArrowDown':
+                case 'ArrowUp':
+                    // Arrow keys: Navigate file list
+                    e.preventDefault();
+                    this.navigateFileList(e.key === 'ArrowDown' ? 1 : -1, e.shiftKey);
+                    break;
+            }
+        });
+    },
+
+    // Navigate file list with arrow keys
+    navigateFileList(direction, extendSelection = false) {
+        const allFiles = [...this.files];
+        if (allFiles.length === 0) return;
+
+        // Find current index
+        let currentIndex = -1;
+        if (this.selectedFiles.size > 0) {
+            const lastSelected = Array.from(this.selectedFiles).pop();
+            currentIndex = allFiles.findIndex(f => f.sha256 === lastSelected);
+        }
+
+        // Calculate new index
+        let newIndex = currentIndex + direction;
+        if (newIndex < 0) newIndex = 0;
+        if (newIndex >= allFiles.length) newIndex = allFiles.length - 1;
+
+        const targetFile = allFiles[newIndex];
+        if (!targetFile) return;
+
+        if (extendSelection) {
+            // Shift+Arrow: Extend selection
+            this.selectedFiles.add(targetFile.sha256);
+        } else {
+            // Arrow: Move selection
+            this.selectedFiles.clear();
+            this.selectedFiles.add(targetFile.sha256);
+        }
+
+        this.updateSelectionUI();
+
+        // Scroll into view
+        const fileItem = document.querySelector(`.file-item[data-sha256="${targetFile.sha256}"]`);
+        fileItem?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     },
 
     setupUploadModal() {
@@ -455,6 +679,308 @@ const App = {
             console.error('Failed to load shared files:', err);
             UI.toast('Failed to load shared files', 'error');
         }
+    },
+
+    // === Starred Files ===
+
+    async loadStarredFiles() {
+        UI.showLoadingSkeleton();
+
+        try {
+            // Load starred state from IndexedDB
+            await this.loadStarredState();
+
+            // Load all files and filter for starred ones
+            const pubkey = Auth.pubkey;
+            const response = await API.listFilesInFolder(pubkey, '');
+            const allFiles = response.files || [];
+
+            // Filter for files that are starred and not deleted
+            const starredFiles = allFiles.filter(f =>
+                this.starredFiles.has(f.sha256) && !f.deleted_at && !f.deletedAt
+            );
+
+            // Render starred view
+            this.renderStarredView(starredFiles);
+        } catch (err) {
+            console.error('Failed to load starred files:', err);
+            UI.showErrorState('Failed to load starred files', () => this.loadStarredFiles());
+        }
+    },
+
+    async loadStarredState() {
+        try {
+            const stored = localStorage.getItem('cloistr-starred');
+            if (stored) {
+                this.starredFiles = new Set(JSON.parse(stored));
+            }
+        } catch (err) {
+            console.warn('Failed to load starred state:', err);
+        }
+    },
+
+    saveStarredState() {
+        try {
+            localStorage.setItem('cloistr-starred', JSON.stringify([...this.starredFiles]));
+        } catch (err) {
+            console.warn('Failed to save starred state:', err);
+        }
+    },
+
+    toggleStar(sha256) {
+        if (this.starredFiles.has(sha256)) {
+            this.starredFiles.delete(sha256);
+            UI.toast('Removed from starred', 'info');
+        } else {
+            this.starredFiles.add(sha256);
+            UI.toast('Added to starred', 'success');
+        }
+        this.saveStarredState();
+
+        // Update star icon in current view if visible
+        const starBtn = document.querySelector(`.file-item[data-sha256="${sha256}"] .star-btn`);
+        if (starBtn) {
+            starBtn.classList.toggle('starred', this.starredFiles.has(sha256));
+            starBtn.innerHTML = this.starredFiles.has(sha256) ? '&#9733;' : '&#9734;';
+        }
+    },
+
+    renderStarredView(files) {
+        const body = document.getElementById('file-list-body');
+        const emptyState = document.getElementById('empty-state');
+
+        // Hide upload buttons
+        document.getElementById('upload-btn').style.display = 'none';
+        document.getElementById('new-folder-btn').style.display = 'none';
+
+        if (files.length === 0) {
+            body.innerHTML = '';
+            if (emptyState) {
+                emptyState.classList.remove('hidden');
+                emptyState.innerHTML = `
+                    <div class="empty-icon">&#9733;</div>
+                    <div class="empty-text">No starred files</div>
+                    <div class="empty-subtext">Star files to quickly access them later</div>
+                `;
+            }
+            return;
+        }
+
+        if (emptyState) emptyState.classList.add('hidden');
+
+        const html = files.map(file => UI.renderFileListItem(file)).join('');
+        body.innerHTML = html;
+        UI.attachFileEventListeners(body);
+    },
+
+    // === Recent Files ===
+
+    async loadRecentFiles() {
+        UI.showLoadingSkeleton();
+
+        try {
+            // Load recent access times from localStorage
+            await this.loadRecentState();
+
+            // Load all files
+            const pubkey = Auth.pubkey;
+            const response = await API.listFilesInFolder(pubkey, '');
+            const allFiles = response.files || [];
+
+            // Filter for files that were recently accessed and not deleted
+            const recentSha256 = this.recentFiles.map(r => r.sha256);
+            const recentFilesData = allFiles.filter(f =>
+                recentSha256.includes(f.sha256) && !f.deleted_at && !f.deletedAt
+            );
+
+            // Sort by access time (most recent first)
+            recentFilesData.sort((a, b) => {
+                const accessA = this.recentFiles.find(r => r.sha256 === a.sha256)?.accessedAt || 0;
+                const accessB = this.recentFiles.find(r => r.sha256 === b.sha256)?.accessedAt || 0;
+                return accessB - accessA;
+            });
+
+            // Take only last 50
+            const recent50 = recentFilesData.slice(0, 50);
+
+            this.renderRecentView(recent50);
+        } catch (err) {
+            console.error('Failed to load recent files:', err);
+            UI.showErrorState('Failed to load recent files', () => this.loadRecentFiles());
+        }
+    },
+
+    async loadRecentState() {
+        try {
+            const stored = localStorage.getItem('cloistr-recent');
+            if (stored) {
+                this.recentFiles = JSON.parse(stored);
+            }
+        } catch (err) {
+            console.warn('Failed to load recent state:', err);
+        }
+    },
+
+    recordFileAccess(sha256) {
+        // Remove existing entry for this file
+        this.recentFiles = this.recentFiles.filter(r => r.sha256 !== sha256);
+
+        // Add to front
+        this.recentFiles.unshift({
+            sha256,
+            accessedAt: Math.floor(Date.now() / 1000),
+        });
+
+        // Keep only last 100
+        this.recentFiles = this.recentFiles.slice(0, 100);
+
+        // Save
+        try {
+            localStorage.setItem('cloistr-recent', JSON.stringify(this.recentFiles));
+        } catch (err) {
+            console.warn('Failed to save recent state:', err);
+        }
+    },
+
+    renderRecentView(files) {
+        const body = document.getElementById('file-list-body');
+        const emptyState = document.getElementById('empty-state');
+
+        // Hide upload buttons
+        document.getElementById('upload-btn').style.display = 'none';
+        document.getElementById('new-folder-btn').style.display = 'none';
+
+        if (files.length === 0) {
+            body.innerHTML = '';
+            if (emptyState) {
+                emptyState.classList.remove('hidden');
+                emptyState.innerHTML = `
+                    <div class="empty-icon">&#128337;</div>
+                    <div class="empty-text">No recent files</div>
+                    <div class="empty-subtext">Files you open or download will appear here</div>
+                `;
+            }
+            return;
+        }
+
+        if (emptyState) emptyState.classList.add('hidden');
+
+        const html = files.map(file => UI.renderFileListItem(file)).join('');
+        body.innerHTML = html;
+        UI.attachFileEventListeners(body);
+    },
+
+    // === File Tags ===
+
+    loadTagsState() {
+        try {
+            const stored = localStorage.getItem('cloistr-tags');
+            if (stored) {
+                this.fileTags = JSON.parse(stored);
+            }
+            const availableStored = localStorage.getItem('cloistr-available-tags');
+            if (availableStored) {
+                this.availableTags = JSON.parse(availableStored);
+            }
+        } catch (err) {
+            console.warn('Failed to load tags state:', err);
+        }
+    },
+
+    saveTagsState() {
+        try {
+            localStorage.setItem('cloistr-tags', JSON.stringify(this.fileTags));
+            localStorage.setItem('cloistr-available-tags', JSON.stringify(this.availableTags));
+        } catch (err) {
+            console.warn('Failed to save tags state:', err);
+        }
+    },
+
+    getFileTags(sha256) {
+        return this.fileTags[sha256] || [];
+    },
+
+    addTagToFile(sha256, tag) {
+        const normalizedTag = tag.trim().toLowerCase();
+        if (!normalizedTag) return;
+
+        if (!this.fileTags[sha256]) {
+            this.fileTags[sha256] = [];
+        }
+
+        if (!this.fileTags[sha256].includes(normalizedTag)) {
+            this.fileTags[sha256].push(normalizedTag);
+
+            // Add to available tags for autocomplete
+            if (!this.availableTags.includes(normalizedTag)) {
+                this.availableTags.push(normalizedTag);
+            }
+
+            this.saveTagsState();
+            UI.toast(`Tag "${normalizedTag}" added`, 'success');
+        }
+    },
+
+    removeTagFromFile(sha256, tag) {
+        if (this.fileTags[sha256]) {
+            this.fileTags[sha256] = this.fileTags[sha256].filter(t => t !== tag);
+            if (this.fileTags[sha256].length === 0) {
+                delete this.fileTags[sha256];
+            }
+            this.saveTagsState();
+            UI.toast(`Tag "${tag}" removed`, 'info');
+        }
+    },
+
+    showTagsModal(file) {
+        const modal = document.getElementById('tags-modal');
+        const fileName = document.getElementById('tags-file-name');
+        const tagsContainer = document.getElementById('tags-container');
+        const tagInput = document.getElementById('tag-input');
+        const suggestions = document.getElementById('tag-suggestions');
+
+        if (!modal) return;
+
+        this.tagModalFile = file;
+        fileName.textContent = file.name;
+
+        // Render current tags
+        this.renderFileTags(tagsContainer, file.sha256);
+
+        // Clear input and suggestions
+        tagInput.value = '';
+        suggestions.innerHTML = '';
+        suggestions.classList.add('hidden');
+
+        UI.showModal('tags-modal');
+        tagInput.focus();
+    },
+
+    renderFileTags(container, sha256) {
+        const tags = this.getFileTags(sha256);
+        container.innerHTML = tags.length === 0
+            ? '<span class="no-tags">No tags yet</span>'
+            : tags.map(tag => `
+                <span class="tag-chip">
+                    ${UI.escapeHtml(tag)}
+                    <button class="tag-remove" data-tag="${UI.escapeHtml(tag)}">&times;</button>
+                </span>
+            `).join('');
+
+        // Add remove listeners
+        container.querySelectorAll('.tag-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.removeTagFromFile(sha256, btn.dataset.tag);
+                this.renderFileTags(container, sha256);
+            });
+        });
+    },
+
+    filterByTag(tag) {
+        // Filter current view by tag
+        this.currentTagFilter = tag;
+        UI.toast(`Filtering by tag: ${tag}`, 'info');
+        this.loadFiles();
     },
 
     async connectNIP07() {
@@ -1016,7 +1542,167 @@ const App = {
         });
     },
 
-    async deleteFile(sha256) {
+    // === Trash / Recycle Bin ===
+
+    async loadTrashFiles() {
+        UI.showLoadingSkeleton();
+
+        try {
+            // Load all files and filter for trashed ones
+            const pubkey = Auth.pubkey;
+            const response = await API.listFilesInFolder(pubkey, '');
+            const allFiles = response.files || [];
+
+            // Filter for files with deleted_at metadata
+            this.trashedFiles = allFiles.filter(f => f.deleted_at || f.deletedAt);
+
+            // Sort by deletion date (newest first)
+            this.trashedFiles.sort((a, b) => {
+                const dateA = a.deleted_at || a.deletedAt || 0;
+                const dateB = b.deleted_at || b.deletedAt || 0;
+                return dateB - dateA;
+            });
+
+            this.renderTrashView();
+            this.updateTrashCount();
+        } catch (err) {
+            console.error('Failed to load trash:', err);
+            UI.showErrorState('Failed to load trash', () => this.loadTrashFiles());
+        }
+    },
+
+    renderTrashView() {
+        const body = document.getElementById('file-list-body');
+        const emptyState = document.getElementById('empty-state');
+
+        // Update toolbar for trash view
+        document.getElementById('upload-btn').style.display = 'none';
+        document.getElementById('new-folder-btn').style.display = 'none';
+
+        if (this.trashedFiles.length === 0) {
+            body.innerHTML = '';
+            if (emptyState) {
+                emptyState.classList.remove('hidden');
+                emptyState.innerHTML = `
+                    <div class="empty-icon">&#128465;</div>
+                    <div class="empty-text">Trash is empty</div>
+                    <div class="empty-subtext">Deleted files will appear here for ${this.TRASH_RETENTION_DAYS} days</div>
+                `;
+            }
+            return;
+        }
+
+        if (emptyState) emptyState.classList.add('hidden');
+
+        const html = this.trashedFiles.map(file => this.renderTrashItem(file)).join('');
+        body.innerHTML = html;
+
+        // Add event listeners
+        this.attachTrashEventListeners(body);
+    },
+
+    renderTrashItem(file) {
+        const mimeType = file.mime_type || '';
+        const icon = Upload.getFileIcon(mimeType);
+        const size = Upload.formatSize(file.size);
+        const deletedAt = file.deleted_at || file.deletedAt;
+        const deletedDate = deletedAt ? new Date(deletedAt * 1000).toLocaleDateString() : '-';
+        const daysLeft = deletedAt ? Math.max(0, this.TRASH_RETENTION_DAYS - Math.floor((Date.now() / 1000 - deletedAt) / 86400)) : '?';
+
+        return `
+            <div class="file-item trash-item" data-sha256="${file.sha256}" data-name="${UI.escapeHtml(file.name)}">
+                <div class="file-col file-name">
+                    <span class="file-icon">${icon}</span>
+                    <span class="file-name-text">${UI.escapeHtml(file.name)}</span>
+                </div>
+                <div class="file-col file-size">${size}</div>
+                <div class="file-col file-date" title="Deleted on ${deletedDate}">${daysLeft} days left</div>
+                <div class="file-col file-actions">
+                    <button class="action-btn restore-btn" title="Restore">Restore</button>
+                    <button class="action-btn delete-btn delete-permanent" title="Delete permanently">Delete</button>
+                </div>
+            </div>
+        `;
+    },
+
+    attachTrashEventListeners(container) {
+        container.querySelectorAll('.trash-item').forEach(item => {
+            const sha256 = item.dataset.sha256;
+            const fileName = item.dataset.name;
+
+            item.querySelector('.restore-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.restoreFromTrash(sha256, fileName);
+            });
+
+            item.querySelector('.delete-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (confirm(`Permanently delete "${fileName}"? This cannot be undone.`)) {
+                    this.permanentDelete(sha256);
+                }
+            });
+        });
+    },
+
+    async moveToTrash(sha256, fileName) {
+        try {
+            // Find the file
+            const file = this.files.find(f => f.sha256 === sha256);
+            if (!file) throw new Error('File not found');
+
+            // Update metadata with deleted_at timestamp
+            const metadataEvent = await Auth.createEncryptedFileMetadataEvent({
+                fileId: file.file_id || file.fileId || file.d,
+                sha256: file.sha256,
+                plaintextHash: file.plaintext_hash || file.plaintextHash,
+                name: file.name,
+                size: file.size,
+                encryptedSize: file.encrypted_size || file.encryptedSize,
+                mimeType: file.mime_type,
+                folderId: file.folder_id || file.folderId || file.folder,
+                encrypted: file.encrypted,
+                deletedAt: Math.floor(Date.now() / 1000),
+            });
+
+            await Auth.publishEvent(metadataEvent);
+
+            UI.toast(`"${fileName}" moved to trash`, 'success');
+            await this.loadFiles();
+            this.updateTrashCount();
+        } catch (err) {
+            UI.toast(`Failed to move to trash: ${err.message}`, 'error');
+        }
+    },
+
+    async restoreFromTrash(sha256, fileName) {
+        try {
+            const file = this.trashedFiles.find(f => f.sha256 === sha256);
+            if (!file) throw new Error('File not found');
+
+            // Update metadata without deleted_at
+            const metadataEvent = await Auth.createEncryptedFileMetadataEvent({
+                fileId: file.file_id || file.fileId || file.d,
+                sha256: file.sha256,
+                plaintextHash: file.plaintext_hash || file.plaintextHash,
+                name: file.name,
+                size: file.size,
+                encryptedSize: file.encrypted_size || file.encryptedSize,
+                mimeType: file.mime_type,
+                folderId: file.folder_id || file.folderId || file.folder,
+                encrypted: file.encrypted,
+                // No deletedAt = not in trash
+            });
+
+            await Auth.publishEvent(metadataEvent);
+
+            UI.toast(`"${fileName}" restored`, 'success');
+            await this.loadTrashFiles();
+        } catch (err) {
+            UI.toast(`Restore failed: ${err.message}`, 'error');
+        }
+    },
+
+    async permanentDelete(sha256) {
         try {
             let authHeader = null;
             if (Auth.isConnected) {
@@ -1024,16 +1710,33 @@ const App = {
             }
 
             await API.deleteFile(sha256, authHeader);
-            UI.toast('File deleted', 'success');
-            await this.loadFiles();
+            UI.toast('File permanently deleted', 'success');
+            await this.loadTrashFiles();
         } catch (err) {
             UI.toast(`Delete failed: ${err.message}`, 'error');
         }
     },
 
+    updateTrashCount() {
+        const badge = document.getElementById('trash-count');
+        if (badge) {
+            badge.textContent = this.trashedFiles.length > 0 ? this.trashedFiles.length : '';
+        }
+    },
+
+    async deleteFile(sha256) {
+        // Soft delete - move to trash
+        const file = this.files.find(f => f.sha256 === sha256);
+        const fileName = file?.name || 'file';
+        await this.moveToTrash(sha256, fileName);
+    },
+
     // Download and decrypt a file
     async downloadFile(file) {
         try {
+            // Track as recent file
+            this.recordFileAccess(file.sha256);
+
             UI.toast(`Downloading ${file.name}...`, 'info');
 
             // Fetch the encrypted blob from Blossom
@@ -1194,6 +1897,9 @@ const App = {
     // Preview a file
     async showPreview(file) {
         this.previewFile = file;
+
+        // Track as recent file
+        this.recordFileAccess(file.sha256);
 
         // Show modal and loading state
         document.getElementById('preview-file-name').textContent = file.name;
@@ -2230,6 +2936,63 @@ const App = {
                 this.createFolder(name);
             } else if (e.key === 'Escape') {
                 UI.hideModal('new-folder-modal');
+            }
+        });
+
+        // Tags modal
+        document.getElementById('tags-modal-close')?.addEventListener('click', () => {
+            UI.hideModal('tags-modal');
+        });
+        document.getElementById('tags-done')?.addEventListener('click', () => {
+            UI.hideModal('tags-modal');
+        });
+
+        const tagInput = document.getElementById('tag-input');
+        const tagSuggestions = document.getElementById('tag-suggestions');
+
+        tagInput?.addEventListener('input', (e) => {
+            const value = e.target.value.trim().toLowerCase();
+            if (value.length > 0) {
+                // Show suggestions
+                const matches = this.availableTags.filter(t =>
+                    t.includes(value) && !this.getFileTags(this.tagModalFile?.sha256).includes(t)
+                );
+                if (matches.length > 0) {
+                    tagSuggestions.innerHTML = matches.map(t =>
+                        `<div class="tag-suggestion" data-tag="${UI.escapeHtml(t)}">${UI.escapeHtml(t)}</div>`
+                    ).join('');
+                    tagSuggestions.classList.remove('hidden');
+
+                    tagSuggestions.querySelectorAll('.tag-suggestion').forEach(el => {
+                        el.addEventListener('click', () => {
+                            if (this.tagModalFile) {
+                                this.addTagToFile(this.tagModalFile.sha256, el.dataset.tag);
+                                this.renderFileTags(document.getElementById('tags-container'), this.tagModalFile.sha256);
+                            }
+                            tagInput.value = '';
+                            tagSuggestions.classList.add('hidden');
+                        });
+                    });
+                } else {
+                    tagSuggestions.classList.add('hidden');
+                }
+            } else {
+                tagSuggestions.classList.add('hidden');
+            }
+        });
+
+        tagInput?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const value = tagInput.value.trim();
+                if (value && this.tagModalFile) {
+                    this.addTagToFile(this.tagModalFile.sha256, value);
+                    this.renderFileTags(document.getElementById('tags-container'), this.tagModalFile.sha256);
+                    tagInput.value = '';
+                    tagSuggestions.classList.add('hidden');
+                }
+            } else if (e.key === 'Escape') {
+                tagSuggestions.classList.add('hidden');
             }
         });
     },

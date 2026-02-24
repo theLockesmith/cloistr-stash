@@ -231,6 +231,17 @@ body {
     display: block;
 }
 
+/* Virtual scrolling */
+.virtual-scroll-wrapper {
+    position: relative;
+}
+
+.virtual-scroll-viewport {
+    position: absolute;
+    left: 0;
+    right: 0;
+}
+
 /* File item */
 .file-item {
     display: flex;
@@ -339,6 +350,28 @@ body {
     align-items: center;
 }
 
+/* Star button */
+.star-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0.25rem;
+    margin-right: 0.5rem;
+    color: var(--text-secondary);
+    opacity: 0.5;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+.star-btn:hover {
+    opacity: 1;
+}
+
+.star-btn.starred {
+    color: var(--warning);
+    opacity: 1;
+}
+
 .file-item .file-name-text {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -355,6 +388,87 @@ body {
     display: flex;
     gap: 0.5rem;
     justify-content: flex-end;
+}
+
+/* File tags */
+.file-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-left: 0.5rem;
+}
+
+.tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    background-color: var(--bg-tertiary);
+    border-radius: 12px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.tag-chip .tag-remove {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.875rem;
+    padding: 0;
+    line-height: 1;
+    opacity: 0.7;
+}
+
+.tag-chip .tag-remove:hover {
+    opacity: 1;
+    color: var(--error);
+}
+
+.tags-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    min-height: 32px;
+}
+
+.tags-container .no-tags {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.tags-file-name {
+    font-weight: 500;
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+}
+
+.tag-input-wrapper {
+    position: relative;
+}
+
+.tag-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    max-height: 150px;
+    overflow-y: auto;
+    z-index: 10;
+}
+
+.tag-suggestion {
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+}
+
+.tag-suggestion:hover {
+    background-color: var(--bg-tertiary);
 }
 
 .file-item .action-btn {
@@ -2370,6 +2484,57 @@ body {
     margin-top: 0.5rem;
     font-size: 0.75rem;
     color: var(--text-secondary);
+}
+
+/* Sidebar navigation section */
+.sidebar-section {
+    padding: 0.5rem 0;
+    border-top: 1px solid var(--border-color);
+    margin-top: 0.5rem;
+}
+
+.sidebar-nav-item {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: background-color 0.15s, color 0.15s;
+    font-size: 0.875rem;
+}
+
+.sidebar-nav-item:hover {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.sidebar-nav-item.active {
+    background-color: var(--bg-tertiary);
+    color: var(--accent-primary);
+}
+
+.sidebar-nav-icon {
+    width: 20px;
+    margin-right: 0.75rem;
+    text-align: center;
+}
+
+.sidebar-nav-name {
+    flex: 1;
+}
+
+.sidebar-nav-badge {
+    background-color: var(--bg-tertiary);
+    color: var(--text-secondary);
+    padding: 0.125rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    min-width: 20px;
+    text-align: center;
+}
+
+.sidebar-nav-badge:empty {
+    display: none;
 }
 
 /* Main content adjustment when sidebar is present */

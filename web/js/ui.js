@@ -7,6 +7,82 @@ const UI = {
     THUMBNAIL_SIZE: 48,
     THUMBNAIL_DB_NAME: 'cloistr-thumbnails',
 
+    // Virtual scrolling configuration
+    virtualScroll: {
+        enabled: false,
+        items: [],
+        itemHeight: 48,  // Height of each row
+        bufferSize: 10,  // Extra items above/below viewport
+        scrollTop: 0,
+        containerHeight: 0,
+        threshold: 100,  // Enable virtual scroll when > 100 items
+    },
+
+    // Initialize virtual scrolling for a container
+    initVirtualScroll(container, items, renderItem) {
+        const vs = this.virtualScroll;
+        vs.items = items;
+        vs.enabled = items.length > vs.threshold;
+
+        if (!vs.enabled) return false;
+
+        vs.containerHeight = container.clientHeight;
+
+        // Create wrapper elements
+        const wrapper = document.createElement('div');
+        wrapper.className = 'virtual-scroll-wrapper';
+        wrapper.style.height = `${items.length * vs.itemHeight}px`;
+        wrapper.style.position = 'relative';
+
+        const viewport = document.createElement('div');
+        viewport.className = 'virtual-scroll-viewport';
+        viewport.style.position = 'absolute';
+        viewport.style.left = '0';
+        viewport.style.right = '0';
+
+        wrapper.appendChild(viewport);
+        container.innerHTML = '';
+        container.appendChild(wrapper);
+
+        // Render visible items
+        this.updateVirtualScroll(container, renderItem);
+
+        // Add scroll listener
+        container.addEventListener('scroll', () => {
+            vs.scrollTop = container.scrollTop;
+            this.updateVirtualScroll(container, renderItem);
+        });
+
+        return true;
+    },
+
+    // Update visible items in virtual scroll
+    updateVirtualScroll(container, renderItem) {
+        const vs = this.virtualScroll;
+        if (!vs.enabled) return;
+
+        const viewport = container.querySelector('.virtual-scroll-viewport');
+        if (!viewport) return;
+
+        const startIndex = Math.max(0, Math.floor(vs.scrollTop / vs.itemHeight) - vs.bufferSize);
+        const endIndex = Math.min(
+            vs.items.length,
+            Math.ceil((vs.scrollTop + vs.containerHeight) / vs.itemHeight) + vs.bufferSize
+        );
+
+        // Position viewport
+        viewport.style.top = `${startIndex * vs.itemHeight}px`;
+
+        // Render only visible items
+        const visibleItems = vs.items.slice(startIndex, endIndex);
+        const html = visibleItems.map((item, i) => renderItem(item, startIndex + i)).join('');
+        viewport.innerHTML = html;
+
+        // Reattach event listeners
+        this.attachFileEventListeners(viewport);
+        this.attachFolderEventListeners(viewport);
+    },
+
     // Initialize thumbnail cache
     async initThumbnails() {
         try {
@@ -161,6 +237,14 @@ const UI = {
         document.getElementById(id).classList.add('hidden');
     },
 
+    // Hide all open modals
+    hideAllModals() {
+        document.querySelectorAll('.modal:not(.hidden)').forEach(modal => {
+            modal.classList.add('hidden');
+        });
+        this.hideContextMenu();
+    },
+
     // Show loading skeleton in file list
     showLoadingSkeleton(count = 5) {
         const body = document.getElementById('file-list-body');
@@ -243,15 +327,42 @@ const UI = {
 
         emptyState.style.display = 'none';
 
+        // Combine folders and files for rendering
+        const allItems = [
+            ...folders.map(f => ({ ...f, _type: 'folder' })),
+            ...files.map(f => ({ ...f, _type: 'file' }))
+        ];
+
         if (this.viewMode === 'grid') {
             const folderHtml = folders.map(folder => this.renderFolderGridItem(folder)).join('');
             const fileHtml = files.map(file => this.renderFileGridItem(file)).join('');
             html += '<div class="grid-container">' + folderHtml + fileHtml + '</div>';
-        } else {
-            const folderHtml = folders.map(folder => this.renderFolderListItem(folder)).join('');
-            const fileHtml = files.map(file => this.renderFileListItem(file)).join('');
-            html += folderHtml + fileHtml;
+            body.innerHTML = html;
+            this.attachFileEventListeners(body);
+            this.attachFolderEventListeners(body);
+            return;
         }
+
+        // List view - use virtual scrolling if many items
+        if (allItems.length > this.virtualScroll.threshold) {
+            body.innerHTML = html; // Add search info if present
+
+            const renderItem = (item) => {
+                if (item._type === 'folder') {
+                    return this.renderFolderListItem(item);
+                } else {
+                    return this.renderFileListItem(item);
+                }
+            };
+
+            this.initVirtualScroll(body, allItems, renderItem);
+            return;
+        }
+
+        // Normal rendering for small lists
+        const folderHtml = folders.map(folder => this.renderFolderListItem(folder)).join('');
+        const fileHtml = files.map(file => this.renderFileListItem(file)).join('');
+        html += folderHtml + fileHtml;
 
         body.innerHTML = html;
 
@@ -313,6 +424,12 @@ const UI = {
             if (thumbnail && fileMime.startsWith('image/')) {
                 this.loadThumbnail(fileObj, thumbnail);
             }
+
+            // Star button
+            item.querySelector('.star-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                App.toggleStar(sha256);
+            });
 
             item.querySelector('.share-btn')?.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -491,15 +608,15 @@ const UI = {
         const date = folder.created_at ? new Date(folder.created_at * 1000).toLocaleDateString() : '-';
 
         return `
-            <div class="file-item folder-item" data-folder-id="${folder.id}" data-folder-name="${this.escapeHtml(folder.name)}">
+            <div class="file-item folder-item" data-folder-id="${folder.id}" data-folder-name="${this.escapeHtml(folder.name)}" role="listitem" tabindex="0" aria-label="Folder: ${this.escapeHtml(folder.name)}">
                 <div class="file-col file-name">
-                    <span class="file-icon folder-icon">&#128193;</span>
+                    <span class="file-icon folder-icon" aria-hidden="true">&#128193;</span>
                     <span class="file-name-text">${this.escapeHtml(folder.name)}</span>
                 </div>
-                <div class="file-col file-size">-</div>
+                <div class="file-col file-size" aria-hidden="true">-</div>
                 <div class="file-col file-date">${date}</div>
                 <div class="file-col file-actions">
-                    <button class="action-btn delete delete-btn">Delete</button>
+                    <button class="action-btn delete delete-btn" aria-label="Delete folder ${this.escapeHtml(folder.name)}">Delete</button>
                 </div>
             </div>
         `;
@@ -508,11 +625,11 @@ const UI = {
     // Render folder as grid item
     renderFolderGridItem(folder) {
         return `
-            <div class="grid-item folder-grid-item" data-folder-id="${folder.id}" data-folder-name="${this.escapeHtml(folder.name)}">
-                <div class="grid-item-icon folder-icon">&#128193;</div>
+            <div class="grid-item folder-grid-item" data-folder-id="${folder.id}" data-folder-name="${this.escapeHtml(folder.name)}" role="listitem" tabindex="0" aria-label="Folder: ${this.escapeHtml(folder.name)}">
+                <div class="grid-item-icon folder-icon" aria-hidden="true">&#128193;</div>
                 <div class="grid-item-name">${this.escapeHtml(folder.name)}</div>
                 <div class="grid-item-actions">
-                    <button class="action-btn delete delete-btn" title="Delete">✕</button>
+                    <button class="action-btn delete delete-btn" title="Delete" aria-label="Delete folder ${this.escapeHtml(folder.name)}">✕</button>
                 </div>
             </div>
         `;
@@ -534,32 +651,37 @@ const UI = {
         const isPreviewable = typeof App !== 'undefined' && App.isPreviewable ? App.isPreviewable(mimeType) : false;
 
         const isSelected = typeof App !== 'undefined' && App.selectedFiles?.has(file.sha256);
+        const isStarred = typeof App !== 'undefined' && App.starredFiles?.has(file.sha256);
 
         // For images, use a thumbnail placeholder
         const iconHtml = isImage
-            ? `<img class="file-thumbnail" data-sha256="${file.sha256}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect fill='%23333' width='24' height='24'/%3E%3C/svg%3E" alt="">`
-            : `<span class="file-icon">${icon}</span>`;
+            ? `<img class="file-thumbnail" data-sha256="${file.sha256}" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect fill='%23333' width='24' height='24'/%3E%3C/svg%3E" alt="${this.escapeHtml(fileName)} thumbnail">`
+            : `<span class="file-icon" aria-hidden="true">${icon}</span>`;
+
+        const encryptedLabel = isEncrypted ? ', encrypted' : '';
+        const starredLabel = isStarred ? ', starred' : '';
 
         return `
-            <div class="file-item ${encryptedClass} ${isSelected ? 'selected' : ''}" data-sha256="${file.sha256}" data-name="${this.escapeHtml(fileName)}" data-size="${file.size}" data-mime="${mimeType}" data-file-id="${fileId}" data-folder-id="${folderId}" data-encrypted="${isEncrypted || false}">
+            <div class="file-item ${encryptedClass} ${isSelected ? 'selected' : ''}" data-sha256="${file.sha256}" data-name="${this.escapeHtml(fileName)}" data-size="${file.size}" data-mime="${mimeType}" data-file-id="${fileId}" data-folder-id="${folderId}" data-encrypted="${isEncrypted || false}" role="listitem" tabindex="0" aria-label="${this.escapeHtml(fileName)}, ${size}${encryptedLabel}${starredLabel}" aria-selected="${isSelected}">
                 <div class="file-col file-select">
-                    <input type="checkbox" class="file-checkbox" data-sha256="${file.sha256}" ${isSelected ? 'checked' : ''}>
+                    <input type="checkbox" class="file-checkbox" data-sha256="${file.sha256}" ${isSelected ? 'checked' : ''} aria-label="Select ${this.escapeHtml(fileName)}">
                 </div>
                 <div class="file-col file-name">
+                    <button class="star-btn ${isStarred ? 'starred' : ''}" title="${isStarred ? 'Remove from starred' : 'Add to starred'}" aria-label="${isStarred ? 'Remove from starred' : 'Add to starred'}" aria-pressed="${isStarred}">${isStarred ? '&#9733;' : '&#9734;'}</button>
                     ${iconHtml}
                     <span class="file-name-text">${this.escapeHtml(fileName)}</span>
-                    ${isEncrypted ? '<span class="encrypted-badge" title="End-to-end encrypted">E2E</span>' : ''}
+                    ${isEncrypted ? '<span class="encrypted-badge" title="End-to-end encrypted" aria-label="End-to-end encrypted">E2E</span>' : ''}
                 </div>
                 <div class="file-col file-size">${size}</div>
                 <div class="file-col file-date">${date}</div>
-                <div class="file-col file-actions">
-                    ${isPreviewable ? '<button class="action-btn preview-btn" title="Preview">Preview</button>' : ''}
-                    ${isEditable ? '<button class="action-btn edit-btn" title="Edit">Edit</button>' : ''}
-                    <button class="action-btn history-btn" title="Version History">History</button>
-                    <button class="action-btn link-btn" title="Public Link">Link</button>
-                    <button class="action-btn share-btn" title="Share">Share</button>
-                    <button class="action-btn download-btn">Download</button>
-                    <button class="action-btn delete delete-btn">Delete</button>
+                <div class="file-col file-actions" role="group" aria-label="File actions">
+                    ${isPreviewable ? `<button class="action-btn preview-btn" title="Preview" aria-label="Preview ${this.escapeHtml(fileName)}">Preview</button>` : ''}
+                    ${isEditable ? `<button class="action-btn edit-btn" title="Edit" aria-label="Edit ${this.escapeHtml(fileName)}">Edit</button>` : ''}
+                    <button class="action-btn history-btn" title="Version History" aria-label="View version history">History</button>
+                    <button class="action-btn link-btn" title="Public Link" aria-label="Create public link">Link</button>
+                    <button class="action-btn share-btn" title="Share" aria-label="Share file">Share</button>
+                    <button class="action-btn download-btn" aria-label="Download ${this.escapeHtml(fileName)}">Download</button>
+                    <button class="action-btn delete delete-btn" aria-label="Move ${this.escapeHtml(fileName)} to trash">Delete</button>
                 </div>
             </div>
         `;
@@ -599,6 +721,16 @@ const UI = {
     // Show context menu for a file
     showFileContextMenu(x, y, fileObj, fileMime) {
         const menuItems = [];
+        const isStarred = App.starredFiles?.has(fileObj.sha256);
+
+        // Star/unstar option
+        menuItems.push({
+            label: isStarred ? 'Remove from Starred' : 'Add to Starred',
+            action: () => App.toggleStar(fileObj.sha256)
+        });
+
+        // Tags option
+        menuItems.push({ label: 'Tags...', action: () => App.showTagsModal(fileObj) });
 
         // Add preview option for previewable files
         if (App.isPreviewable(fileMime)) {
@@ -616,7 +748,7 @@ const UI = {
             menuItems.push({ label: 'Edit', action: () => App.openEditor(fileObj) });
         }
 
-        menuItems.push({ label: 'Delete', action: () => { if (confirm('Delete this file?')) App.deleteFile(fileObj.sha256); }, className: 'danger' });
+        menuItems.push({ label: 'Move to Trash', action: () => App.deleteFile(fileObj.sha256), className: 'danger' });
 
         this.showContextMenu(x, y, menuItems);
     },

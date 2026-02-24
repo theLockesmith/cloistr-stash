@@ -64,6 +64,14 @@ User's Nostr Key
 | Image thumbnails | IndexedDB cached, lazy-loaded | **DONE** |
 | Storage usage | Real-time display in sidebar | **DONE** |
 | Mobile touch | Long-press menu, swipe actions | **DONE** |
+| Keyboard shortcuts | Ctrl+A, Delete, Enter, arrows, etc. | **DONE** |
+| Trash/recycle bin | Soft delete with 30-day retention | **DONE** |
+| Starred files | Quick-access favorites list | **DONE** |
+| Recent files | Track recently accessed files | **DONE** |
+| File tags/labels | User-defined tags with autocomplete | **DONE** |
+| Virtual scrolling | Efficient rendering for large lists | **DONE** |
+| Accessibility | ARIA labels, keyboard nav, screen reader support | **DONE** |
+| E2E testing | Playwright test suite | **DONE** |
 
 ### Current State
 
@@ -106,6 +114,14 @@ User's Nostr Key
 | Mobile touch gestures | **DONE** |
 | Long-press context menu | **DONE** |
 | Swipe actions | **DONE** |
+| Keyboard shortcuts | **DONE** |
+| Trash/recycle bin | **DONE** |
+| Starred files | **DONE** |
+| Recent files view | **DONE** |
+| File tags/labels | **DONE** |
+| Virtual scrolling | **DONE** |
+| Accessibility (ARIA) | **DONE** |
+| E2E tests (Playwright) | **DONE** |
 
 ## Project Structure
 
@@ -119,6 +135,12 @@ cloistr-drive/
 │   ├── metadata/           # Nostr relay integration
 │   ├── metrics/            # Prometheus metrics
 │   └── server/             # HTTP handlers
+├── tests/                  # Test suites
+│   └── e2e/                # Playwright E2E tests
+│       ├── landing.spec.js
+│       ├── keyboard-shortcuts.spec.js
+│       └── ui-components.spec.js
+├── playwright.config.js    # Playwright configuration
 └── web/                    # Frontend
     ├── index.html
     ├── manifest.json       # PWA manifest
@@ -220,6 +242,12 @@ go test ./...
 
 # Run crypto tests (in browser console)
 runCryptoTests()
+
+# Run E2E tests (requires npm install @playwright/test)
+npx playwright test
+
+# Run E2E tests with UI
+npx playwright test --ui
 
 # Build Docker
 docker build -t cloistr-drive .

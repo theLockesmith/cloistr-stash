@@ -91,18 +91,33 @@
                 <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
                 <!-- Folder Tree Sidebar -->
-                <aside class="sidebar" id="sidebar">
+                <aside class="sidebar" id="sidebar" role="navigation" aria-label="File navigation">
                     <div class="sidebar-header">
-                        <span class="sidebar-title">Folders</span>
-                        <button id="sidebar-toggle" class="btn btn-icon sidebar-toggle" title="Toggle sidebar">&#9776;</button>
+                        <span class="sidebar-title" id="sidebar-title">Folders</span>
+                        <button id="sidebar-toggle" class="btn btn-icon sidebar-toggle" title="Toggle sidebar" aria-label="Toggle sidebar" aria-expanded="true">&#9776;</button>
                     </div>
-                    <div class="folder-tree" id="folder-tree">
-                        <div class="folder-tree-item root" data-id="">
-                            <span class="folder-tree-icon">&#128193;</span>
+                    <nav class="folder-tree" id="folder-tree" role="tree" aria-labelledby="sidebar-title">
+                        <div class="folder-tree-item root" data-id="" role="treeitem" tabindex="0" aria-selected="true">
+                            <span class="folder-tree-icon" aria-hidden="true">&#128193;</span>
                             <span class="folder-tree-name">My Drive</span>
                         </div>
-                        <div class="folder-tree-children" id="folder-tree-root"></div>
-                    </div>
+                        <div class="folder-tree-children" id="folder-tree-root" role="group"></div>
+                    </nav>
+                    <nav class="sidebar-section" role="navigation" aria-label="Quick access">
+                        <div class="sidebar-nav-item" id="nav-starred" title="Starred files" role="button" tabindex="0" aria-label="Starred files">
+                            <span class="sidebar-nav-icon" aria-hidden="true">&#9733;</span>
+                            <span class="sidebar-nav-name">Starred</span>
+                        </div>
+                        <div class="sidebar-nav-item" id="nav-recent" title="Recently accessed" role="button" tabindex="0" aria-label="Recent files">
+                            <span class="sidebar-nav-icon" aria-hidden="true">&#128337;</span>
+                            <span class="sidebar-nav-name">Recent</span>
+                        </div>
+                        <div class="sidebar-nav-item" id="nav-trash" title="Deleted files" role="button" tabindex="0" aria-label="Trash">
+                            <span class="sidebar-nav-icon" aria-hidden="true">&#128465;</span>
+                            <span class="sidebar-nav-name">Trash</span>
+                            <span class="sidebar-nav-badge" id="trash-count" aria-live="polite"></span>
+                        </div>
+                    </nav>
                     <div class="storage-usage" id="storage-usage">
                         <div class="storage-info">
                             <span class="storage-label">Storage</span>
@@ -159,16 +174,16 @@
                     </div>
                 </div>
 
-                <div id="file-list" class="file-list">
-                    <div class="file-list-header">
+                <div id="file-list" class="file-list" role="region" aria-label="File browser">
+                    <div class="file-list-header" role="row" aria-hidden="true">
                         <div class="file-col file-select"></div>
                         <div class="file-col file-name">Name</div>
                         <div class="file-col file-size">Size</div>
                         <div class="file-col file-date">Modified</div>
                         <div class="file-col file-actions"></div>
                     </div>
-                    <div id="file-list-body" class="file-list-body">
-                        <div class="empty-state" id="empty-state">
+                    <div id="file-list-body" class="file-list-body" role="list" aria-label="Files and folders" tabindex="0">
+                        <div class="empty-state" id="empty-state" role="status">
                             <p>No files yet</p>
                             <p class="empty-state-subtext">Drag files here or click Upload to get started</p>
                         </div>
@@ -247,6 +262,27 @@
                 <div class="modal-footer">
                     <button class="btn" id="share-cancel">Cancel</button>
                     <button class="btn btn-primary" id="share-confirm">Share</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tags Modal -->
+        <div id="tags-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Tags</h2>
+                    <button class="modal-close" id="tags-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="tags-file-name" id="tags-file-name"></div>
+                    <div class="tags-container" id="tags-container"></div>
+                    <div class="tag-input-wrapper">
+                        <input type="text" id="tag-input" class="input" placeholder="Add a tag...">
+                        <div id="tag-suggestions" class="tag-suggestions hidden"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="tags-done">Done</button>
                 </div>
             </div>
         </div>
