@@ -1933,33 +1933,51 @@ const App = {
             const result = await API.checkAuthStatus(authHeader);
             console.log('Auth: Status result:', result);
 
-            if (result.authorized) {
-                this.authState = 'authenticated';
+            if (!result.authorized) {
+                console.log('Auth: Not authorized. Pubkey:', Auth.pubkey);
+                this.authState = 'denied';
+                document.getElementById('denied-pubkey').textContent = Auth.pubkey;
+                this.updateAuthUI();
+                return;
+            }
 
-                // Initialize crypto and key management
+            // Authorization succeeded, now initialize libraries
+            try {
                 console.log('App: Initializing crypto...');
                 await Crypto.init();
                 await Keys.init(Auth.pubkey);
 
-                // Initialize search index
                 console.log('App: Initializing search...');
                 await Search.init(Auth.pubkey);
 
-                // Initialize versioning
                 await Versioning.init();
-
-                await this.loadFiles();
-                await this.loadFolderTree();
-                UI.toast('Connected', 'success');
-            } else {
-                console.log('Auth: Not authorized. Pubkey:', Auth.pubkey);
-                this.authState = 'denied';
-                document.getElementById('denied-pubkey').textContent = Auth.pubkey;
+            } catch (initErr) {
+                // Library init failed - this is NOT an auth failure
+                console.error('Library initialization failed:', initErr);
+                UI.toast(`Initialization error: ${initErr.message}. Please refresh the page.`, 'error');
+                // Stay on landing page, don't show "Access Denied"
+                this.authState = 'unauthenticated';
+                Auth.disconnect();
+                this.updateAuthUI();
+                return;
             }
+
+            this.authState = 'authenticated';
+            await this.loadFiles();
+            await this.loadFolderTree();
+            UI.toast('Connected', 'success');
         } catch (err) {
             console.error('Auth verification failed:', err);
-            this.authState = 'denied';
-            document.getElementById('denied-pubkey').textContent = Auth.pubkey;
+            // Check if this is an auth failure or a network/other error
+            if (err.message && (err.message.includes('401') || err.message.includes('403') || err.message.includes('unauthorized'))) {
+                this.authState = 'denied';
+                document.getElementById('denied-pubkey').textContent = Auth.pubkey;
+            } else {
+                // Network error or other issue - don't show access denied
+                UI.toast(`Connection error: ${err.message}. Please try again.`, 'error');
+                this.authState = 'unauthenticated';
+                Auth.disconnect();
+            }
         }
 
         this.updateAuthUI();

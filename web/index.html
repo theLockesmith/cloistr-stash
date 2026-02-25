@@ -835,18 +835,55 @@
         <div id="toast-container" class="toast-container"></div>
     </div>
 
-    <!-- libsodium for XChaCha20-Poly1305 encryption -->
-    <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/sodium.js"></script>
+    <!-- libsodium for XChaCha20-Poly1305 encryption (with fallbacks) -->
+    <script>
+        // Load libsodium with CDN fallback
+        (async function loadSodium() {
+            const cdns = [
+                'https://unpkg.com/libsodium-wrappers@0.7.13/dist/sodium.js',
+                'https://cdnjs.cloudflare.com/ajax/libs/libsodium-wrappers/0.7.13/sodium.min.js',
+                'https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/sodium.js'
+            ];
+
+            for (const url of cdns) {
+                try {
+                    await new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = url;
+                        script.onload = resolve;
+                        script.onerror = reject;
+                        document.head.appendChild(script);
+                    });
+
+                    // Wait for sodium to be ready
+                    if (typeof sodium_ready !== 'undefined') {
+                        await sodium_ready;
+                    } else if (typeof sodium !== 'undefined' && sodium.ready) {
+                        await sodium.ready;
+                    }
+
+                    console.log('libsodium loaded from:', url);
+                    window.dispatchEvent(new Event('sodium-loaded'));
+                    return;
+                } catch (err) {
+                    console.warn('Failed to load libsodium from', url, err);
+                }
+            }
+
+            console.error('Failed to load libsodium from any CDN');
+            window.dispatchEvent(new CustomEvent('sodium-error', { detail: 'All CDNs failed' }));
+        })();
+    </script>
 
     <!-- Secp256k1 library for NIP-46 crypto operations -->
-    <!-- Load noble-curves and noble-hashes from jsdelivr (more reliable) -->
     <script type="module">
-        // Try primary CDN first, then fallback
+        // Load noble-curves with CDN fallback (esm.sh handles ESM properly)
         async function loadNobleLibs() {
+            // esm.sh is most reliable for ES modules
             const cdns = [
-                'https://cdn.jsdelivr.net/npm/@noble',
                 'https://esm.sh/@noble',
-                'https://unpkg.com/@noble'
+                'https://unpkg.com/@noble',
+                'https://cdn.skypack.dev/@noble'
             ];
 
             for (const cdn of cdns) {
@@ -874,7 +911,7 @@
                     console.log('secp256k1 loaded from:', cdn);
                     return;
                 } catch (err) {
-                    console.warn('Failed to load from', cdn, err.message);
+                    console.warn('Failed to load noble-curves from', cdn, err.message);
                 }
             }
 
@@ -885,9 +922,46 @@
         loadNobleLibs();
     </script>
 
-    <!-- Yjs CRDT for collaborative editing -->
-    <script src="https://cdn.jsdelivr.net/npm/yjs@13.6.10/dist/yjs.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/y-protocols@1.0.6/dist/y-protocols.min.js"></script>
+    <!-- Yjs CRDT for collaborative editing (with fallbacks) -->
+    <script>
+        // Load Yjs with CDN fallback
+        (async function loadYjs() {
+            const cdns = [
+                ['https://unpkg.com/yjs@13.6.10/dist/yjs.js', 'https://unpkg.com/y-protocols@1.0.6/dist/y-protocols.js'],
+                ['https://cdnjs.cloudflare.com/ajax/libs/yjs/13.6.10/yjs.min.js', null],
+                ['https://cdn.jsdelivr.net/npm/yjs@13.6.10/dist/yjs.min.js', 'https://cdn.jsdelivr.net/npm/y-protocols@1.0.6/dist/y-protocols.min.js']
+            ];
+
+            for (const [yjsUrl, protocolsUrl] of cdns) {
+                try {
+                    await new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = yjsUrl;
+                        script.onload = resolve;
+                        script.onerror = reject;
+                        document.head.appendChild(script);
+                    });
+
+                    if (protocolsUrl) {
+                        await new Promise((resolve, reject) => {
+                            const script = document.createElement('script');
+                            script.src = protocolsUrl;
+                            script.onload = resolve;
+                            script.onerror = reject;
+                            document.head.appendChild(script);
+                        });
+                    }
+
+                    console.log('Yjs loaded from:', yjsUrl);
+                    return;
+                } catch (err) {
+                    console.warn('Failed to load Yjs from', yjsUrl, err);
+                }
+            }
+
+            console.warn('Failed to load Yjs - collaboration features disabled');
+        })();
+    </script>
 
     <script src="/js/api.js"></script>
     <script src="/js/relay.js"></script>
