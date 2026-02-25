@@ -837,37 +837,87 @@
 
     <!-- libsodium for XChaCha20-Poly1305 encryption (local first, CDN fallback) -->
     <script>
-        // Load libsodium - local first, CDN fallback
+        // Load libsodium (core + wrappers) - local first, CDN fallback
         (async function loadSodium() {
-            const sources = [
-                '/js/vendor/sodium.js',  // Local first
-                'https://unpkg.com/libsodium-wrappers@0.7.13/dist/sodium.js',
-                'https://cdnjs.cloudflare.com/ajax/libs/libsodium-wrappers/0.7.13/sodium.min.js',
-                'https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/sodium.js'
+            // Try local files first (need both core and wrappers)
+            async function loadLocal() {
+                // Load core first
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = '/js/vendor/libsodium.js';
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+                console.log('libsodium core loaded from local');
+
+                // Then load wrappers
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = '/js/vendor/sodium.js';
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+                console.log('libsodium wrappers loaded from local');
+            }
+
+            // CDN fallback sources (these are combined bundles)
+            const cdnSources = [
+                {
+                    core: 'https://cdn.jsdelivr.net/npm/libsodium@0.7.13/dist/modules/libsodium.js',
+                    wrappers: 'https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/modules/libsodium-wrappers.js'
+                },
+                {
+                    core: 'https://unpkg.com/libsodium@0.7.13/dist/modules/libsodium.js',
+                    wrappers: 'https://unpkg.com/libsodium-wrappers@0.7.13/dist/modules/libsodium-wrappers.js'
+                }
             ];
 
-            for (const url of sources) {
+            // Try local first
+            try {
+                await loadLocal();
+                // Wait for sodium to be ready
+                if (typeof sodium !== 'undefined' && sodium.ready) {
+                    await sodium.ready;
+                }
+                console.log('libsodium ready (local)');
+                window.dispatchEvent(new Event('sodium-loaded'));
+                return;
+            } catch (err) {
+                console.warn('Failed to load libsodium from local, trying CDN', err);
+            }
+
+            // CDN fallback
+            for (const cdn of cdnSources) {
                 try {
+                    // Load core
                     await new Promise((resolve, reject) => {
                         const script = document.createElement('script');
-                        script.src = url;
+                        script.src = cdn.core;
+                        script.onload = resolve;
+                        script.onerror = reject;
+                        document.head.appendChild(script);
+                    });
+                    // Load wrappers
+                    await new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = cdn.wrappers;
                         script.onload = resolve;
                         script.onerror = reject;
                         document.head.appendChild(script);
                     });
 
                     // Wait for sodium to be ready
-                    if (typeof sodium_ready !== 'undefined') {
-                        await sodium_ready;
-                    } else if (typeof sodium !== 'undefined' && sodium.ready) {
+                    if (typeof sodium !== 'undefined' && sodium.ready) {
                         await sodium.ready;
                     }
 
-                    console.log('libsodium loaded from:', url);
+                    console.log('libsodium loaded from CDN:', cdn.core);
                     window.dispatchEvent(new Event('sodium-loaded'));
                     return;
                 } catch (err) {
-                    console.warn('Failed to load libsodium from', url, err);
+                    console.warn('Failed to load libsodium from CDN', cdn.core, err);
                 }
             }
 
