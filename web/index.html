@@ -135,6 +135,29 @@
                             <span class="sidebar-nav-badge notification-badge" id="notification-count"></span>
                         </div>
                     </nav>
+                    <!-- Desktop Sync Status (hidden in browser, shown in Tauri) -->
+                    <div id="sync-status-section" class="sync-status-section hidden">
+                        <div class="sync-header">
+                            <span class="sync-title">Sync</span>
+                            <button id="sync-settings-btn" class="btn btn-icon btn-small" title="Sync settings">&#9881;</button>
+                        </div>
+                        <div class="sync-info">
+                            <span id="sync-status" class="sync-status-text synced">Synced</span>
+                        </div>
+                        <div class="sync-progress-bar hidden">
+                            <div id="sync-progress" class="sync-progress-fill"></div>
+                        </div>
+                        <div class="sync-actions">
+                            <button id="sync-now-btn" class="btn btn-small" title="Sync now">Sync Now</button>
+                            <button id="sync-pause-btn" class="btn btn-small" title="Pause sync">Pause</button>
+                        </div>
+                        <div class="sync-folder-info">
+                            <button id="sync-folder-btn" class="btn btn-small btn-full" title="Change sync folder">
+                                <span class="icon">&#128193;</span> Change Folder
+                            </button>
+                        </div>
+                    </div>
+
                     <div class="storage-usage" id="storage-usage">
                         <div class="storage-info">
                             <span class="storage-label">Storage</span>
@@ -769,6 +792,42 @@
             </div>
         </div>
 
+        <!-- Sync Settings Modal (Desktop only) -->
+        <div id="sync-settings-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Sync Settings</h2>
+                    <button class="modal-close" id="sync-settings-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="sync-folder-path">Sync Folder</label>
+                        <div class="input-with-button">
+                            <input type="text" id="sync-folder-path" class="input" readonly placeholder="No folder selected">
+                            <button class="btn" id="sync-folder-browse">Browse</button>
+                        </div>
+                        <p class="modal-help">Files in this folder will automatically sync with your Drive.</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="sync-auto-start" checked>
+                            Start on system boot
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="sync-notifications" checked>
+                            Show sync notifications
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="sync-settings-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="sync-settings-save">Save</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Context Menu (created dynamically) -->
         <div id="context-menu" class="context-menu hidden"></div>
 
@@ -842,6 +901,7 @@
     <script src="/js/search.js"></script>
     <script src="/js/upload.js"></script>
     <script src="/js/ui.js"></script>
+    <script src="/js/desktop.js"></script>
     <script src="/js/app.js"></script>
 </body>
 </html>
