@@ -18,15 +18,64 @@ const Crypto = {
         if (this.initialized) return true;
 
         try {
-            // Wait for sodium to be ready
+            // Check if sodium is already loaded
+            if (typeof sodium !== 'undefined') {
+                await sodium.ready;
+                this.sodium = sodium;
+                this.initialized = true;
+                console.log('Crypto: libsodium initialized');
+                return true;
+            }
+
+            // Wait for sodium to be loaded (async loading in progress)
+            await new Promise((resolve, reject) => {
+                // Check periodically in case we missed the event
+                const checkInterval = setInterval(() => {
+                    if (typeof sodium !== 'undefined') {
+                        clearInterval(checkInterval);
+                        resolve();
+                    }
+                }, 100);
+
+                // Also listen for the load events
+                const onLoaded = () => {
+                    clearInterval(checkInterval);
+                    window.removeEventListener('sodium-loaded', onLoaded);
+                    window.removeEventListener('sodium-error', onError);
+                    resolve();
+                };
+                const onError = (e) => {
+                    clearInterval(checkInterval);
+                    window.removeEventListener('sodium-loaded', onLoaded);
+                    window.removeEventListener('sodium-error', onError);
+                    reject(new Error(e.detail || 'Failed to load libsodium'));
+                };
+
+                window.addEventListener('sodium-loaded', onLoaded);
+                window.addEventListener('sodium-error', onError);
+
+                // Timeout after 30 seconds
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    window.removeEventListener('sodium-loaded', onLoaded);
+                    window.removeEventListener('sodium-error', onError);
+                    if (typeof sodium !== 'undefined') {
+                        resolve();
+                    } else {
+                        reject(new Error('Timeout waiting for libsodium to load'));
+                    }
+                }, 30000);
+            });
+
+            // Now sodium should be available
             await sodium.ready;
             this.sodium = sodium;
             this.initialized = true;
-            console.log('Crypto: libsodium initialized');
+            console.log('Crypto: libsodium initialized (async)');
             return true;
         } catch (err) {
             console.error('Crypto: Failed to initialize libsodium:', err);
-            throw new Error('Failed to initialize encryption library');
+            throw new Error('Failed to initialize encryption library: ' + err.message);
         }
     },
 

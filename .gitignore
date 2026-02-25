@@ -13,8 +13,10 @@
 *.out
 *.coverprofile
 
-# Dependency directories
+# Dependency directories (Go modules)
 vendor/
+# But include web vendor libraries
+!web/js/vendor/
 
 # IDEs
 .idea/

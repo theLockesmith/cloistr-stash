@@ -835,17 +835,18 @@
         <div id="toast-container" class="toast-container"></div>
     </div>
 
-    <!-- libsodium for XChaCha20-Poly1305 encryption (with fallbacks) -->
+    <!-- libsodium for XChaCha20-Poly1305 encryption (local first, CDN fallback) -->
     <script>
-        // Load libsodium with CDN fallback
+        // Load libsodium - local first, CDN fallback
         (async function loadSodium() {
-            const cdns = [
+            const sources = [
+                '/js/vendor/sodium.js',  // Local first
                 'https://unpkg.com/libsodium-wrappers@0.7.13/dist/sodium.js',
                 'https://cdnjs.cloudflare.com/ajax/libs/libsodium-wrappers/0.7.13/sodium.min.js',
                 'https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/sodium.js'
             ];
 
-            for (const url of cdns) {
+            for (const url of sources) {
                 try {
                     await new Promise((resolve, reject) => {
                         const script = document.createElement('script');
@@ -870,29 +871,44 @@
                 }
             }
 
-            console.error('Failed to load libsodium from any CDN');
-            window.dispatchEvent(new CustomEvent('sodium-error', { detail: 'All CDNs failed' }));
+            console.error('Failed to load libsodium from any source');
+            window.dispatchEvent(new CustomEvent('sodium-error', { detail: 'All sources failed' }));
         })();
     </script>
 
-    <!-- Secp256k1 library for NIP-46 crypto operations -->
-    <script type="module">
-        // Load noble-curves with CDN fallback (esm.sh handles ESM properly)
-        async function loadNobleLibs() {
-            // esm.sh is most reliable for ES modules
+    <!-- Secp256k1 library for NIP-46 crypto operations (local first, CDN fallback) -->
+    <script>
+        // Load noble-curves - local first, CDN fallback
+        (async function loadNobleSecp256k1() {
+            // Try local bundle first
+            const localUrl = '/js/vendor/noble-secp256k1.min.js';
+            try {
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = localUrl;
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+                // Local bundle dispatches event and sets up window.nobleSecp256k1 automatically
+                return;
+            } catch (err) {
+                console.warn('Failed to load noble-secp256k1 from local, trying CDN fallback', err);
+            }
+
+            // CDN fallback using dynamic import
             const cdns = [
                 'https://esm.sh/@noble',
-                'https://unpkg.com/@noble',
                 'https://cdn.skypack.dev/@noble'
             ];
 
             for (const cdn of cdns) {
                 try {
-                    const [curves, hashes] = await Promise.all([
+                    const [curves, hashes, sha256Module] = await Promise.all([
                         import(`${cdn}/curves@1.6.0/secp256k1`),
-                        import(`${cdn}/hashes@1.4.0/hmac`)
+                        import(`${cdn}/hashes@1.4.0/hmac`),
+                        import(`${cdn}/hashes@1.4.0/sha256`)
                     ]);
-                    const sha256Module = await import(`${cdn}/hashes@1.4.0/sha256`);
 
                     const { schnorr, secp256k1 } = curves;
                     const { hmac } = hashes;
@@ -907,19 +923,17 @@
                     // Export to window
                     window.nobleSecp256k1 = secp256k1;
                     window.nobleSchnorr = schnorr;
+                    console.log('secp256k1 loaded from CDN:', cdn);
                     window.dispatchEvent(new Event('secp256k1-loaded'));
-                    console.log('secp256k1 loaded from:', cdn);
                     return;
                 } catch (err) {
                     console.warn('Failed to load noble-curves from', cdn, err.message);
                 }
             }
 
-            console.error('Failed to load secp256k1 from any CDN');
-            window.dispatchEvent(new CustomEvent('secp256k1-error', { detail: 'All CDNs failed' }));
-        }
-
-        loadNobleLibs();
+            console.error('Failed to load secp256k1 from any source');
+            window.dispatchEvent(new CustomEvent('secp256k1-error', { detail: 'All sources failed' }));
+        })();
     </script>
 
     <!-- Yjs CRDT for collaborative editing (with fallbacks) -->
