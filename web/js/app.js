@@ -1928,13 +1928,26 @@ const App = {
         try {
             // Create a simple auth header for status check
             console.log('Auth: Creating status auth header...');
+            console.log('Auth: Connection type:', Auth.connectionType);
+            console.log('Auth: Client-side pubkey:', Auth.pubkey);
             const authHeader = await Auth.createStatusAuth();
+            // Decode and log what we're sending
+            try {
+                const b64 = authHeader.replace('Nostr ', '');
+                const decoded = JSON.parse(atob(b64));
+                console.log('Auth: Event pubkey in header:', decoded.pubkey);
+                console.log('Auth: Event id:', decoded.id);
+                console.log('Auth: Event sig:', decoded.sig?.slice(0, 16) + '...');
+            } catch (e) {
+                console.log('Auth: Could not decode header for logging');
+            }
             console.log('Auth: Got auth header, checking status...');
             const result = await API.checkAuthStatus(authHeader);
             console.log('Auth: Status result:', result);
+            console.log('Auth: Server saw pubkey:', result.pubkey);
 
             if (!result.authorized) {
-                console.log('Auth: Not authorized. Pubkey:', Auth.pubkey);
+                console.log('Auth: Not authorized. Client pubkey:', Auth.pubkey, 'Server saw:', result.pubkey);
                 this.authState = 'denied';
                 document.getElementById('denied-pubkey').textContent = Auth.pubkey;
                 this.updateAuthUI();
