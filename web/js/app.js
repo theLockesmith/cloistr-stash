@@ -1793,8 +1793,9 @@ const App = {
         try {
             if (!Auth.pubkey) return;
 
-            // Query for shares directed to us
-            const shares = await Auth.queryShares(Auth.pubkey);
+            // Query for shares directed to us via API
+            const response = await API.listShares(Auth.pubkey, 'received');
+            const shares = response.shares || [];
 
             // Filter for new shares (not already notified)
             const existingIds = new Set(

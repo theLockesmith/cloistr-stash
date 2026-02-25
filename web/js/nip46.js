@@ -373,25 +373,54 @@ const NIP46 = {
                     if (success) {
                         console.log('NIP-46: Authenticated with relay');
                         this.authenticated = true;
-                        // Retry pending event if any
+                        // Retry pending event if any (legacy single retry)
                         if (this.pendingRetry) {
                             console.log('NIP-46: Retrying pending request after auth...');
                             const { event, ws } = this.pendingRetry;
                             this.pendingRetry = null;
                             ws.send(JSON.stringify(['EVENT', event]));
                         }
+                        // Retry any pending publish events that failed with auth-required
+                        if (this.pendingAuthRetries && this.pendingAuthRetries.length > 0) {
+                            console.log('NIP-46: Retrying', this.pendingAuthRetries.length, 'pending publishes after auth...');
+                            const retries = this.pendingAuthRetries;
+                            this.pendingAuthRetries = [];
+                            for (const retry of retries) {
+                                // Re-send to all open sockets
+                                for (const ws of this.sockets) {
+                                    if (ws.readyState === WebSocket.OPEN) {
+                                        ws.send(JSON.stringify(['EVENT', retry.event]));
+                                        console.log('NIP-46: Retried event', retry.eventId?.slice(0, 8));
+                                        break; // Only need to send to one relay
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         console.error('NIP-46: AUTH failed:', reason);
+                        // Reject any pending auth retries
+                        if (this.pendingAuthRetries) {
+                            for (const retry of this.pendingAuthRetries) {
+                                retry.pending.reject(new Error('AUTH failed: ' + reason));
+                                this.pendingPublishes.delete(retry.eventId);
+                            }
+                            this.pendingAuthRetries = [];
+                        }
                     }
                     this.pendingAuth = null;
                 } else if (reason.includes('auth-required')) {
-                    // Event was rejected due to auth-required
-                    console.log('NIP-46: Event requires auth, waiting for AUTH challenge...');
-                    // Reject the pending publish if it's auth-required
+                    // Event was rejected due to auth-required - store for retry after AUTH
+                    console.log('NIP-46: Event requires auth, storing for retry after AUTH...');
                     const pending = this.pendingPublishes.get(eventId);
-                    if (pending) {
-                        pending.reject(new Error('auth-required: ' + reason));
-                        this.pendingPublishes.delete(eventId);
+                    if (pending && pending.event) {
+                        // Store for retry - don't reject yet
+                        this.pendingAuthRetries = this.pendingAuthRetries || [];
+                        this.pendingAuthRetries.push({
+                            eventId: eventId,
+                            event: pending.event,
+                            pending: pending,
+                        });
+                        // Don't delete - keep tracking until retry completes or times out
                     }
                 } else {
                     // Handle pending publish confirmations
@@ -748,8 +777,9 @@ const NIP46 = {
                 reject(new Error('Publish timeout - no OK response from relay'));
             }, 15000);
 
-            // Track this publish
+            // Track this publish (include event for potential auth retry)
             this.pendingPublishes.set(signedEvent.id, {
+                event: signedEvent,
                 resolve: (result) => {
                     clearTimeout(timeout);
                     resolve(result);
