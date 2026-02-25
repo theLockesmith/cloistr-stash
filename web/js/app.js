@@ -2035,10 +2035,14 @@ const App = {
                 break;
             case 'denied':
                 accessDenied.classList.remove('hidden');
+                // Close any open login modals
+                UI.hideModal('nip46-modal');
                 break;
             case 'authenticated':
                 fileExplorer.classList.remove('hidden');
                 UI.setConnectedState(Auth.pubkey);
+                // Close any open login modals (e.g., if session was restored while modal was open)
+                UI.hideModal('nip46-modal');
                 break;
         }
     },
