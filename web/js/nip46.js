@@ -20,6 +20,9 @@ const NIP46 = {
     pendingRequests: new Map(),
     requestId: 0,
 
+    // Pending event publishes (waiting for OK responses)
+    pendingPublishes: new Map(),
+
     // Track seen events to deduplicate responses from multiple relays
     seenEvents: new Set(),
 
@@ -384,6 +387,23 @@ const NIP46 = {
                 } else if (reason.includes('auth-required')) {
                     // Event was rejected due to auth-required
                     console.log('NIP-46: Event requires auth, waiting for AUTH challenge...');
+                    // Reject the pending publish if it's auth-required
+                    const pending = this.pendingPublishes.get(eventId);
+                    if (pending) {
+                        pending.reject(new Error('auth-required: ' + reason));
+                        this.pendingPublishes.delete(eventId);
+                    }
+                } else {
+                    // Handle pending publish confirmations
+                    const pending = this.pendingPublishes.get(eventId);
+                    if (pending) {
+                        if (success) {
+                            pending.resolve({ success: true, message: reason });
+                        } else {
+                            pending.reject(new Error(reason || 'Publish rejected by relay'));
+                        }
+                        this.pendingPublishes.delete(eventId);
+                    }
                 }
             } else if (message[0] === 'EOSE') {
                 // End of stored events
@@ -706,7 +726,7 @@ const NIP46 = {
         return this.userPubkey;
     },
 
-    // Publish a signed event to all connected relays
+    // Publish a signed event to all connected relays and wait for confirmation
     async publishEvent(signedEvent) {
         if (this.sockets.length === 0) {
             throw new Error('Not connected to any relay');
@@ -715,28 +735,50 @@ const NIP46 = {
         console.log('NIP-46: Publishing event kind:', signedEvent.kind, 'id:', signedEvent.id?.slice(0, 8));
 
         const message = JSON.stringify(['EVENT', signedEvent]);
-        const results = [];
+        const openSockets = this.sockets.filter(ws => ws.readyState === WebSocket.OPEN);
 
-        // Publish to all connected relays
-        for (const ws of this.sockets) {
-            if (ws.readyState === WebSocket.OPEN) {
+        if (openSockets.length === 0) {
+            throw new Error('No open relay connections');
+        }
+
+        // Create promise that waits for at least one OK response
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                this.pendingPublishes.delete(signedEvent.id);
+                reject(new Error('Publish timeout - no OK response from relay'));
+            }, 15000);
+
+            // Track this publish
+            this.pendingPublishes.set(signedEvent.id, {
+                resolve: (result) => {
+                    clearTimeout(timeout);
+                    resolve(result);
+                },
+                reject: (err) => {
+                    clearTimeout(timeout);
+                    reject(err);
+                },
+            });
+
+            // Send to all open relays
+            let sent = 0;
+            for (const ws of openSockets) {
                 try {
                     ws.send(message);
-                    results.push({ url: ws.url, sent: true });
+                    sent++;
                 } catch (err) {
                     console.warn('NIP-46: Failed to send to', ws.url, err);
-                    results.push({ url: ws.url, sent: false, error: err.message });
                 }
             }
-        }
 
-        const sent = results.filter(r => r.sent).length;
-        if (sent === 0) {
-            throw new Error('Failed to publish to any relay');
-        }
-
-        console.log('NIP-46: Event published to', sent, 'relay(s)');
-        return { published: sent, results };
+            if (sent === 0) {
+                clearTimeout(timeout);
+                this.pendingPublishes.delete(signedEvent.id);
+                reject(new Error('Failed to send to any relay'));
+            } else {
+                console.log('NIP-46: Sent event to', sent, 'relay(s), waiting for OK...');
+            }
+        });
     },
 };
 

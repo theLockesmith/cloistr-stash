@@ -141,31 +141,33 @@ const Upload = {
 
                 // Step 8: Publish encrypted file metadata to relay
                 if (Auth.isConnected) {
-                    try {
-                        item.status = 'publishing';
-                        if (onProgress) onProgress(item);
-                        console.log('Upload: Publishing encrypted file metadata to relay...');
-                        UI.updateUploadProgress(completed, pending.length, `Publishing ${item.file.name}...`);
+                    item.status = 'publishing';
+                    if (onProgress) onProgress(item);
+                    console.log('Upload: Publishing encrypted file metadata to relay...');
+                    UI.updateUploadProgress(completed, pending.length, `Publishing ${item.file.name}...`);
 
-                        const metadataEvent = await Auth.createEncryptedFileMetadataEvent({
-                            fileId: item.fileId,
-                            sha256: result.sha256,                    // Hash of encrypted blob
-                            plaintextHash: item.plaintextHash,        // Hash of original file
-                            name: item.file.name,
-                            size: item.file.size,                     // Original size
-                            encryptedSize: encryptedData.length,      // Encrypted size
-                            mimeType: item.file.type || 'application/octet-stream',
-                            folderId: folderId,
-                            encrypted: true,
-                        });
+                    const metadataEvent = await Auth.createEncryptedFileMetadataEvent({
+                        fileId: item.fileId,
+                        sha256: result.sha256,                    // Hash of encrypted blob
+                        plaintextHash: item.plaintextHash,        // Hash of original file
+                        name: item.file.name,
+                        size: item.file.size,                     // Original size
+                        encryptedSize: encryptedData.length,      // Encrypted size
+                        mimeType: item.file.type || 'application/octet-stream',
+                        folderId: folderId,
+                        encrypted: true,
+                    });
 
-                        // Publish directly to relay (client-side)
-                        await Auth.publishEvent(metadataEvent);
-                        console.log('Upload: Encrypted metadata published');
-                    } catch (metaErr) {
-                        console.warn('Upload: Failed to publish metadata:', metaErr);
-                        // Continue even if metadata fails - file is still uploaded
-                    }
+                    console.log('Upload: Metadata event details:', {
+                        kind: metadataEvent.kind,
+                        pubkey: metadataEvent.pubkey?.slice(0, 16) + '...',
+                        id: metadataEvent.id?.slice(0, 16) + '...',
+                        tags: metadataEvent.tags?.map(t => [t[0], t[1]?.slice(0, 16) + (t[1]?.length > 16 ? '...' : '')]),
+                    });
+
+                    // Publish directly to relay (client-side) - this must succeed
+                    const publishResult = await Auth.publishEvent(metadataEvent);
+                    console.log('Upload: Encrypted metadata published successfully:', publishResult);
                 }
 
                 // Wipe the encryption key from memory
@@ -203,7 +205,12 @@ const Upload = {
                 item.status = 'error';
                 item.error = err.message;
                 completed++;
-                console.error(`Upload: Failed - ${err.message}`);
+                console.error(`Upload: Failed - ${err.message}`, err);
+                // If this was a metadata publishing error, the blob is on Blossom but not tracked
+                if (err.message.includes('Publish') || err.message.includes('auth')) {
+                    console.error('Upload: Metadata publish failed! Blob uploaded to Blossom but not indexed.');
+                    console.error('Upload: Encrypted blob hash:', item.encryptedHash);
+                }
             }
 
             if (onProgress) onProgress(item);

@@ -2046,6 +2046,8 @@ const App = {
         const pubkey = Auth.isConnected ? Auth.pubkey : null;
         if (!pubkey) return;
 
+        console.log('loadFiles: Starting, pubkey:', pubkey.slice(0, 16) + '...', 'folder:', this.currentFolderId || '(root)');
+
         // Show loading state
         UI.showLoadingSkeleton();
 
@@ -2059,11 +2061,16 @@ const App = {
             this.folders = foldersResponse.folders || [];
             this.files = filesResponse.files || [];
 
+            console.log('loadFiles: Loaded', this.folders.length, 'folders,', this.files.length, 'files');
+            if (this.files.length > 0) {
+                console.log('loadFiles: First file:', this.files[0]?.name, 'id:', this.files[0]?.id?.slice(0, 16));
+            }
+
             this.renderCurrentView();
             this.renderBreadcrumbs();
             this.updateStorageUsage();
         } catch (err) {
-            console.error('Failed to load files:', err);
+            console.error('loadFiles: Failed -', err);
 
             if (this.isOffline()) {
                 UI.showErrorState('You are offline. Files will load when reconnected.');
