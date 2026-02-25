@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 )
 
 // Client is an HTTP client for communicating with a Blossom server
@@ -34,7 +33,9 @@ func NewClient(baseURL string) *Client {
 	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Timeout: 5 * time.Minute, // Long timeout for large uploads
+			// No global timeout - rely on context cancellation for large uploads
+			// Individual operations can set their own timeouts via context
+			Timeout: 0,
 		},
 	}
 }
