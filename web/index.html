@@ -780,21 +780,50 @@
     <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/sodium.js"></script>
 
     <!-- Secp256k1 library for NIP-46 crypto operations -->
+    <!-- Load noble-curves and noble-hashes from jsdelivr (more reliable) -->
     <script type="module">
-        import { schnorr, secp256k1 } from 'https://esm.sh/@noble/curves@1.6.0/secp256k1';
-        import { hmac } from 'https://esm.sh/@noble/hashes@1.4.0/hmac';
-        import { sha256 } from 'https://esm.sh/@noble/hashes@1.4.0/sha256';
+        // Try primary CDN first, then fallback
+        async function loadNobleLibs() {
+            const cdns = [
+                'https://cdn.jsdelivr.net/npm/@noble',
+                'https://esm.sh/@noble',
+                'https://unpkg.com/@noble'
+            ];
 
-        // Configure hmacSha256Sync for ECDH operations
-        secp256k1.utils.hmacSha256Sync = (key, ...messages) => {
-            const concat = secp256k1.utils.concatBytes(...messages);
-            return hmac(sha256, key, concat);
-        };
+            for (const cdn of cdns) {
+                try {
+                    const [curves, hashes] = await Promise.all([
+                        import(`${cdn}/curves@1.6.0/secp256k1`),
+                        import(`${cdn}/hashes@1.4.0/hmac`)
+                    ]);
+                    const sha256Module = await import(`${cdn}/hashes@1.4.0/sha256`);
 
-        // Export both secp256k1 (for ECDH) and schnorr (for signing)
-        window.nobleSecp256k1 = secp256k1;
-        window.nobleSchnorr = schnorr;
-        window.dispatchEvent(new Event('secp256k1-loaded'));
+                    const { schnorr, secp256k1 } = curves;
+                    const { hmac } = hashes;
+                    const { sha256 } = sha256Module;
+
+                    // Configure hmacSha256Sync for ECDH operations
+                    secp256k1.utils.hmacSha256Sync = (key, ...messages) => {
+                        const concat = secp256k1.utils.concatBytes(...messages);
+                        return hmac(sha256, key, concat);
+                    };
+
+                    // Export to window
+                    window.nobleSecp256k1 = secp256k1;
+                    window.nobleSchnorr = schnorr;
+                    window.dispatchEvent(new Event('secp256k1-loaded'));
+                    console.log('secp256k1 loaded from:', cdn);
+                    return;
+                } catch (err) {
+                    console.warn('Failed to load from', cdn, err.message);
+                }
+            }
+
+            console.error('Failed to load secp256k1 from any CDN');
+            window.dispatchEvent(new CustomEvent('secp256k1-error', { detail: 'All CDNs failed' }));
+        }
+
+        loadNobleLibs();
     </script>
 
     <!-- Yjs CRDT for collaborative editing -->

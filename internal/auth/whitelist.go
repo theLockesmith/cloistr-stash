@@ -70,9 +70,16 @@ func (w *Whitelist) LoadFromEnv(envVar string) {
 }
 
 // IsAllowed checks if a pubkey is on the whitelist
+// If the whitelist is empty, all pubkeys are allowed (open access mode)
 func (w *Whitelist) IsAllowed(pubkey string) bool {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
+
+	// Empty whitelist = allow all (open access mode)
+	if len(w.pubkeys) == 0 {
+		return true
+	}
+
 	return w.pubkeys[pubkey]
 }
 

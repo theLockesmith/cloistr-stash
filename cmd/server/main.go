@@ -113,7 +113,7 @@ func main() {
 	whitelist.LoadFromEnv("DRIVE_WHITELIST")
 
 	if whitelist.IsEmpty() {
-		logger.Warn("no pubkeys in whitelist - all authenticated users will be denied access")
+		logger.Info("whitelist empty - open access mode (all authenticated users allowed)")
 	} else {
 		logger.Info("whitelist initialized", "count", whitelist.Count())
 	}

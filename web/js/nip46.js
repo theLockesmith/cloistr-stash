@@ -86,10 +86,33 @@ const NIP46 = {
             return;
         }
 
-        return new Promise((resolve) => {
-            window.addEventListener('secp256k1-loaded', resolve, { once: true });
-            // Timeout after 5 seconds
-            setTimeout(resolve, 5000);
+        return new Promise((resolve, reject) => {
+            const onLoaded = () => {
+                cleanup();
+                resolve();
+            };
+            const onError = (e) => {
+                cleanup();
+                reject(new Error(`Failed to load secp256k1: ${e.detail || 'unknown error'}`));
+            };
+            const onTimeout = () => {
+                cleanup();
+                // Check one more time in case it loaded during timeout
+                if (typeof nobleSecp256k1 !== 'undefined' && typeof nobleSchnorr !== 'undefined') {
+                    resolve();
+                } else {
+                    reject(new Error('secp256k1 library load timeout - check network connection'));
+                }
+            };
+            const cleanup = () => {
+                window.removeEventListener('secp256k1-loaded', onLoaded);
+                window.removeEventListener('secp256k1-error', onError);
+            };
+
+            window.addEventListener('secp256k1-loaded', onLoaded, { once: true });
+            window.addEventListener('secp256k1-error', onError, { once: true });
+            // Timeout after 15 seconds (increased for slow networks)
+            setTimeout(onTimeout, 15000);
         });
     },
 
