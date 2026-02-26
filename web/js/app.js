@@ -58,14 +58,21 @@ const App = {
         // Try to restore saved session
         if (Auth.hasSavedSession()) {
             console.log('Found saved session, attempting to restore...');
+            UI.showLoginProgress('Reconnecting to your session...');
             try {
                 const restored = await Auth.restoreSession();
                 if (restored) {
                     console.log('Session restored, verifying authorization...');
+                    UI.showLoginProgress('Session restored, verifying...');
                     await this.verifyAuthorization();
+                } else {
+                    UI.hideLoginProgress();
                 }
             } catch (err) {
                 console.error('Failed to restore session:', err);
+                UI.hideLoginProgress();
+                // Show a helpful message if restore failed
+                UI.toast('Session expired. Please log in again.', 'info');
             }
         }
 
@@ -1928,6 +1935,7 @@ const App = {
     async verifyAuthorization() {
         try {
             // Create a simple auth header for status check
+            UI.showLoginProgress('Verifying authorization...');
             console.log('Auth: Creating status auth header...');
             console.log('Auth: Connection type:', Auth.connectionType);
             console.log('Auth: Client-side pubkey:', Auth.pubkey);
@@ -1949,6 +1957,7 @@ const App = {
 
             if (!result.authorized) {
                 console.log('Auth: Not authorized. Client pubkey:', Auth.pubkey, 'Server saw:', result.pubkey);
+                UI.hideLoginProgress();
                 this.authState = 'denied';
                 document.getElementById('denied-pubkey').textContent = Auth.pubkey;
                 this.updateAuthUI();
@@ -1958,10 +1967,12 @@ const App = {
             // Authorization succeeded, now initialize libraries
             try {
                 console.log('App: Initializing crypto...');
+                UI.showLoginProgress('Initializing encryption...');
                 await Crypto.init();
                 await Keys.init(Auth.pubkey);
 
                 console.log('App: Initializing search...');
+                UI.showLoginProgress('Setting up search index...');
                 await Search.init(Auth.pubkey);
 
                 await Versioning.init();
@@ -1969,6 +1980,7 @@ const App = {
                 // Library init failed - this is NOT an auth failure
                 console.error('Library initialization failed:', initErr);
                 UI.toast(`Initialization error: ${initErr.message}. Please refresh the page.`, 'error');
+                UI.hideLoginProgress();
                 // Stay on landing page, don't show "Access Denied"
                 this.authState = 'unauthenticated';
                 Auth.disconnect();
@@ -1976,12 +1988,15 @@ const App = {
                 return;
             }
 
+            UI.showLoginProgress('Loading your files...');
             this.authState = 'authenticated';
             await this.loadFiles();
             await this.loadFolderTree();
+            UI.hideLoginProgress();
             UI.toast('Connected', 'success');
         } catch (err) {
             console.error('Auth verification failed:', err);
+            UI.hideLoginProgress();
             // Check if this is an auth failure or a network/other error
             if (err.message && (err.message.includes('401') || err.message.includes('403') || err.message.includes('unauthorized'))) {
                 this.authState = 'denied';

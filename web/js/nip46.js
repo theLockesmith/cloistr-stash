@@ -410,8 +410,8 @@ const NIP46 = {
                     this.pendingAuth = null;
                 } else if (reason.includes('auth-required')) {
                     // Event was rejected due to auth-required - store for retry after AUTH
-                    console.log('NIP-46: Event requires auth, storing for retry after AUTH...');
                     const pending = this.pendingPublishes.get(eventId);
+                    console.log('NIP-46: Event', eventId?.slice(0, 8), 'requires auth. Pending exists:', !!pending, 'Has event:', !!(pending?.event));
                     if (pending && pending.event) {
                         // Store for retry - don't reject yet
                         this.pendingAuthRetries = this.pendingAuthRetries || [];
@@ -420,7 +420,15 @@ const NIP46 = {
                             event: pending.event,
                             pending: pending,
                         });
+                        console.log('NIP-46: Stored event for retry. Total pending:', this.pendingAuthRetries.length);
                         // Don't delete - keep tracking until retry completes or times out
+                    } else {
+                        // No pending event found - this shouldn't happen with new code
+                        console.error('NIP-46: Cannot retry auth-required event - pending not found or missing event data');
+                        if (pending) {
+                            pending.reject(new Error('auth-required but cannot retry: ' + reason));
+                            this.pendingPublishes.delete(eventId);
+                        }
                     }
                 } else {
                     // Handle pending publish confirmations

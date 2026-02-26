@@ -295,6 +295,29 @@ const UI = {
         }, 4000);
     },
 
+    // Show login progress indicator on landing page
+    showLoginProgress(message) {
+        let indicator = document.getElementById('login-progress');
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.id = 'login-progress';
+            indicator.className = 'login-progress';
+            const landingPage = document.getElementById('landing-page');
+            if (landingPage) {
+                landingPage.appendChild(indicator);
+            }
+        }
+        indicator.innerHTML = `<div class="spinner"></div><span>${message}</span>`;
+        indicator.classList.remove('hidden');
+    },
+
+    hideLoginProgress() {
+        const indicator = document.getElementById('login-progress');
+        if (indicator) {
+            indicator.classList.add('hidden');
+        }
+    },
+
     // Show/hide modal
     showModal(id) {
         document.getElementById(id).classList.remove('hidden');
