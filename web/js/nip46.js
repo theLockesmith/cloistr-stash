@@ -430,6 +430,14 @@ const NIP46 = {
                             this.pendingPublishes.delete(eventId);
                         }
                     }
+                } else if (reason.includes('rate-limit') || reason.includes('noting too much')) {
+                    // Rate limited by relay - reject with clear message
+                    console.warn('NIP-46: Rate limited by relay:', reason);
+                    const pending = this.pendingPublishes.get(eventId);
+                    if (pending) {
+                        pending.reject(new Error('Rate limited by relay. Please wait a moment and try again.'));
+                        this.pendingPublishes.delete(eventId);
+                    }
                 } else {
                     // Handle pending publish confirmations
                     const pending = this.pendingPublishes.get(eventId);

@@ -986,40 +986,44 @@
         })();
     </script>
 
-    <!-- Yjs CRDT for collaborative editing (with fallbacks) -->
+    <!-- Yjs CRDT for collaborative editing - local first with CDN fallback -->
     <script>
-        // Load Yjs with CDN fallback
         (async function loadYjs() {
+            // Try local first
+            try {
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = '/js/vendor/yjs.min.js';
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+                console.log('Yjs loaded from local');
+                return;
+            } catch (err) {
+                console.warn('Failed to load local Yjs, trying CDN fallbacks...');
+            }
+
+            // CDN fallbacks (unlikely to work due to MIME issues but kept for completeness)
             const cdns = [
-                ['https://unpkg.com/yjs@13.6.10/dist/yjs.js', 'https://unpkg.com/y-protocols@1.0.6/dist/y-protocols.js'],
-                ['https://cdnjs.cloudflare.com/ajax/libs/yjs/13.6.10/yjs.min.js', null],
-                ['https://cdn.jsdelivr.net/npm/yjs@13.6.10/dist/yjs.min.js', 'https://cdn.jsdelivr.net/npm/y-protocols@1.0.6/dist/y-protocols.min.js']
+                'https://unpkg.com/yjs@13.6.10/dist/yjs.mjs',
+                'https://cdn.jsdelivr.net/npm/yjs@13.6.10/dist/yjs.mjs'
             ];
 
-            for (const [yjsUrl, protocolsUrl] of cdns) {
+            for (const url of cdns) {
                 try {
                     await new Promise((resolve, reject) => {
                         const script = document.createElement('script');
-                        script.src = yjsUrl;
+                        script.type = 'module';
+                        script.src = url;
                         script.onload = resolve;
                         script.onerror = reject;
                         document.head.appendChild(script);
                     });
-
-                    if (protocolsUrl) {
-                        await new Promise((resolve, reject) => {
-                            const script = document.createElement('script');
-                            script.src = protocolsUrl;
-                            script.onload = resolve;
-                            script.onerror = reject;
-                            document.head.appendChild(script);
-                        });
-                    }
-
-                    console.log('Yjs loaded from:', yjsUrl);
+                    console.log('Yjs loaded from:', url);
                     return;
                 } catch (err) {
-                    console.warn('Failed to load Yjs from', yjsUrl, err);
+                    console.warn('Failed to load Yjs from', url);
                 }
             }
 

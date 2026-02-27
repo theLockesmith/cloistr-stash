@@ -61,7 +61,14 @@ const Upload = {
 
         let completed = 0;
 
-        for (const item of pending) {
+        for (let i = 0; i < pending.length; i++) {
+            const item = pending[i];
+
+            // Add delay between uploads to avoid relay rate limiting
+            if (i > 0) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+
             try {
                 console.log(`Upload: Processing ${item.file.name} (${this.formatSize(item.file.size)})`);
 
