@@ -54,12 +54,12 @@ func (fs *Filesystem) Store(ctx context.Context, data io.Reader) (hash string, s
 			return "", 0, fmt.Errorf("failed to create temp file: %w", err)
 		}
 	}
-	defer tempFile.Close()
+	defer func() { _ = tempFile.Close() }()
 
 	// Copy data to temp file
 	size, err = io.Copy(tempFile, teeReader)
 	if err != nil {
-		os.Remove(tempFile.Name())
+		_ = os.Remove(tempFile.Name())
 		return "", 0, fmt.Errorf("failed to write data: %w", err)
 	}
 
@@ -69,7 +69,7 @@ func (fs *Filesystem) Store(ctx context.Context, data io.Reader) (hash string, s
 	// Create directory structure: basePath/xx/yyzzzz...
 	hashDir := filepath.Join(fs.basePath, hash[:2])
 	if err := os.MkdirAll(hashDir, 0755); err != nil {
-		os.Remove(tempFile.Name())
+		_ = os.Remove(tempFile.Name())
 		return "", 0, fmt.Errorf("failed to create hash directory: %w", err)
 	}
 
@@ -78,12 +78,12 @@ func (fs *Filesystem) Store(ctx context.Context, data io.Reader) (hash string, s
 
 	// If file already exists, just remove temp file
 	if _, err := os.Stat(finalPath); err == nil {
-		os.Remove(tempFile.Name())
+		_ = os.Remove(tempFile.Name())
 		return hash, size, nil
 	}
 
 	if err := os.Rename(tempFile.Name(), finalPath); err != nil {
-		os.Remove(tempFile.Name())
+		_ = os.Remove(tempFile.Name())
 		return "", 0, fmt.Errorf("failed to move file to final location: %w", err)
 	}
 
@@ -107,7 +107,7 @@ func (fs *Filesystem) Retrieve(ctx context.Context, sha256 string) (io.ReadClose
 
 	info, err := file.Stat()
 	if err != nil {
-		file.Close()
+		_ = file.Close()
 		return nil, nil, fmt.Errorf("failed to stat file: %w", err)
 	}
 

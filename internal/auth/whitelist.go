@@ -28,12 +28,16 @@ func NewWhitelist(pubkeys []string) *Whitelist {
 }
 
 // LoadFromFile loads pubkeys from a file (one per line)
-func (w *Whitelist) LoadFromFile(path string) error {
+func (w *Whitelist) LoadFromFile(path string) (err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
 
 	w.mu.Lock()
 	defer w.mu.Unlock()

@@ -82,21 +82,13 @@ auth:
 }
 
 func TestLoadEnvOverrides(t *testing.T) {
-	// Set environment variables
-	os.Setenv("DRIVE_HOST", "192.168.1.1")
-	os.Setenv("DRIVE_PORT", "3000")
-	os.Setenv("DRIVE_PUBLIC_URL", "https://custom.example.com")
-	os.Setenv("DRIVE_BLOSSOM_URL", "http://custom-blossom:8000")
-	os.Setenv("DRIVE_RELAY_URL", "wss://custom-relay.example.com")
-	os.Setenv("DRIVE_WHITELIST", "pubkey1,pubkey2,pubkey3")
-	defer func() {
-		os.Unsetenv("DRIVE_HOST")
-		os.Unsetenv("DRIVE_PORT")
-		os.Unsetenv("DRIVE_PUBLIC_URL")
-		os.Unsetenv("DRIVE_BLOSSOM_URL")
-		os.Unsetenv("DRIVE_RELAY_URL")
-		os.Unsetenv("DRIVE_WHITELIST")
-	}()
+	// Set environment variables (t.Setenv handles cleanup automatically)
+	t.Setenv("DRIVE_HOST", "192.168.1.1")
+	t.Setenv("DRIVE_PORT", "3000")
+	t.Setenv("DRIVE_PUBLIC_URL", "https://custom.example.com")
+	t.Setenv("DRIVE_BLOSSOM_URL", "http://custom-blossom:8000")
+	t.Setenv("DRIVE_RELAY_URL", "wss://custom-relay.example.com")
+	t.Setenv("DRIVE_WHITELIST", "pubkey1,pubkey2,pubkey3")
 
 	cfg, err := Load("/nonexistent/config.yml")
 	if err != nil {
@@ -140,8 +132,7 @@ func TestLoadInvalidYAML(t *testing.T) {
 }
 
 func TestWhitelistParsing(t *testing.T) {
-	os.Setenv("DRIVE_WHITELIST", "  pk1  , pk2,pk3  ,  ")
-	defer os.Unsetenv("DRIVE_WHITELIST")
+	t.Setenv("DRIVE_WHITELIST", "  pk1  , pk2,pk3  ,  ")
 
 	cfg, err := Load("/nonexistent/config.yml")
 	if err != nil {

@@ -152,8 +152,7 @@ func TestLoadFromFileMissing(t *testing.T) {
 }
 
 func TestLoadFromEnv(t *testing.T) {
-	os.Setenv("TEST_WHITELIST", "pk1,pk2,pk3")
-	defer os.Unsetenv("TEST_WHITELIST")
+	t.Setenv("TEST_WHITELIST", "pk1,pk2,pk3")
 
 	w := NewWhitelist(nil)
 	w.LoadFromEnv("TEST_WHITELIST")
@@ -170,8 +169,7 @@ func TestLoadFromEnv(t *testing.T) {
 }
 
 func TestLoadFromEnvTrimsWhitespace(t *testing.T) {
-	os.Setenv("TEST_WHITELIST", "  pk1 , pk2  ,  pk3  ")
-	defer os.Unsetenv("TEST_WHITELIST")
+	t.Setenv("TEST_WHITELIST", "  pk1 , pk2  ,  pk3  ")
 
 	w := NewWhitelist(nil)
 	w.LoadFromEnv("TEST_WHITELIST")
@@ -188,10 +186,10 @@ func TestLoadFromEnvTrimsWhitespace(t *testing.T) {
 }
 
 func TestLoadFromEnvEmpty(t *testing.T) {
-	os.Unsetenv("TEST_WHITELIST_EMPTY")
-
+	// Ensure the env var is not set (t.Setenv would set it to empty string)
+	// Just use a unique var name that won't be set
 	w := NewWhitelist(nil)
-	w.LoadFromEnv("TEST_WHITELIST_EMPTY")
+	w.LoadFromEnv("TEST_WHITELIST_DEFINITELY_NOT_SET")
 
 	if !w.IsEmpty() {
 		t.Error("Expected whitelist to remain empty for unset env var")

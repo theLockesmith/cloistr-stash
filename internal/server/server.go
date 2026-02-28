@@ -199,7 +199,7 @@ func (s *Server) ListenAndServe(addr string) error {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, `{"status":"healthy"}`)
+	_, _ = fmt.Fprint(w, `{"status":"healthy"}`)
 }
 
 // handleStatic serves the web UI files
@@ -263,7 +263,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	if pubkey == "" {
 		// Return empty list if no pubkey specified
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"files":[]}`)
+		_, _ = fmt.Fprint(w, `{"files":[]}`)
 		return
 	}
 
@@ -271,7 +271,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	if s.metadata == nil {
 		s.logger.Warn("metadata store not configured")
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"files":[]}`)
+		_, _ = fmt.Fprint(w, `{"files":[]}`)
 		return
 	}
 
@@ -295,7 +295,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		)
 		// Return empty list on error rather than failing
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"files":[]}`)
+		_, _ = fmt.Fprint(w, `{"files":[]}`)
 		return
 	}
 
@@ -318,7 +318,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // handleUploadFile handles file uploads
@@ -336,7 +336,7 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No file provided", http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Get Blossom auth header from request
 	authHeader := r.Header.Get("X-Blossom-Auth")
@@ -394,7 +394,7 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(fileMeta)
+	_ = json.NewEncoder(w).Encode(fileMeta)
 
 	s.logger.Info("file uploaded",
 		"filename", header.Filename,
@@ -434,7 +434,7 @@ func (s *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metadata)
+	_ = json.NewEncoder(w).Encode(metadata)
 }
 
 // handleDeleteFile deletes a file
@@ -473,7 +473,7 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, `{"status":"deleted"}`)
+	_, _ = fmt.Fprint(w, `{"status":"deleted"}`)
 
 	s.logger.Info("file deleted", "sha256", sha256)
 }
@@ -491,7 +491,7 @@ func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request) {
 	maxDownloadsStr := r.URL.Query().Get("max_downloads")
 	if maxDownloadsStr != "" {
 		var maxDownloads int
-		fmt.Sscanf(maxDownloadsStr, "%d", &maxDownloads)
+		_, _ = fmt.Sscanf(maxDownloadsStr, "%d", &maxDownloads)
 
 		if maxDownloads > 0 {
 			currentCount := s.getDownloadCount(sha256)
@@ -518,7 +518,7 @@ func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 
 	// Record successful download
 	metrics.RecordDownload(true)
@@ -593,7 +593,7 @@ func (s *Server) handlePublishMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"status":   "published",
 		"event_id": event.ID,
 	})
@@ -630,14 +630,14 @@ func (s *Server) handleListFolders(w http.ResponseWriter, r *http.Request) {
 	pubkey := r.URL.Query().Get("pubkey")
 	if pubkey == "" {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"folders":[]}`)
+		_, _ = fmt.Fprint(w, `{"folders":[]}`)
 		return
 	}
 
 	if s.metadata == nil {
 		s.logger.Warn("metadata store not configured")
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"folders":[]}`)
+		_, _ = fmt.Fprint(w, `{"folders":[]}`)
 		return
 	}
 
@@ -651,7 +651,7 @@ func (s *Server) handleListFolders(w http.ResponseWriter, r *http.Request) {
 			"pubkey", pubkey[:16],
 		)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"folders":[]}`)
+		_, _ = fmt.Fprint(w, `{"folders":[]}`)
 		return
 	}
 
@@ -677,7 +677,7 @@ func (s *Server) handleListFolders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // handleCreateFolder creates a new folder by publishing a signed folder metadata event
@@ -726,7 +726,7 @@ func (s *Server) handleCreateFolder(w http.ResponseWriter, r *http.Request) {
 	folder, _ := metadata.ParseFolderEvent(&event)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(FolderMetadataResponse{
+	_ = json.NewEncoder(w).Encode(FolderMetadataResponse{
 		ID:        folder.Identifier,
 		Name:      folder.Name,
 		ParentID:  folder.ParentID,
@@ -771,7 +771,7 @@ func (s *Server) handleGetFolder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(FolderMetadataResponse{
+	_ = json.NewEncoder(w).Encode(FolderMetadataResponse{
 		ID:        folder.Identifier,
 		Name:      folder.Name,
 		ParentID:  folder.ParentID,
@@ -828,7 +828,7 @@ func (s *Server) handleDeleteFolder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, `{"status":"deleted"}`)
+	_, _ = fmt.Fprint(w, `{"status":"deleted"}`)
 
 	s.logger.Info("folder deleted", "folder_id", folderID)
 }
@@ -839,14 +839,14 @@ func (s *Server) handleListShares(w http.ResponseWriter, r *http.Request) {
 	pubkey := r.URL.Query().Get("pubkey")
 	if pubkey == "" {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"shares":[],"received":[]}`)
+		_, _ = fmt.Fprint(w, `{"shares":[],"received":[]}`)
 		return
 	}
 
 	if s.metadata == nil {
 		s.logger.Warn("metadata store not configured")
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"shares":[],"received":[]}`)
+		_, _ = fmt.Fprint(w, `{"shares":[],"received":[]}`)
 		return
 	}
 
@@ -905,7 +905,7 @@ func (s *Server) handleListShares(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // handleCreateShare creates a new file share
@@ -954,7 +954,7 @@ func (s *Server) handleCreateShare(w http.ResponseWriter, r *http.Request) {
 	share, _ := metadata.ParseShareEvent(&event)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(ShareResponse{
+	_ = json.NewEncoder(w).Encode(ShareResponse{
 		ID:              share.Identifier,
 		FileID:          share.FileIdentifier,
 		OwnerPubkey:     share.OwnerPubkey,
@@ -1019,7 +1019,7 @@ func (s *Server) handleRevokeShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, `{"status":"revoked"}`)
+	_, _ = fmt.Fprint(w, `{"status":"revoked"}`)
 
 	s.logger.Info("share revoked", "share_id", shareID)
 }
@@ -1179,7 +1179,7 @@ func (s *Server) handlePublicLink(w http.ResponseWriter, r *http.Request) {
 </html>`
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, html)
+	_, _ = fmt.Fprint(w, html)
 
 	s.logger.Info("public link accessed", "sha256", sha256[:16])
 }
@@ -1207,7 +1207,7 @@ func (s *Server) handlePublicLinkAPI(w http.ResponseWriter, r *http.Request) {
 	if !exists {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprint(w, `{"error":"not_found","message":"File not found or link expired"}`)
+		_, _ = fmt.Fprint(w, `{"error":"not_found","message":"File not found or link expired"}`)
 		return
 	}
 
@@ -1236,7 +1236,7 @@ func (s *Server) handlePublicLinkAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // incrementDownloadCount increments and returns the new count for a public link
@@ -1301,5 +1301,5 @@ func (s *Server) handleGetQuota(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }

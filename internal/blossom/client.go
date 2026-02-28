@@ -62,7 +62,7 @@ func (c *Client) Upload(ctx context.Context, reader io.Reader, contentType strin
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -90,13 +90,13 @@ func (c *Client) Download(ctx context.Context, sha256 string) (io.ReadCloser, *F
 	}
 
 	if resp.StatusCode == http.StatusNotFound {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, nil, fmt.Errorf("file not found: %s", sha256)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, nil, fmt.Errorf("download failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -120,7 +120,7 @@ func (c *Client) Exists(ctx context.Context, sha256 string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("failed to check existence: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	return resp.StatusCode == http.StatusOK, nil
 }
@@ -141,7 +141,7 @@ func (c *Client) Delete(ctx context.Context, sha256 string, authHeader string) e
 	if err != nil {
 		return fmt.Errorf("failed to delete: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -162,7 +162,7 @@ func (c *Client) Health(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("blossom server unreachable: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("blossom server unhealthy: status %d", resp.StatusCode)
@@ -182,7 +182,7 @@ func (c *Client) Info(ctx context.Context) (*ServerInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get info: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

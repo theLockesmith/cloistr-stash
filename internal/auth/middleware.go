@@ -181,7 +181,9 @@ func (m *AuthMiddleware) HandleAuthStatus(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		result.Error = "Invalid authentication header"
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(result)
+		if encErr := json.NewEncoder(w).Encode(result); encErr != nil {
+			m.logger.Warn("failed to encode auth status response", "error", encErr)
+		}
 		return
 	}
 
@@ -192,5 +194,7 @@ func (m *AuthMiddleware) HandleAuthStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if encErr := json.NewEncoder(w).Encode(result); encErr != nil {
+		m.logger.Warn("failed to encode auth status response", "error", encErr)
+	}
 }

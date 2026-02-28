@@ -75,7 +75,7 @@ func (s *Store) ensureConnected() error {
 
 	// Close old connection if any
 	if s.relay != nil {
-		s.relay.Close()
+		_ = s.relay.Close()
 		s.relay = nil
 	}
 
@@ -97,7 +97,7 @@ func (s *Store) Close() {
 		s.cancelFunc()
 	}
 	if s.relay != nil {
-		s.relay.Close()
+		_ = s.relay.Close()
 		s.relay = nil
 	}
 }
@@ -183,7 +183,7 @@ func ParseFileEvent(event *nostr.Event) (*FileMetadata, error) {
 		case "m":
 			file.MimeType = tag[1]
 		case "size":
-			fmt.Sscanf(tag[1], "%d", &file.Size)
+			_, _ = fmt.Sscanf(tag[1], "%d", &file.Size)
 		case "folder":
 			file.FolderID = tag[1]
 		case "encrypted":
@@ -648,7 +648,7 @@ func ParseShareEvent(event *nostr.Event) (*FileShare, error) {
 			share.Permission = tag[1]
 		case "expiration":
 			var expiry int64
-			fmt.Sscanf(tag[1], "%d", &expiry)
+			_, _ = fmt.Sscanf(tag[1], "%d", &expiry)
 			if expiry > 0 {
 				share.ExpiresAt = time.Unix(expiry, 0)
 			}

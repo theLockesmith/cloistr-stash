@@ -65,7 +65,7 @@ func TestFilesystemRetrieve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to retrieve file: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Read content
 	content, err := io.ReadAll(file)

@@ -109,7 +109,9 @@ func TestListFilesRequiresPubkey(t *testing.T) {
 	// Without pubkey query param, should fail
 	if w.Code == http.StatusOK {
 		var response map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &response)
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+			t.Fatalf("Failed to unmarshal response: %v", err)
+		}
 		// Should have empty files list or error
 		if files, ok := response["files"].([]interface{}); ok && len(files) > 0 {
 			t.Error("Expected no files without pubkey")
