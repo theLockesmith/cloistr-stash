@@ -288,8 +288,9 @@ body {
 }
 
 .file-actions {
-    width: 100px;
+    width: 280px;
     text-align: right;
+    flex-shrink: 0;
 }
 
 .file-list-body {
