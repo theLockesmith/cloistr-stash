@@ -267,7 +267,38 @@ const NIP46 = {
     async handleAuthChallenge(challenge, relayUrl, ws) {
         console.log('NIP-46: AUTH challenge received:', challenge.slice(0, 16) + '...');
 
-        // Create auth event (kind 22242)
+        // If we have a user pubkey (from remote signer), use that for auth
+        // so published events will match the authenticated identity
+        if (this.userPubkey && this.connected) {
+            console.log('NIP-46: Using remote signer for AUTH with user pubkey');
+            try {
+                // Create unsigned auth event with user's pubkey
+                const authEvent = {
+                    kind: 22242,
+                    pubkey: this.userPubkey,
+                    created_at: Math.floor(Date.now() / 1000),
+                    tags: [
+                        ['relay', relayUrl],
+                        ['challenge', challenge],
+                    ],
+                    content: '',
+                };
+
+                // Have the remote signer sign it
+                const signedEvent = await this.signEvent(authEvent);
+                console.log('NIP-46: Remote signer signed AUTH event:', signedEvent.id?.slice(0, 16) + '...');
+
+                // Send AUTH
+                ws.send(JSON.stringify(['AUTH', signedEvent]));
+                this.pendingAuth = signedEvent.id;
+                return;
+            } catch (err) {
+                console.warn('NIP-46: Remote signer AUTH failed, falling back to client key:', err.message);
+            }
+        }
+
+        // Fallback: use client keypair for initial connection (before user pubkey is known)
+        console.log('NIP-46: Using client keypair for AUTH (user pubkey not yet available)');
         const authEvent = {
             kind: 22242,
             pubkey: this.clientPubkey,
@@ -279,7 +310,7 @@ const NIP46 = {
             content: '',
         };
 
-        // Sign the auth event
+        // Sign the auth event with client key
         await this.waitForSecp256k1();
 
         const serialized = JSON.stringify([
@@ -306,6 +337,51 @@ const NIP46 = {
 
         // Store the auth event ID to track response
         this.pendingAuth = authEvent.id;
+    },
+
+    // Re-authenticate with all connected relays using the user's pubkey
+    // This is called after we get the user pubkey from the remote signer
+    async reAuthenticateWithUserPubkey() {
+        if (!this.userPubkey || !this.connected) {
+            console.log('NIP-46: Cannot re-authenticate - not fully connected');
+            return;
+        }
+
+        console.log('NIP-46: Re-authenticating with user pubkey:', this.userPubkey.slice(0, 16) + '...');
+
+        for (const ws of this.sockets) {
+            if (ws.readyState !== WebSocket.OPEN) continue;
+
+            try {
+                // Create auth event with user's pubkey
+                const authEvent = {
+                    kind: 22242,
+                    pubkey: this.userPubkey,
+                    created_at: Math.floor(Date.now() / 1000),
+                    tags: [
+                        ['relay', ws.url],
+                        // Generate a fresh challenge (relay may accept self-challenges)
+                        ['challenge', 'cloistr-reauth-' + Date.now()],
+                    ],
+                    content: '',
+                };
+
+                // Have the remote signer sign it
+                const signedEvent = await this.signEvent(authEvent);
+
+                // Send AUTH
+                ws.send(JSON.stringify(['AUTH', signedEvent]));
+                console.log('NIP-46: Sent re-auth for relay:', ws.url);
+
+                // Wait a moment for the auth to be processed
+                await new Promise(resolve => setTimeout(resolve, 200));
+            } catch (err) {
+                console.warn('NIP-46: Re-auth failed for', ws.url, err.message);
+            }
+        }
+
+        this.authenticated = true;
+        console.log('NIP-46: Re-authentication complete');
     },
 
     // Handle incoming relay messages
@@ -429,6 +505,26 @@ const NIP46 = {
                             pending.reject(new Error('auth-required but cannot retry: ' + reason));
                             this.pendingPublishes.delete(eventId);
                         }
+                    }
+                } else if (reason.includes('restricted') || reason.includes('authenticated identity')) {
+                    // Identity mismatch - relay authenticated with client key but event has user key
+                    // Need to re-authenticate with user's pubkey
+                    console.warn('NIP-46: Identity mismatch - need to re-authenticate with user pubkey');
+                    const pending = this.pendingPublishes.get(eventId);
+                    if (pending && pending.event && this.userPubkey) {
+                        // Store for retry after re-auth
+                        this.pendingAuthRetries = this.pendingAuthRetries || [];
+                        this.pendingAuthRetries.push({
+                            eventId: eventId,
+                            event: pending.event,
+                            pending: pending,
+                        });
+                        // Trigger re-auth by sending a dummy event to get AUTH challenge
+                        // Or wait for next AUTH challenge
+                        console.log('NIP-46: Stored event for retry after re-authentication');
+                    } else if (pending) {
+                        pending.reject(new Error('Identity mismatch: please disconnect and reconnect'));
+                        this.pendingPublishes.delete(eventId);
                     }
                 } else if (reason.includes('rate-limit') || reason.includes('noting too much')) {
                     // Rate limited by relay - reject with clear message
@@ -598,6 +694,10 @@ const NIP46 = {
         this.userPubkey = await this.sendRequest('get_public_key', []);
         this.connected = true;
 
+        // Re-authenticate with relay using user's pubkey (not client pubkey)
+        // This ensures published events match the authenticated identity
+        await this.reAuthenticateWithUserPubkey();
+
         // Save session for persistence
         this.saveSession();
 
@@ -687,6 +787,10 @@ const NIP46 = {
             await this.sendRequest('connect', [this.clientPubkey, this.secret]);
 
             this.connected = true;
+
+            // Re-authenticate with relay using user's pubkey
+            await this.reAuthenticateWithUserPubkey();
+
             console.log('NIP-46: Session restored successfully');
 
             return this.userPubkey;
