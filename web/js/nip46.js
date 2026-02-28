@@ -713,6 +713,9 @@ const NIP46 = {
 
     // Connect to bunker
     async connect(bunkerUrl) {
+        // Reset any existing state first (handles case where previous attempt failed)
+        this.reset();
+
         // Wait for secp256k1 library
         await this.waitForSecp256k1();
 
@@ -811,6 +814,9 @@ const NIP46 = {
 
         console.log('NIP-46: Restoring session...');
 
+        // Reset any existing state first
+        this.reset();
+
         try {
             // Wait for secp256k1 library
             await this.waitForSecp256k1();
@@ -829,8 +835,14 @@ const NIP46 = {
             // Subscribe to responses
             this.subscribeToResponses();
 
-            // Send connect request to re-establish session
-            await this.sendRequest('connect', [this.clientPubkey, this.secret]);
+            // Send connect request with a shorter timeout for restore
+            // (signer should respond quickly if it's available)
+            const connectPromise = this.sendRequest('connect', [this.clientPubkey, this.secret]);
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Session restore timed out - signer may be offline')), 30000)
+            );
+
+            await Promise.race([connectPromise, timeoutPromise]);
 
             this.connected = true;
 
@@ -842,19 +854,16 @@ const NIP46 = {
             return this.userPubkey;
         } catch (err) {
             console.error('NIP-46: Failed to restore session:', err);
-            // Don't clear the session on restore failure - user can try again
-            // Only clear if it's an authentication error, not a timeout/network issue
+
+            // Full state reset on failure to ensure clean state for next attempt
+            this.reset();
+
+            // Don't clear the saved session on timeout - user can try manual login
+            // Only clear if it's an explicit rejection
             if (err.message && (err.message.includes('invalid') || err.message.includes('denied') || err.message.includes('unauthorized'))) {
                 this.clearSession();
             }
-            // Close relay connections but keep session data
-            this.sockets.forEach(ws => {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.close();
-                }
-            });
-            this.sockets = [];
-            this.connected = false;
+
             return null;
         }
     },
@@ -864,11 +873,8 @@ const NIP46 = {
         return this.loadSession() !== null;
     },
 
-    // Disconnect from bunker
-    disconnect() {
-        // Clear saved session
-        this.clearSession();
-
+    // Full state reset (clears everything except session storage)
+    reset() {
         // Close all relay connections
         this.sockets.forEach(ws => {
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -877,14 +883,35 @@ const NIP46 = {
         });
         this.sockets = [];
 
+        // Reset connection state
         this.connected = false;
         this.userPubkey = null;
         this.remotePubkey = null;
         this.relayUrls = [];
+        this.secret = null;
         this.clientPrivkey = null;
         this.clientPubkey = null;
+
+        // Clear all pending state
         this.pendingRequests.clear();
+        this.pendingPublishes.clear();
         this.seenEvents.clear();
+        this.pendingAuth = null;
+        this.pendingRetry = null;
+        this.pendingAuthRetries = [];
+        this.authenticated = false;
+        this.requestId = 0;
+
+        console.log('NIP-46: State reset complete');
+    },
+
+    // Disconnect from bunker
+    disconnect() {
+        // Clear saved session
+        this.clearSession();
+
+        // Full state reset
+        this.reset();
     },
 
     // Sign an event (mimics window.nostr.signEvent)
