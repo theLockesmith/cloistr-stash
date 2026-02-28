@@ -324,10 +324,35 @@ atlas kube apply cloistr-drive --kube-context atlantis
 ### Not Planned
 - Browser extension (low value, web UI sufficient)
 
+## NIP-46 Authentication Notes
+
+When using NIP-46 remote signers (Amber, nsec.app), there's a special authentication flow:
+
+1. **Ephemeral client keypair**: Drive generates a temporary keypair for the NIP-46 session
+2. **NIP-42 relay auth**: Initially authenticated with client keypair
+3. **Identity mismatch**: Published events use user's actual pubkey, causing "restricted" errors
+4. **Lazy re-auth**: On first "restricted" error, we re-authenticate with user's pubkey and retry
+
+See `docs/NIP46_AUTH_FLOW.md` for full details.
+
+## Self-Hosted Libraries
+
+All crypto libraries are self-hosted to avoid CDN MIME type issues:
+
+| Library | File | Size |
+|---------|------|------|
+| libsodium (core) | `web/js/vendor/libsodium.js` | ~521KB |
+| libsodium-wrappers | `web/js/vendor/sodium.js` | ~102KB |
+| noble-curves | `web/js/vendor/noble-secp256k1.min.js` | ~40KB |
+| Yjs | `web/js/vendor/yjs.min.js` | ~92KB |
+
+Libraries load locally first with CDN fallback.
+
 ## See Also
 
 - **Full architecture:** `~/claude/coldforge/cloistr/services/drive/CLAUDE.md`
 - **Blossom storage:** `~/Development/cloistr-blossom/CLAUDE.md`
 - **Cloistr overview:** `~/claude/coldforge/cloistr/CLAUDE.md`
+- **NIP-46 Auth Flow:** `docs/NIP46_AUTH_FLOW.md`
 - **Desktop App Plan:** `docs/DESKTOP_APP.md`
 - **Mobile App Plan:** `docs/MOBILE_APP.md`
