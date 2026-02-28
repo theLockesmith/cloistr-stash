@@ -2190,6 +2190,10 @@ const App = {
                     UI.toast(`${failed} file${failed > 1 ? 's' : ''} failed`, 'error');
                 }
 
+                // Small delay to allow relay to index the new events before refresh
+                // This avoids race condition between publish and query
+                await new Promise(resolve => setTimeout(resolve, 500));
+
                 // Reload file list
                 await this.loadFiles();
 
