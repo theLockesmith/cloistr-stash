@@ -341,14 +341,23 @@ const NIP46 = {
 
     // Re-authenticate with all connected relays using the user's pubkey
     // This is called after we get the user pubkey from the remote signer
+    // This is non-blocking - runs in background and doesn't block login
     async reAuthenticateWithUserPubkey() {
         if (!this.userPubkey || !this.connected) {
             console.log('NIP-46: Cannot re-authenticate - not fully connected');
             return;
         }
 
-        console.log('NIP-46: Re-authenticating with user pubkey:', this.userPubkey.slice(0, 16) + '...');
+        console.log('NIP-46: Starting background re-authentication with user pubkey:', this.userPubkey.slice(0, 16) + '...');
 
+        // Run in background - don't block login
+        this._reAuthInBackground().catch(err => {
+            console.warn('NIP-46: Background re-auth failed:', err.message);
+        });
+    },
+
+    // Internal: performs the actual re-authentication (called asynchronously)
+    async _reAuthInBackground() {
         for (const ws of this.sockets) {
             if (ws.readyState !== WebSocket.OPEN) continue;
 
@@ -366,8 +375,13 @@ const NIP46 = {
                     content: '',
                 };
 
-                // Have the remote signer sign it
-                const signedEvent = await this.signEvent(authEvent);
+                // Have the remote signer sign it (with shorter timeout)
+                const signPromise = this.signEvent(authEvent);
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Re-auth sign timeout')), 10000)
+                );
+
+                const signedEvent = await Promise.race([signPromise, timeoutPromise]);
 
                 // Send AUTH
                 ws.send(JSON.stringify(['AUTH', signedEvent]));
@@ -377,6 +391,7 @@ const NIP46 = {
                 await new Promise(resolve => setTimeout(resolve, 200));
             } catch (err) {
                 console.warn('NIP-46: Re-auth failed for', ws.url, err.message);
+                // Continue to next relay - don't fail completely
             }
         }
 
