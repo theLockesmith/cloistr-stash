@@ -399,6 +399,28 @@ const NIP46 = {
         console.log('NIP-46: Re-authentication complete');
     },
 
+    // Re-authenticate and retry pending events (called when we get "restricted" error)
+    async _reAuthAndRetry() {
+        console.log('NIP-46: Starting re-auth and retry for', (this.pendingAuthRetries || []).length, 'events');
+
+        // First, do the re-authentication
+        await this._reAuthInBackground();
+
+        // Then retry all pending events
+        const retries = this.pendingAuthRetries || [];
+        this.pendingAuthRetries = [];
+
+        for (const retry of retries) {
+            for (const ws of this.sockets) {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(['EVENT', retry.event]));
+                    console.log('NIP-46: Retried event after re-auth:', retry.eventId?.slice(0, 8));
+                    break;
+                }
+            }
+        }
+    },
+
     // Handle incoming relay messages
     async handleRelayMessage(data) {
         try {
@@ -523,8 +545,8 @@ const NIP46 = {
                     }
                 } else if (reason.includes('restricted') || reason.includes('authenticated identity')) {
                     // Identity mismatch - relay authenticated with client key but event has user key
-                    // Need to re-authenticate with user's pubkey
-                    console.warn('NIP-46: Identity mismatch - need to re-authenticate with user pubkey');
+                    // Need to re-authenticate with user's pubkey and retry
+                    console.warn('NIP-46: Identity mismatch - triggering re-authentication');
                     const pending = this.pendingPublishes.get(eventId);
                     if (pending && pending.event && this.userPubkey) {
                         // Store for retry after re-auth
@@ -534,9 +556,17 @@ const NIP46 = {
                             event: pending.event,
                             pending: pending,
                         });
-                        // Trigger re-auth by sending a dummy event to get AUTH challenge
-                        // Or wait for next AUTH challenge
-                        console.log('NIP-46: Stored event for retry after re-authentication');
+
+                        // Trigger re-authentication (will retry stored events when done)
+                        this._reAuthAndRetry().catch(err => {
+                            console.error('NIP-46: Re-auth and retry failed:', err.message);
+                            // Reject all pending retries
+                            for (const retry of (this.pendingAuthRetries || [])) {
+                                retry.pending.reject(new Error('Re-authentication failed'));
+                                this.pendingPublishes.delete(retry.eventId);
+                            }
+                            this.pendingAuthRetries = [];
+                        });
                     } else if (pending) {
                         pending.reject(new Error('Identity mismatch: please disconnect and reconnect'));
                         this.pendingPublishes.delete(eventId);
@@ -709,9 +739,10 @@ const NIP46 = {
         this.userPubkey = await this.sendRequest('get_public_key', []);
         this.connected = true;
 
-        // Re-authenticate with relay using user's pubkey (not client pubkey)
-        // This ensures published events match the authenticated identity
-        await this.reAuthenticateWithUserPubkey();
+        // Note: We don't proactively re-authenticate here anymore to avoid
+        // race conditions with other sign requests. Instead, if we get
+        // "auth-required" or "restricted" on publish, the retry logic will
+        // handle re-authentication at that time.
 
         // Save session for persistence
         this.saveSession();
@@ -803,8 +834,8 @@ const NIP46 = {
 
             this.connected = true;
 
-            // Re-authenticate with relay using user's pubkey
-            await this.reAuthenticateWithUserPubkey();
+            // Note: Re-authentication happens lazily on first publish if needed
+            // (when we get "auth-required" or "restricted" errors)
 
             console.log('NIP-46: Session restored successfully');
 
