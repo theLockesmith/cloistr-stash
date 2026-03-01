@@ -11,6 +11,7 @@ const APP_SHELL = [
     '/css/style.css',
     '/js/api.js',
     '/js/relay.js',
+    '/js/relayprefs.js',
     '/js/auth.js',
     '/js/nip46.js',
     '/js/crypto.js',

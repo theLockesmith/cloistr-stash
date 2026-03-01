@@ -447,69 +447,121 @@ const Auth = {
         return this.signEvent(event);
     },
 
-    // Publish a signed event to relays (client-side publishing)
-    // For NIP-46: publishes to both signer's relays AND relay.cloistr.xyz
-    // This ensures events are visible to both the user's relay and the Drive server
+    // Publish a signed event to user's preferred relays (client-side publishing)
+    // Uses RelayPrefs to determine where user wants their data published
+    // See: ~/claude/coldforge/cloistr/architecture/relay-preferences.md
     async publishEvent(signedEvent) {
         if (!this.isConnected) {
             throw new Error('Not connected');
         }
 
-        if (this.connectionType === 'nip46') {
-            // NIP-46: Publish to BOTH signer's relays AND relay.cloistr.xyz
-            // This ensures interoperability while working with our stack
-            const publishPromises = [];
-            const results = { nip46: null, relay: null };
-
-            // 1. Publish to signer's relays (user's preferred relay)
-            publishPromises.push(
-                NIP46.publishEvent(signedEvent)
-                    .then(r => { results.nip46 = r; return r; })
-                    .catch(err => {
-                        console.warn('Auth: NIP-46 relay publish failed:', err.message);
-                        results.nip46 = { error: err.message };
-                        return null;
-                    })
-            );
-
-            // 2. Also publish to relay.cloistr.xyz (Drive server's relay)
-            if (typeof Relay !== 'undefined') {
-                publishPromises.push(
-                    Relay.publish(signedEvent)
-                        .then(r => { results.relay = r; return r; })
-                        .catch(err => {
-                            console.warn('Auth: Direct relay publish failed:', err.message);
-                            results.relay = { error: err.message };
-                            return null;
-                        })
-                );
-            }
-
-            // Wait for all publish attempts
-            await Promise.all(publishPromises);
-
-            // Success if at least one worked
-            const nip46Success = results.nip46 && !results.nip46.error;
-            const relaySuccess = results.relay && !results.relay.error;
-
-            if (nip46Success || relaySuccess) {
-                console.log('Auth: Event published to',
-                    (nip46Success ? 'NIP-46 relays' : '') +
-                    (nip46Success && relaySuccess ? ' + ' : '') +
-                    (relaySuccess ? 'relay.cloistr.xyz' : ''));
-                return results.nip46 || results.relay;
-            }
-
-            // Both failed
-            throw new Error('Failed to publish to any relay');
+        // Get user's relay preferences
+        let prefs;
+        if (typeof RelayPrefs !== 'undefined') {
+            prefs = await RelayPrefs.getRelayPrefs(this.pubkey);
+            console.log('Auth: Using relay preferences:', prefs.source, prefs.writeRelays);
+        } else {
+            // Fallback if RelayPrefs not loaded
+            prefs = { writeRelays: ['wss://relay.cloistr.xyz'], source: 'fallback' };
         }
 
-        // NIP-07: Use direct relay connection
-        if (typeof Relay !== 'undefined') {
+        // Collect all unique relay URLs to publish to
+        const relayUrls = new Set(prefs.writeRelays);
+
+        // For NIP-46, also include signer's relays (operational, but good to have data there too)
+        if (this.connectionType === 'nip46' && typeof NIP46 !== 'undefined' && NIP46.relayUrls) {
+            for (const url of NIP46.relayUrls) {
+                relayUrls.add(url);
+            }
+        }
+
+        // Publish to all relays in parallel
+        const publishPromises = [];
+        const results = new Map();
+
+        for (const url of relayUrls) {
+            publishPromises.push(
+                this.publishToSingleRelay(url, signedEvent)
+                    .then(r => { results.set(url, { success: true, result: r }); })
+                    .catch(err => { results.set(url, { success: false, error: err.message }); })
+            );
+        }
+
+        await Promise.all(publishPromises);
+
+        // Count successes
+        let successCount = 0;
+        const successRelays = [];
+        const failedRelays = [];
+
+        for (const [url, result] of results) {
+            if (result.success) {
+                successCount++;
+                successRelays.push(url);
+            } else {
+                failedRelays.push(url);
+            }
+        }
+
+        if (successCount > 0) {
+            console.log(`Auth: Event published to ${successCount}/${relayUrls.size} relays:`, successRelays);
+            if (failedRelays.length > 0) {
+                console.warn('Auth: Failed relays:', failedRelays);
+            }
+            return { success: true, published: successRelays, failed: failedRelays };
+        }
+
+        // All failed
+        throw new Error('Failed to publish to any relay');
+    },
+
+    // Publish to a single relay
+    async publishToSingleRelay(url, signedEvent) {
+        // Use existing Relay module connection for relay.cloistr.xyz
+        if (typeof Relay !== 'undefined' && url === Relay.defaultUrl) {
             return Relay.publish(signedEvent);
         }
 
-        throw new Error('Relay module not loaded');
+        // For NIP-46 session relays, use NIP46.publishEvent
+        if (typeof NIP46 !== 'undefined' && NIP46.relayUrls && NIP46.relayUrls.includes(url)) {
+            // NIP46 publishes to all its relays, so just call once
+            return NIP46.publishEvent(signedEvent);
+        }
+
+        // For other relays, open direct connection
+        return new Promise((resolve, reject) => {
+            const ws = new WebSocket(url);
+            const timeout = setTimeout(() => {
+                ws.close();
+                reject(new Error('Timeout'));
+            }, 10000);
+
+            ws.onopen = () => {
+                ws.send(JSON.stringify(['EVENT', signedEvent]));
+            };
+
+            ws.onmessage = (msg) => {
+                try {
+                    const message = JSON.parse(msg.data);
+                    if (message[0] === 'OK' && message[1] === signedEvent.id) {
+                        clearTimeout(timeout);
+                        ws.close();
+                        if (message[2]) {
+                            resolve({ success: true });
+                        } else {
+                            reject(new Error(message[3] || 'Rejected'));
+                        }
+                    }
+                } catch (err) {
+                    // Ignore parse errors
+                }
+            };
+
+            ws.onerror = () => {
+                clearTimeout(timeout);
+                reject(new Error('Connection failed'));
+            };
+        });
     },
 
     // Disconnect
