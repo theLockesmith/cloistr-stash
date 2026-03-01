@@ -316,6 +316,11 @@ atlas kube apply cloistr-drive --kube-context atlantis
   - Background sync daemon
 
 ### Planned
+- **Relay Preferences Integration** - Publish to user's preferred relays
+  - Import `cloistr-common/relayprefs` (or TypeScript equivalent)
+  - Replace hardcoded relay publishing with `GetRelayPrefs()` calls
+  - User's file metadata events go to their chosen relays
+  - See: `~/claude/coldforge/cloistr/architecture/relay-preferences.md`
 - **Mobile Apps** - See `docs/MOBILE_APP.md`
   - React Native or Flutter
   - iOS and Android
