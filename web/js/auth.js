@@ -448,14 +448,60 @@ const Auth = {
     },
 
     // Publish a signed event to relays (client-side publishing)
+    // For NIP-46: publishes to both signer's relays AND relay.cloistr.xyz
+    // This ensures events are visible to both the user's relay and the Drive server
     async publishEvent(signedEvent) {
         if (!this.isConnected) {
             throw new Error('Not connected');
         }
 
         if (this.connectionType === 'nip46') {
-            // NIP-46: Use the already-authenticated relay connections
-            return NIP46.publishEvent(signedEvent);
+            // NIP-46: Publish to BOTH signer's relays AND relay.cloistr.xyz
+            // This ensures interoperability while working with our stack
+            const publishPromises = [];
+            const results = { nip46: null, relay: null };
+
+            // 1. Publish to signer's relays (user's preferred relay)
+            publishPromises.push(
+                NIP46.publishEvent(signedEvent)
+                    .then(r => { results.nip46 = r; return r; })
+                    .catch(err => {
+                        console.warn('Auth: NIP-46 relay publish failed:', err.message);
+                        results.nip46 = { error: err.message };
+                        return null;
+                    })
+            );
+
+            // 2. Also publish to relay.cloistr.xyz (Drive server's relay)
+            if (typeof Relay !== 'undefined') {
+                publishPromises.push(
+                    Relay.publish(signedEvent)
+                        .then(r => { results.relay = r; return r; })
+                        .catch(err => {
+                            console.warn('Auth: Direct relay publish failed:', err.message);
+                            results.relay = { error: err.message };
+                            return null;
+                        })
+                );
+            }
+
+            // Wait for all publish attempts
+            await Promise.all(publishPromises);
+
+            // Success if at least one worked
+            const nip46Success = results.nip46 && !results.nip46.error;
+            const relaySuccess = results.relay && !results.relay.error;
+
+            if (nip46Success || relaySuccess) {
+                console.log('Auth: Event published to',
+                    (nip46Success ? 'NIP-46 relays' : '') +
+                    (nip46Success && relaySuccess ? ' + ' : '') +
+                    (relaySuccess ? 'relay.cloistr.xyz' : ''));
+                return results.nip46 || results.relay;
+            }
+
+            // Both failed
+            throw new Error('Failed to publish to any relay');
         }
 
         // NIP-07: Use direct relay connection
