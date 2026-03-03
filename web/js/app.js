@@ -709,6 +709,9 @@ const App = {
         document.getElementById('upload-start').addEventListener('click', () => {
             this.startUpload();
         });
+
+        // Relay settings
+        RelaySettingsUI.setupEventListeners();
     },
 
     dragCounter: 0,

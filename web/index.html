@@ -90,6 +90,7 @@
                     <span id="user-pubkey" class="user-pubkey"></span>
                     <button id="theme-toggle" class="btn btn-icon" title="Toggle theme">&#127769;</button>
                     <button id="backup-btn" class="btn btn-icon" title="Key Backup">&#128273;</button>
+                    <button id="relay-settings-btn" class="btn btn-icon" title="Relay Settings">&#9889;</button>
                     <button id="logout-btn" class="btn">Disconnect</button>
                 </div>
             </header>
@@ -133,6 +134,10 @@
                             <span class="sidebar-nav-icon" aria-hidden="true">&#128276;</span>
                             <span class="sidebar-nav-name">Notifications</span>
                             <span class="sidebar-nav-badge notification-badge" id="notification-count"></span>
+                        </div>
+                        <div class="sidebar-nav-item" id="nav-relay-settings" title="Relay settings" role="button" tabindex="0" aria-label="Relay Settings">
+                            <span class="sidebar-nav-icon" aria-hidden="true">&#9889;</span>
+                            <span class="sidebar-nav-name">Relay Settings</span>
                         </div>
                     </nav>
                     <!-- Desktop Sync Status (hidden in browser, shown in Tauri) -->
@@ -599,6 +604,42 @@
                 </div>
                 <div class="modal-footer">
                     <button class="btn" id="backup-close">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Relay Settings Modal -->
+        <div id="relay-settings-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Relay Settings</h2>
+                    <button class="modal-close" id="relay-settings-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-secondary">Your data is published to these relays:</p>
+                    <div id="relay-list" class="relay-list"></div>
+
+                    <div class="form-group" style="margin-top: 1rem;">
+                        <label>Add Relay</label>
+                        <div class="relay-add-row">
+                            <input type="text" id="relay-add-url" class="input" placeholder="wss://relay.example.com">
+                            <button id="relay-add-btn" class="btn">Add</button>
+                        </div>
+                        <div class="relay-add-options">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="relay-add-read" checked> Read
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="relay-add-write" checked> Write
+                            </label>
+                        </div>
+                    </div>
+
+                    <div id="relay-source-info" class="relay-source-info"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="relay-settings-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="relay-settings-save">Save</button>
                 </div>
             </div>
         </div>

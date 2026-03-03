@@ -1209,3 +1209,165 @@ const UI = {
         }
     },
 };
+
+// Relay Settings UI Module
+const RelaySettingsUI = {
+    relays: [],           // Current relay list being edited
+    originalPrefs: null,  // Original prefs for comparison
+
+    async open() {
+        if (!Auth.isConnected) {
+            UI.toast('Please connect first', 'warning');
+            return;
+        }
+
+        // Load current preferences
+        try {
+            this.originalPrefs = await RelayPrefs.getRelayPrefs(Auth.pubkey);
+            this.relays = this.prefsToRelayList(this.originalPrefs);
+            this.render();
+            this.renderSourceInfo();
+            UI.showModal('relay-settings-modal');
+        } catch (err) {
+            UI.toast('Failed to load relay preferences', 'error');
+            console.error('Failed to load relay prefs:', err);
+        }
+    },
+
+    prefsToRelayList(prefs) {
+        // Convert read/write arrays to unified list
+        const relayMap = new Map();
+        for (const url of prefs.readRelays || []) {
+            relayMap.set(url, { url, read: true, write: false });
+        }
+        for (const url of prefs.writeRelays || []) {
+            const existing = relayMap.get(url);
+            if (existing) {
+                existing.write = true;
+            } else {
+                relayMap.set(url, { url, read: false, write: true });
+            }
+        }
+        return Array.from(relayMap.values());
+    },
+
+    render() {
+        const container = document.getElementById('relay-list');
+        if (this.relays.length === 0) {
+            container.innerHTML = '<div class="relay-list-empty">No relays configured</div>';
+            return;
+        }
+
+        container.innerHTML = this.relays.map((relay, idx) => `
+            <div class="relay-item" data-index="${idx}">
+                <span class="relay-url" title="${UI.escapeHtml(relay.url)}">${UI.escapeHtml(relay.url)}</span>
+                <span class="relay-badge ${relay.read ? 'active' : 'inactive'}" data-action="toggle-read">R</span>
+                <span class="relay-badge ${relay.write ? 'active' : 'inactive'}" data-action="toggle-write">W</span>
+                <button class="relay-remove" data-action="remove" title="Remove">&times;</button>
+            </div>
+        `).join('');
+    },
+
+    renderSourceInfo() {
+        const info = document.getElementById('relay-source-info');
+        const source = this.originalPrefs?.source || 'default';
+        const cachedAt = this.originalPrefs?.cachedAt;
+
+        let sourceText = 'Source: ';
+        if (source === 'cloistr-relays') sourceText += 'Cloistr preferences';
+        else if (source === 'nip65') sourceText += 'NIP-65 relay list';
+        else sourceText += 'Default relay';
+
+        let cacheText = '';
+        if (cachedAt) {
+            const ago = Math.round((Date.now() - cachedAt) / 60000);
+            cacheText = `<br>Cached ${ago < 1 ? 'just now' : ago + ' minute' + (ago === 1 ? '' : 's') + ' ago'}`;
+        }
+
+        info.innerHTML = sourceText + cacheText;
+    },
+
+    addRelay() {
+        const urlInput = document.getElementById('relay-add-url');
+        const url = urlInput.value.trim();
+
+        if (!url) return;
+        if (!url.startsWith('wss://') && !url.startsWith('ws://')) {
+            UI.toast('Relay URL must start with wss:// or ws://', 'warning');
+            return;
+        }
+        if (this.relays.some(r => r.url === url)) {
+            UI.toast('Relay already in list', 'warning');
+            return;
+        }
+
+        const read = document.getElementById('relay-add-read').checked;
+        const write = document.getElementById('relay-add-write').checked;
+
+        if (!read && !write) {
+            UI.toast('Select at least read or write', 'warning');
+            return;
+        }
+
+        this.relays.push({ url, read, write });
+        this.render();
+        urlInput.value = '';
+    },
+
+    handleListClick(e) {
+        const item = e.target.closest('.relay-item');
+        if (!item) return;
+
+        const idx = parseInt(item.dataset.index);
+        const action = e.target.dataset.action;
+
+        if (action === 'toggle-read') {
+            this.relays[idx].read = !this.relays[idx].read;
+            if (!this.relays[idx].read && !this.relays[idx].write) {
+                this.relays[idx].write = true; // Must have at least one
+            }
+            this.render();
+        } else if (action === 'toggle-write') {
+            this.relays[idx].write = !this.relays[idx].write;
+            if (!this.relays[idx].read && !this.relays[idx].write) {
+                this.relays[idx].read = true; // Must have at least one
+            }
+            this.render();
+        } else if (action === 'remove') {
+            this.relays.splice(idx, 1);
+            this.render();
+        }
+    },
+
+    async save() {
+        if (this.relays.length === 0) {
+            UI.toast('Add at least one relay', 'warning');
+            return;
+        }
+
+        try {
+            await RelayPrefs.publishRelayPrefs(this.relays);
+            UI.toast('Relay preferences saved', 'success');
+            UI.hideModal('relay-settings-modal');
+        } catch (err) {
+            UI.toast(`Failed to save: ${err.message}`, 'error');
+            console.error('Failed to save relay prefs:', err);
+        }
+    },
+
+    setupEventListeners() {
+        // Header button
+        document.getElementById('relay-settings-btn').addEventListener('click', () => this.open());
+        // Sidebar nav item
+        document.getElementById('nav-relay-settings').addEventListener('click', () => this.open());
+        // Modal controls
+        document.getElementById('relay-settings-close').addEventListener('click', () => UI.hideModal('relay-settings-modal'));
+        document.getElementById('relay-settings-cancel').addEventListener('click', () => UI.hideModal('relay-settings-modal'));
+        document.getElementById('relay-settings-save').addEventListener('click', () => this.save());
+        document.getElementById('relay-add-btn').addEventListener('click', () => this.addRelay());
+        document.getElementById('relay-add-url').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this.addRelay();
+        });
+        document.getElementById('relay-list').addEventListener('click', (e) => this.handleListClick(e));
+    }
+};
