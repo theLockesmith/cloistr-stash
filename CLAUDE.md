@@ -307,6 +307,11 @@ atlas kube apply cloistr-drive --kube-context atlantis
 - File/folder sharing, public links, versioning
 - Collaborative editing, search, offline support
 - Storage quotas and rate limiting (server)
+- **Relay Preferences Integration** - User data published to preferred relays
+  - Frontend `relayprefs.js` module with full query chain
+  - `Auth.publishEvent()` uses user's preferred relays
+  - Settings UI modal for viewing/editing relay preferences
+  - See: `~/claude/coldforge/cloistr/architecture/relay-preferences.md`
 
 ### In Progress
 - **Desktop App (Tauri)** - See `docs/DESKTOP_APP.md`
@@ -316,11 +321,10 @@ atlas kube apply cloistr-drive --kube-context atlantis
   - Background sync daemon
 
 ### Planned
-- **Relay Preferences Integration** - Publish to user's preferred relays
-  - Import `cloistr-common/relayprefs` (or TypeScript equivalent)
-  - Replace hardcoded relay publishing with `GetRelayPrefs()` calls
-  - User's file metadata events go to their chosen relays
-  - See: `~/claude/coldforge/cloistr/architecture/relay-preferences.md`
+- **Go Backend `cloistr-common` Integration** (Low Priority)
+  - Import `cloistr-common/relayprefs` into Go backend
+  - Most publishing is client-side, so this is optional
+  - Would allow server-side relay queries to use user preferences
 - **Mobile Apps** - See `docs/MOBILE_APP.md`
   - React Native or Flutter
   - iOS and Android
