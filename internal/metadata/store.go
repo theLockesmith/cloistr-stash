@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"git.coldforge.xyz/coldforge/cloistr-common/relayprefs"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -17,6 +18,9 @@ type Store struct {
 	relay    *nostr.Relay
 	logger   *slog.Logger
 	mu       sync.RWMutex
+
+	// Relay preferences client for user-preferred relay publishing
+	relayPrefs *relayprefs.Client
 
 	// Local cache of file metadata by pubkey
 	cache map[string][]*FileMetadata
@@ -33,6 +37,16 @@ func NewStore(relayURL string, logger *slog.Logger) *Store {
 		relayURL: relayURL,
 		logger:   logger,
 		cache:    make(map[string][]*FileMetadata),
+	}
+}
+
+// NewStoreWithRelayPrefs creates a new metadata store with relay preferences support
+func NewStoreWithRelayPrefs(relayURL string, logger *slog.Logger, relayPrefsClient *relayprefs.Client) *Store {
+	return &Store{
+		relayURL:   relayURL,
+		logger:     logger,
+		cache:      make(map[string][]*FileMetadata),
+		relayPrefs: relayPrefsClient,
 	}
 }
 
@@ -119,6 +133,88 @@ func (s *Store) PublishFile(ctx context.Context, event *nostr.Event) error {
 	)
 
 	return nil
+}
+
+// PublishToUserRelays publishes an event to the user's preferred write relays.
+// Falls back to the configured default relay if relay preferences are not available.
+// The event must be signed before calling this method.
+func (s *Store) PublishToUserRelays(ctx context.Context, event *nostr.Event) error {
+	pubkey := event.PubKey
+
+	// Get user's preferred relays
+	var writeRelays []string
+	if s.relayPrefs != nil {
+		prefs, err := s.relayPrefs.GetRelayPrefs(ctx, pubkey)
+		if err != nil {
+			s.logger.Warn("failed to get relay prefs, using default",
+				"pubkey", pubkey[:16],
+				"error", err,
+			)
+		} else if prefs != nil && len(prefs.WriteRelays()) > 0 {
+			writeRelays = prefs.WriteRelays()
+			s.logger.Debug("using user relay preferences",
+				"pubkey", pubkey[:16],
+				"relays", len(writeRelays),
+				"source", prefs.Source,
+			)
+		}
+	}
+
+	// Fall back to default relay if no preferences
+	if len(writeRelays) == 0 {
+		writeRelays = []string{s.relayURL}
+	}
+
+	// Publish to all write relays
+	var lastErr error
+	successCount := 0
+
+	for _, relayURL := range writeRelays {
+		relay, err := nostr.RelayConnect(ctx, relayURL)
+		if err != nil {
+			s.logger.Warn("failed to connect to relay",
+				"relay", relayURL,
+				"error", err,
+			)
+			lastErr = err
+			continue
+		}
+
+		if err := relay.Publish(ctx, *event); err != nil {
+			s.logger.Warn("failed to publish to relay",
+				"relay", relayURL,
+				"event_id", event.ID[:16],
+				"error", err,
+			)
+			lastErr = err
+			_ = relay.Close()
+			continue
+		}
+
+		_ = relay.Close()
+		successCount++
+	}
+
+	if successCount == 0 {
+		return fmt.Errorf("failed to publish to any relay: %w", lastErr)
+	}
+
+	s.logger.Info("published to user relays",
+		"event_id", event.ID[:16],
+		"pubkey", pubkey[:16],
+		"success", successCount,
+		"total", len(writeRelays),
+	)
+
+	return nil
+}
+
+// InvalidateRelayPrefsCache invalidates the relay preferences cache for a user.
+// Call this when a user updates their relay preferences.
+func (s *Store) InvalidateRelayPrefsCache(pubkey string) {
+	if s.relayPrefs != nil {
+		s.relayPrefs.InvalidateCache(pubkey)
+	}
 }
 
 // CreateFileEvent creates a Nostr event for file metadata (unsigned)

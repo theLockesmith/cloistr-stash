@@ -311,6 +311,8 @@ atlas kube apply cloistr-drive --kube-context atlantis
   - Frontend `relayprefs.js` module with full query chain
   - `Auth.publishEvent()` uses user's preferred relays
   - Settings UI modal for viewing/editing relay preferences
+  - Go backend `cloistr-common/relayprefs` integration
+  - `metadata.Store.PublishToUserRelays()` for server-side publishing
   - See: `~/claude/coldforge/cloistr/architecture/relay-preferences.md`
 
 ### In Progress
@@ -321,10 +323,6 @@ atlas kube apply cloistr-drive --kube-context atlantis
   - Background sync daemon
 
 ### Planned
-- **Go Backend `cloistr-common` Integration** (Low Priority)
-  - Import `cloistr-common/relayprefs` into Go backend
-  - Most publishing is client-side, so this is optional
-  - Would allow server-side relay queries to use user preferences
 - **Mobile Apps** - See `docs/MOBILE_APP.md`
   - React Native or Flutter
   - iOS and Android

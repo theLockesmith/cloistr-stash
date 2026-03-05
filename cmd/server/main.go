@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"git.coldforge.xyz/coldforge/cloistr-common/relayprefs"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/auth"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/blossom"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/config"
@@ -76,10 +77,21 @@ func main() {
 		logger.Info("connected to Blossom server", "url", cfg.Blossom.URL)
 	}
 
+	// Initialize relay preferences client for user-preferred relay publishing
+	// Reads config from environment variables: DISCOVERY_INTERNAL, RELAY_LIST, etc.
+	relayPrefsClient := relayprefs.NewClientFromEnv()
+	if err := relayPrefsClient.Validate(); err != nil {
+		logger.Warn("relay preferences not fully configured", "error", err)
+	} else {
+		logger.Info("relay preferences client initialized",
+			"use_cloistr_fallback", relayPrefsClient.Config().UseCloistrFallback,
+		)
+	}
+
 	// Initialize metadata store (connects to Nostr relay)
 	var metadataStore *metadata.Store
 	if cfg.Relay.URL != "" {
-		metadataStore = metadata.NewStore(cfg.Relay.URL, logger)
+		metadataStore = metadata.NewStoreWithRelayPrefs(cfg.Relay.URL, logger, relayPrefsClient)
 		relayCtx, relayCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer relayCancel()
 		if err := metadataStore.Connect(relayCtx); err != nil {
