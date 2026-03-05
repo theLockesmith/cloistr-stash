@@ -4465,6 +4465,203 @@ const App = {
         }
     },
 
+    // === Relay Settings ===
+    editingRelays: [], // Temporary storage for relays being edited
+
+    async showRelaySettingsModal() {
+        // Load current relay preferences
+        await this.loadRelaySettings();
+        UI.showModal('relay-settings-modal');
+    },
+
+    async loadRelaySettings() {
+        const listEl = document.getElementById('relay-list');
+        const sourceInfoEl = document.getElementById('relay-source-info');
+
+        if (!Auth.pubkey) {
+            listEl.innerHTML = '<div class="relay-list-empty">Connect to view relay settings</div>';
+            return;
+        }
+
+        listEl.innerHTML = '<div class="relay-list-empty">Loading...</div>';
+
+        try {
+            const prefs = await RelayPrefs.getRelayPrefs(Auth.pubkey);
+
+            // Convert to editing format
+            this.editingRelays = [];
+            const seenUrls = new Set();
+
+            // Combine read and write relays
+            for (const url of prefs.readRelays || []) {
+                if (!seenUrls.has(url)) {
+                    seenUrls.add(url);
+                    this.editingRelays.push({
+                        url,
+                        read: true,
+                        write: (prefs.writeRelays || []).includes(url)
+                    });
+                }
+            }
+            for (const url of prefs.writeRelays || []) {
+                if (!seenUrls.has(url)) {
+                    seenUrls.add(url);
+                    this.editingRelays.push({
+                        url,
+                        read: false,
+                        write: true
+                    });
+                }
+            }
+
+            this.renderRelayList();
+
+            // Show source info
+            const sourceMap = {
+                'cloistr-relays': 'Loaded from your Cloistr relay preferences',
+                'nip65': 'Loaded from your NIP-65 relay list',
+                'discovery': 'Loaded from Cloistr discovery service',
+                'default': 'Using default relay (no preferences saved)'
+            };
+            sourceInfoEl.textContent = sourceMap[prefs.source] || `Source: ${prefs.source}`;
+
+        } catch (err) {
+            listEl.innerHTML = `<div class="relay-list-empty">Error loading relays: ${err.message}</div>`;
+            console.error('Failed to load relay settings:', err);
+        }
+    },
+
+    renderRelayList() {
+        const listEl = document.getElementById('relay-list');
+
+        if (this.editingRelays.length === 0) {
+            listEl.innerHTML = '<div class="relay-list-empty">No relays configured</div>';
+            return;
+        }
+
+        listEl.innerHTML = this.editingRelays.map((relay, index) => `
+            <div class="relay-item" data-index="${index}">
+                <span class="relay-url" title="${relay.url}">${relay.url}</span>
+                <span class="relay-badge ${relay.read ? 'active' : 'inactive'}"
+                      data-action="toggle-read" title="Toggle read">R</span>
+                <span class="relay-badge ${relay.write ? 'active' : 'inactive'}"
+                      data-action="toggle-write" title="Toggle write">W</span>
+                <button class="relay-remove" data-action="remove" title="Remove relay">&times;</button>
+            </div>
+        `).join('');
+
+        // Add click handlers for badges and remove buttons
+        listEl.querySelectorAll('.relay-item').forEach(item => {
+            const index = parseInt(item.dataset.index);
+
+            item.querySelector('[data-action="toggle-read"]').addEventListener('click', () => {
+                this.toggleRelayFlag(index, 'read');
+            });
+            item.querySelector('[data-action="toggle-write"]').addEventListener('click', () => {
+                this.toggleRelayFlag(index, 'write');
+            });
+            item.querySelector('[data-action="remove"]').addEventListener('click', () => {
+                this.removeRelay(index);
+            });
+        });
+    },
+
+    toggleRelayFlag(index, flag) {
+        if (index >= 0 && index < this.editingRelays.length) {
+            this.editingRelays[index][flag] = !this.editingRelays[index][flag];
+
+            // Ensure at least one flag is set
+            const relay = this.editingRelays[index];
+            if (!relay.read && !relay.write) {
+                relay.read = true; // Default to read if both toggled off
+            }
+
+            this.renderRelayList();
+        }
+    },
+
+    removeRelay(index) {
+        if (index >= 0 && index < this.editingRelays.length) {
+            this.editingRelays.splice(index, 1);
+            this.renderRelayList();
+        }
+    },
+
+    addRelayFromInput() {
+        const urlInput = document.getElementById('relay-add-url');
+        const readCheckbox = document.getElementById('relay-add-read');
+        const writeCheckbox = document.getElementById('relay-add-write');
+
+        let url = urlInput.value.trim();
+
+        // Validate URL
+        if (!url) {
+            UI.toast('Please enter a relay URL', 'error');
+            return;
+        }
+
+        // Add wss:// prefix if missing
+        if (!url.startsWith('wss://') && !url.startsWith('ws://')) {
+            url = 'wss://' + url;
+        }
+
+        // Check for duplicates
+        if (this.editingRelays.some(r => r.url === url)) {
+            UI.toast('Relay already in list', 'error');
+            return;
+        }
+
+        // Validate URL format
+        try {
+            new URL(url);
+        } catch {
+            UI.toast('Invalid relay URL', 'error');
+            return;
+        }
+
+        // Add the relay
+        this.editingRelays.push({
+            url,
+            read: readCheckbox.checked,
+            write: writeCheckbox.checked
+        });
+
+        // Clear input and reset checkboxes
+        urlInput.value = '';
+        readCheckbox.checked = true;
+        writeCheckbox.checked = true;
+
+        this.renderRelayList();
+        UI.toast('Relay added', 'success');
+    },
+
+    async saveRelaySettings() {
+        if (this.editingRelays.length === 0) {
+            UI.toast('Add at least one relay', 'error');
+            return;
+        }
+
+        // Ensure at least one write relay
+        const hasWrite = this.editingRelays.some(r => r.write);
+        if (!hasWrite) {
+            UI.toast('At least one relay must have write enabled', 'error');
+            return;
+        }
+
+        try {
+            UI.toast('Saving relay preferences...', 'info');
+
+            await RelayPrefs.publishRelayPrefs(this.editingRelays);
+
+            UI.hideModal('relay-settings-modal');
+            UI.toast('Relay preferences saved', 'success');
+
+        } catch (err) {
+            UI.toast(`Failed to save: ${err.message}`, 'error');
+            console.error('Failed to save relay settings:', err);
+        }
+    },
+
     // === Migration Tool ===
     async checkMigration() {
         // Check for unencrypted files that can be migrated
@@ -4809,6 +5006,31 @@ const App = {
 
         document.getElementById('nav-notifications')?.addEventListener('click', () => {
             this.showNotificationsModal();
+        });
+
+        // Relay Settings modal
+        document.getElementById('relay-settings-btn')?.addEventListener('click', () => {
+            this.showRelaySettingsModal();
+        });
+        document.getElementById('nav-relay-settings')?.addEventListener('click', () => {
+            this.showRelaySettingsModal();
+        });
+        document.getElementById('relay-settings-close')?.addEventListener('click', () => {
+            UI.hideModal('relay-settings-modal');
+        });
+        document.getElementById('relay-settings-cancel')?.addEventListener('click', () => {
+            UI.hideModal('relay-settings-modal');
+        });
+        document.getElementById('relay-settings-save')?.addEventListener('click', () => {
+            this.saveRelaySettings();
+        });
+        document.getElementById('relay-add-btn')?.addEventListener('click', () => {
+            this.addRelayFromInput();
+        });
+        document.getElementById('relay-add-url')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.addRelayFromInput();
+            }
         });
 
         // Request notification permission when user interacts
