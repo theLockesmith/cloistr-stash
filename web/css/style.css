@@ -1277,10 +1277,25 @@ body {
     max-width: 800px;
 }
 
-.landing-logo {
-    width: 80px;
-    height: 80px;
+.landing-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
     margin-bottom: 1.5rem;
+}
+
+.landing-logo {
+    height: 80px;
+    width: auto;
+}
+
+.landing-drive-suffix {
+    font-family: Georgia, serif;
+    font-size: 70px;
+    color: #A78BFA;
+    margin-left: -0.15em;
+    letter-spacing: -0.02em;
 }
 
 .landing-title {
@@ -2275,6 +2290,14 @@ body {
 
     .landing-features {
         grid-template-columns: 1fr;
+    }
+
+    .landing-logo {
+        height: 60px;
+    }
+
+    .landing-drive-suffix {
+        font-size: 52px;
     }
 
     .landing-title {
@@ -4085,6 +4108,20 @@ body {
     }
 
     /* Landing page */
+    .landing-brand {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .landing-logo {
+        height: 50px;
+    }
+
+    .landing-drive-suffix {
+        font-size: 44px;
+        margin-left: 0;
+    }
+
     .landing-features {
         flex-direction: column;
         gap: 1.5rem;
