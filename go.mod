@@ -3,7 +3,7 @@ module git.coldforge.xyz/coldforge/cloistr-drive
 go 1.24.1
 
 require (
-	git.coldforge.xyz/coldforge/cloistr-common v0.0.0-20260301141631-5e83cfcaceab
+	git.coldforge.xyz/coldforge/cloistr-common v0.1.0
 	github.com/joho/godotenv v1.5.1
 	github.com/nbd-wtf/go-nostr v0.52.3
 	github.com/prometheus/client_golang v1.23.2
