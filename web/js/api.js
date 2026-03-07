@@ -4,13 +4,17 @@ const API = {
     baseURL: '',
 
     // Upload a file to the server with Blossom auth
-    async uploadFile(file, authHeader) {
+    // encryptionMode: 'e2e' (default), 'server', or 'none'
+    async uploadFile(file, authHeader, encryptionMode = 'e2e') {
         const formData = new FormData();
         formData.append('file', file);
 
         const headers = {};
         if (authHeader) {
             headers['X-Blossom-Auth'] = authHeader;
+        }
+        if (encryptionMode) {
+            headers['X-Encryption'] = encryptionMode;
         }
 
         const response = await fetch(`${this.baseURL}/api/files`, {

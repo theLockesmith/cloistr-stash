@@ -138,13 +138,13 @@ const Upload = {
                     );
                 }
 
-                // Step 7: Upload encrypted blob
+                // Step 7: Upload encrypted blob with E2E encryption mode
                 console.log('Upload: Sending encrypted blob to server...');
                 const encryptedFile = new File([encryptedData], item.file.name + '.encrypted', {
                     type: 'application/octet-stream',
                 });
-                const result = await API.uploadFile(encryptedFile, authHeader);
-                console.log(`Upload: Server responded with sha256: ${result.sha256?.slice(0, 16)}...`);
+                const result = await API.uploadFile(encryptedFile, authHeader, 'e2e');
+                console.log(`Upload: Server responded with sha256: ${result.sha256?.slice(0, 16)}... (encryption: ${result.encryption_mode || 'e2e'})`);
 
                 // Step 8: Publish encrypted file metadata to relay
                 if (Auth.isConnected) {

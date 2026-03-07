@@ -341,6 +341,12 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	// Get Blossom auth header from request
 	authHeader := r.Header.Get("X-Blossom-Auth")
 
+	// Get encryption mode header (e2e, server, or none)
+	encryptionMode := r.Header.Get("X-Encryption")
+	if encryptionMode == "" {
+		encryptionMode = "e2e" // Default to e2e for Drive uploads (always client-encrypted)
+	}
+
 	// Extract pubkey from auth header for quota check
 	pubkey := extractPubkeyFromAuth(authHeader)
 
@@ -363,13 +369,14 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 		contentType = "application/octet-stream"
 	}
 
-	// Upload to Blossom with auth
-	result, err := s.blossom.Upload(r.Context(), file, contentType, authHeader)
+	// Upload to Blossom with auth and encryption mode
+	result, err := s.blossom.Upload(r.Context(), file, contentType, authHeader, encryptionMode)
 	if err != nil {
 		s.logger.Error("failed to upload to blossom",
 			"error", err,
 			"filename", header.Filename,
 			"content_type", contentType,
+			"encryption_mode", encryptionMode,
 		)
 		metrics.RecordUpload(false, 0)
 		http.Error(w, "Upload failed", http.StatusInternalServerError)
@@ -401,6 +408,7 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 		"sha256", result.SHA256[:16],
 		"size", result.Size,
 		"content_type", contentType,
+		"encryption_mode", encryptionMode,
 	)
 }
 

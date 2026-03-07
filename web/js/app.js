@@ -4128,6 +4128,54 @@ const App = {
         }
     },
 
+    // === Encryption Info Modal ===
+    showEncryptionInfo(file) {
+        const hierarchy = document.getElementById('key-hierarchy');
+        const folderId = file.folder_id || file.folderId;
+
+        // Build key hierarchy visualization
+        let hierarchyHTML = '';
+
+        if (folderId) {
+            hierarchyHTML = `
+                <div class="key-node key-node-root">
+                    <span class="key-node-icon">&#128273;</span>
+                    <span class="key-node-label">Root Key</span>
+                    <span class="key-node-desc">Master key from Nostr identity</span>
+                </div>
+                <div class="key-arrow">&#8595;</div>
+                <div class="key-node key-node-folder">
+                    <span class="key-node-icon">&#128193;</span>
+                    <span class="key-node-label">Folder Key</span>
+                    <span class="key-node-desc">Derived via HKDF</span>
+                </div>
+                <div class="key-arrow">&#8595;</div>
+                <div class="key-node key-node-file">
+                    <span class="key-node-icon">&#128196;</span>
+                    <span class="key-node-label">File Key</span>
+                    <span class="key-node-desc">Unique per file</span>
+                </div>
+            `;
+        } else {
+            hierarchyHTML = `
+                <div class="key-node key-node-root">
+                    <span class="key-node-icon">&#128273;</span>
+                    <span class="key-node-label">Root Key</span>
+                    <span class="key-node-desc">Master key from Nostr identity</span>
+                </div>
+                <div class="key-arrow">&#8595;</div>
+                <div class="key-node key-node-file">
+                    <span class="key-node-icon">&#128196;</span>
+                    <span class="key-node-label">File Key</span>
+                    <span class="key-node-desc">Derived directly from root</span>
+                </div>
+            `;
+        }
+
+        hierarchy.innerHTML = hierarchyHTML;
+        UI.showModal('encryption-info-modal');
+    },
+
     // === Public Link Modal ===
     publicLinkFile: null,
 
@@ -4835,6 +4883,14 @@ const App = {
                 this.importKeyBackup(e.target.files[0]);
                 e.target.value = '';
             }
+        });
+
+        // Encryption Info modal
+        document.getElementById('encryption-info-close').addEventListener('click', () => {
+            UI.hideModal('encryption-info-modal');
+        });
+        document.getElementById('encryption-info-done').addEventListener('click', () => {
+            UI.hideModal('encryption-info-modal');
         });
 
         // Manage Shares modal

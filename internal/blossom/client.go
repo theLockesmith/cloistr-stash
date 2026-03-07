@@ -16,9 +16,10 @@ type Client struct {
 
 // UploadResult contains the result of a successful upload
 type UploadResult struct {
-	URL    string `json:"url"`
-	SHA256 string `json:"sha256"`
-	Size   int64  `json:"size"`
+	URL            string `json:"url"`
+	SHA256         string `json:"sha256"`
+	Size           int64  `json:"size"`
+	EncryptionMode string `json:"encryption_mode,omitempty"`
 }
 
 // FileInfo contains metadata about a file
@@ -41,7 +42,8 @@ func NewClient(baseURL string) *Client {
 }
 
 // Upload sends a file to the Blossom server
-func (c *Client) Upload(ctx context.Context, reader io.Reader, contentType string, authHeader string) (*UploadResult, error) {
+// encryptionMode can be "none", "server", or "e2e" to indicate the encryption state
+func (c *Client) Upload(ctx context.Context, reader io.Reader, contentType string, authHeader string, encryptionMode string) (*UploadResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+"/upload", reader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -56,6 +58,11 @@ func (c *Client) Upload(ctx context.Context, reader io.Reader, contentType strin
 	// Add Blossom auth header if provided
 	if authHeader != "" {
 		req.Header.Set("Authorization", authHeader)
+	}
+
+	// Add encryption mode header if provided
+	if encryptionMode != "" {
+		req.Header.Set("X-Encryption", encryptionMode)
 	}
 
 	resp, err := c.httpClient.Do(req)

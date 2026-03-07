@@ -608,6 +608,42 @@
             </div>
         </div>
 
+        <!-- Encryption Info Modal -->
+        <div id="encryption-info-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Encryption Details</h2>
+                    <button class="modal-close" id="encryption-info-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="encryption-status-box">
+                        <span class="encryption-icon-large">&#128274;</span>
+                        <span class="encryption-status-text">End-to-End Encrypted</span>
+                    </div>
+
+                    <div class="encryption-info-section">
+                        <h4>Algorithm</h4>
+                        <p class="encryption-algorithm">XChaCha20-Poly1305</p>
+                    </div>
+
+                    <div class="encryption-info-section">
+                        <h4>Key Derivation</h4>
+                        <div id="key-hierarchy" class="key-hierarchy">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <div class="encryption-info-section">
+                        <h4>Storage</h4>
+                        <p class="encryption-storage-info">Your encryption keys are stored locally in your browser, protected by your Nostr identity. The server never sees your keys or unencrypted data.</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" id="encryption-info-done">Done</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Relay Settings Modal -->
         <div id="relay-settings-modal" class="modal hidden">
             <div class="modal-content modal-small">

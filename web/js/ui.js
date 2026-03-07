@@ -778,7 +778,7 @@ const UI = {
                     <button class="star-btn ${isStarred ? 'starred' : ''}" title="${isStarred ? 'Remove from starred' : 'Add to starred'}" aria-label="${isStarred ? 'Remove from starred' : 'Add to starred'}" aria-pressed="${isStarred}">${isStarred ? '&#9733;' : '&#9734;'}</button>
                     ${iconHtml}
                     <span class="file-name-text">${this.escapeHtml(fileName)}</span>
-                    ${isEncrypted ? '<span class="encrypted-badge" title="End-to-end encrypted" aria-label="End-to-end encrypted">E2E</span>' : ''}
+                    ${isEncrypted ? '<span class="encrypted-badge" title="End-to-end encrypted with XChaCha20-Poly1305. Only you can decrypt this file." aria-label="End-to-end encrypted">E2E</span>' : ''}
                 </div>
                 <div class="file-col file-size">${size}</div>
                 <div class="file-col file-date">${date}</div>
@@ -811,7 +811,7 @@ const UI = {
             <div class="grid-item ${encryptedClass}" data-sha256="${file.sha256}" data-name="${this.escapeHtml(name)}" data-size="${file.size}" data-mime="${mimeType}" data-file-id="${fileId}" data-folder-id="${folderId}" data-encrypted="${isEncrypted || false}">
                 <div class="grid-item-icon">${icon}</div>
                 <div class="grid-item-name">${this.escapeHtml(name)}</div>
-                ${isEncrypted ? '<span class="encrypted-badge" title="End-to-end encrypted">E2E</span>' : ''}
+                ${isEncrypted ? '<span class="encrypted-badge" title="End-to-end encrypted with XChaCha20-Poly1305. Only you can decrypt this file.">E2E</span>' : ''}
                 <div class="grid-item-actions">
                     ${isPreviewable ? '<button class="action-btn preview-btn" title="Preview">&#128065;</button>' : ''}
                     ${isEditable ? '<button class="action-btn edit-btn" title="Edit">&#9998;</button>' : ''}
@@ -855,6 +855,12 @@ const UI = {
         menuItems.push({ label: 'Public Link', action: () => App.showPublicLinkModal(fileObj) });
         menuItems.push({ label: 'Manage Shares', action: () => App.showManageSharesModal(fileObj) });
         menuItems.push({ label: 'Version History', action: () => App.showVersionHistory(fileObj) });
+
+        // Add encryption info option for encrypted files
+        const isEncrypted = fileObj.encrypted || fileObj.encryption || fileObj.encryption_mode === 'e2e';
+        if (isEncrypted) {
+            menuItems.push({ label: 'Encryption Info', action: () => App.showEncryptionInfo(fileObj) });
+        }
 
         // Add edit option for text files
         if (Collaboration.isCollaborativeFileType(fileMime)) {
