@@ -400,13 +400,18 @@ const NIP46 = {
 
     // Detect encryption type and decrypt accordingly
     async decrypt(encrypted, theirPubkey) {
+        console.log('NIP-46: decrypt() called, encrypted length:', encrypted?.length, 'has ?iv=:', encrypted?.includes('?iv='));
         // NIP-04 format contains "?iv="
         if (encrypted.includes('?iv=')) {
-            return this.nip04Decrypt(encrypted, theirPubkey);
+            console.log('NIP-46: Using NIP-04 decryption');
+            const result = await this.nip04Decrypt(encrypted, theirPubkey);
+            console.log('NIP-46: NIP-04 decrypt result length:', result?.length, 'starts with:', result?.substring(0, 50));
+            return result;
         }
 
         // Otherwise assume NIP-44 (base64 blob starting with version byte)
         try {
+            console.log('NIP-46: Trying NIP-44 decryption');
             return await this.nip44Decrypt(encrypted, theirPubkey);
         } catch (err) {
             console.error('NIP-44 decrypt failed, trying NIP-04:', err.message);
@@ -659,10 +664,19 @@ const NIP46 = {
 
                 // Check if this is a response to us (kind 24133)
                 if (event.kind === 24133 && event.pubkey === this.remotePubkey) {
-                    console.log('NIP-46: Decrypting response...');
+                    console.log('NIP-46: Decrypting response, content length:', event.content?.length);
+                    console.log('NIP-46: Content starts with:', event.content?.substring(0, 50));
                     // Decrypt the content
                     const decrypted = await this.decrypt(event.content, this.remotePubkey);
-                    const response = JSON.parse(decrypted);
+                    console.log('NIP-46: Decrypted (length=' + decrypted?.length + '):', decrypted?.substring(0, 200));
+                    let response;
+                    try {
+                        response = JSON.parse(decrypted);
+                    } catch (err) {
+                        console.error('NIP-46: Failed to parse decrypted response:', err.message);
+                        console.error('NIP-46: Full decrypted content:', JSON.stringify(decrypted));
+                        throw err;
+                    }
                     console.log('NIP-46: Response id:', response.id, 'result type:', typeof response.result, 'pending ids:', [...this.pendingRequests.keys()]);
 
                     // Find pending request
@@ -1136,11 +1150,18 @@ const NIP46 = {
 
         // Send sign_event request
         const signedEvent = await this.sendRequest('sign_event', [JSON.stringify(event)]);
-        console.log('NIP-46: signEvent got response, type:', typeof signedEvent);
+        console.log('NIP-46: signEvent got response, type:', typeof signedEvent, 'value:', signedEvent);
 
         // Parse the result (some signers return string, some return object)
         if (typeof signedEvent === 'string') {
-            return JSON.parse(signedEvent);
+            console.log('NIP-46: signEvent parsing string, first 100 chars:', signedEvent.substring(0, 100));
+            try {
+                return JSON.parse(signedEvent);
+            } catch (err) {
+                console.error('NIP-46: Failed to parse signEvent result:', err.message);
+                console.error('NIP-46: Raw value (length=' + signedEvent.length + '):', JSON.stringify(signedEvent));
+                throw err;
+            }
         }
 
         return signedEvent;
