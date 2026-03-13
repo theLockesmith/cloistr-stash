@@ -122,11 +122,24 @@ const API = {
             headers: headers,
         });
 
+        console.log('API: checkAuthStatus response status:', response.status, response.statusText);
+        console.log('API: checkAuthStatus content-type:', response.headers.get('content-type'));
+
         if (!response.ok) {
             throw new Error(`Failed to check auth status: ${response.status}`);
         }
 
-        return response.json();
+        // Debug: read raw text first
+        const text = await response.text();
+        console.log('API: checkAuthStatus raw response (first 200 chars):', text.substring(0, 200));
+
+        try {
+            return JSON.parse(text);
+        } catch (err) {
+            console.error('API: Failed to parse auth status response:', err.message);
+            console.error('API: Full response text:', text);
+            throw err;
+        }
     },
 
     // List all folders for a pubkey
