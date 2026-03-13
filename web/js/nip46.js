@@ -26,6 +26,69 @@ const NIP46 = {
     // Track seen events to deduplicate responses from multiple relays
     seenEvents: new Set(),
 
+    // Circuit breaker for relay health tracking
+    // Prevents repeated failures from blocking the auth flow
+    relayHealth: new Map(), // url -> { failures: number, lastFailure: timestamp, disabled: boolean }
+
+    CIRCUIT_BREAKER: {
+        MAX_FAILURES: 3,        // Disable relay after N consecutive failures
+        COOLDOWN_MS: 60000,     // Re-enable after 60 seconds
+        TIMEOUT_MS: 10000,      // Per-relay connection timeout
+    },
+
+    // Record a relay success - reset failure count
+    recordRelaySuccess(url) {
+        this.relayHealth.set(url, { failures: 0, lastFailure: 0, disabled: false });
+    },
+
+    // Record a relay failure - may trigger circuit breaker
+    recordRelayFailure(url, reason = 'unknown') {
+        const health = this.relayHealth.get(url) || { failures: 0, lastFailure: 0, disabled: false };
+        health.failures++;
+        health.lastFailure = Date.now();
+        health.lastReason = reason;
+
+        if (health.failures >= this.CIRCUIT_BREAKER.MAX_FAILURES) {
+            health.disabled = true;
+            console.warn(`NIP-46: Circuit breaker OPEN for ${url} (${health.failures} failures: ${reason})`);
+        }
+
+        this.relayHealth.set(url, health);
+    },
+
+    // Check if relay is healthy (not disabled or cooldown expired)
+    isRelayHealthy(url) {
+        const health = this.relayHealth.get(url);
+        if (!health) return true; // Unknown relay is assumed healthy
+
+        if (health.disabled) {
+            // Check if cooldown has expired
+            if (Date.now() - health.lastFailure > this.CIRCUIT_BREAKER.COOLDOWN_MS) {
+                console.log(`NIP-46: Circuit breaker HALF-OPEN for ${url} - allowing retry`);
+                health.disabled = false;
+                health.failures = Math.floor(health.failures / 2); // Reduce but don't reset
+                this.relayHealth.set(url, health);
+                return true;
+            }
+            return false;
+        }
+
+        return true;
+    },
+
+    // Get list of healthy relays for sending
+    getHealthyRelays() {
+        return this.relayUrls.filter(url => this.isRelayHealthy(url));
+    },
+
+    // Get healthy sockets for sending
+    getHealthySockets() {
+        return this.sockets.filter(ws => {
+            if (ws.readyState !== WebSocket.OPEN) return false;
+            return this.isRelayHealthy(ws.url);
+        });
+    },
+
     // Parse bunker:// URL
     // Format: bunker://<remote-pubkey>?relay=<relay-url>&secret=<secret>
     parseBunkerUrl(url) {
@@ -430,34 +493,78 @@ const NIP46 = {
         }
     },
 
-    // Connect to a single relay via WebSocket
+    // Connect to a single relay via WebSocket with circuit breaker
     connectSingleRelay(url) {
-        return new Promise((resolve, reject) => {
+        // Check circuit breaker before attempting connection
+        if (!this.isRelayHealthy(url)) {
+            console.log(`NIP-46: Skipping unhealthy relay ${url}`);
+            return Promise.resolve(null);
+        }
+
+        return new Promise((resolve) => {
+            let resolved = false;
             const ws = new WebSocket(url);
 
+            // Per-relay connection timeout
+            const timeout = setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    console.warn(`NIP-46: Connection timeout for ${url}`);
+                    this.recordRelayFailure(url, 'connection_timeout');
+                    ws.close();
+                    resolve(null);
+                }
+            }, this.CIRCUIT_BREAKER.TIMEOUT_MS);
+
             ws.onopen = () => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timeout);
                 console.log('NIP-46: Connected to', url);
+                this.recordRelaySuccess(url);
                 resolve(ws);
             };
 
             ws.onerror = (err) => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timeout);
                 console.error('NIP-46: Connection failed to', url);
+                this.recordRelayFailure(url, 'connection_error');
                 resolve(null); // Don't reject, allow other relays to work
             };
 
-            ws.onclose = () => {
-                console.log('NIP-46: Disconnected from', url);
+            ws.onclose = (event) => {
+                if (!resolved) {
+                    resolved = true;
+                    clearTimeout(timeout);
+                    // Close before open = connection rejected (e.g., 503)
+                    const reason = event.code === 1006 ? 'connection_refused' : `close_${event.code}`;
+                    console.warn(`NIP-46: Connection closed for ${url} (code: ${event.code})`);
+                    this.recordRelayFailure(url, reason);
+                    resolve(null);
+                } else {
+                    console.log('NIP-46: Disconnected from', url);
+                }
                 this.sockets = this.sockets.filter(s => s !== ws);
             };
 
             ws.onmessage = (msg) => {
-                this.handleRelayMessage(msg.data);
+                this.handleRelayMessage(msg.data, url);
             };
         });
     },
 
-    // Connect to all relays
+    // Connect to all relays (filters unhealthy ones)
     async connectRelays(urls) {
+        const healthyUrls = urls.filter(url => this.isRelayHealthy(url));
+
+        if (healthyUrls.length === 0 && urls.length > 0) {
+            // All relays are unhealthy - reset circuit breakers and try again
+            console.warn('NIP-46: All relays unhealthy, resetting circuit breakers');
+            urls.forEach(url => this.relayHealth.delete(url));
+        }
+
         const connections = await Promise.all(urls.map(url => this.connectSingleRelay(url)));
         this.sockets = connections.filter(ws => ws !== null);
 
@@ -632,20 +739,23 @@ const NIP46 = {
     },
 
     // Handle incoming relay messages
-    async handleRelayMessage(data) {
+    async handleRelayMessage(data, relayUrl = 'unknown') {
         try {
             const message = JSON.parse(data);
-            console.log('NIP-46: Received message:', message[0], message.length > 2 ? JSON.stringify(message[2]).slice(0, 100) : '');
+            console.log('NIP-46: Received message from', relayUrl, ':', message[0], message.length > 2 ? JSON.stringify(message[2]).slice(0, 100) : '');
+
+            // Any successful message = relay is healthy
+            if (relayUrl !== 'unknown') {
+                this.recordRelaySuccess(relayUrl);
+            }
 
             // Handle NIP-42 AUTH challenge
             if (message[0] === 'AUTH') {
                 const challenge = message[1];
                 // Find the socket that received this
-                for (const ws of this.sockets) {
-                    if (ws.readyState === WebSocket.OPEN) {
-                        await this.handleAuthChallenge(challenge, ws.url, ws);
-                        break;
-                    }
+                const ws = this.sockets.find(s => s.url === relayUrl && s.readyState === WebSocket.OPEN);
+                if (ws) {
+                    await this.handleAuthChallenge(challenge, relayUrl, ws);
                 }
                 return;
             }
@@ -914,16 +1024,33 @@ const NIP46 = {
             }, 60000);
         });
 
-        // Store event for potential retry after AUTH
-        // Only store the first socket's event for retry
-        const firstOpenSocket = this.sockets.find(ws => ws.readyState === WebSocket.OPEN);
-        if (firstOpenSocket && !this.authenticated) {
-            this.pendingRetry = { event, ws: firstOpenSocket };
+        // Get healthy sockets for sending
+        const healthySockets = this.getHealthySockets();
+
+        if (healthySockets.length === 0) {
+            // No healthy sockets - check if we can reset circuit breakers
+            const openSockets = this.sockets.filter(ws => ws.readyState === WebSocket.OPEN);
+            if (openSockets.length > 0) {
+                console.warn('NIP-46: No healthy sockets, resetting circuit breakers for open connections');
+                openSockets.forEach(ws => this.relayHealth.delete(ws.url));
+            } else {
+                this.pendingRequests.delete(id);
+                throw new Error('No healthy relay connections available');
+            }
         }
 
-        // Publish event to all relays
+        // Store event for potential retry after AUTH
+        // Only store the first healthy socket's event for retry
+        const firstHealthySocket = healthySockets[0] || this.sockets.find(ws => ws.readyState === WebSocket.OPEN);
+        if (firstHealthySocket && !this.authenticated) {
+            this.pendingRetry = { event, ws: firstHealthySocket };
+        }
+
+        // Publish event to healthy relays first, then try others
         const message = JSON.stringify(['EVENT', event]);
-        this.sockets.forEach(ws => {
+        const socketsToUse = healthySockets.length > 0 ? healthySockets : this.sockets;
+
+        socketsToUse.forEach(ws => {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(message);
             }
@@ -1149,6 +1276,9 @@ const NIP46 = {
     disconnect() {
         // Clear saved session
         this.clearSession();
+
+        // Clear circuit breaker state (fresh start on explicit disconnect)
+        this.relayHealth.clear();
 
         // Full state reset
         this.reset();
