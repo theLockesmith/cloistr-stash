@@ -220,6 +220,211 @@ const NIP46 = {
         return decoder.decode(plaintext);
     },
 
+    // NIP-44 conversation key derivation
+    // Uses ECDH shared secret + HKDF with "nip44-v2" salt
+    async nip44ConversationKey(theirPubkey) {
+        const sharedPoint = await this.computeSharedSecret(theirPubkey);
+
+        // HKDF extract and expand with salt "nip44-v2"
+        const salt = new TextEncoder().encode('nip44-v2');
+
+        // Import shared point as key material for HKDF
+        const keyMaterial = await crypto.subtle.importKey(
+            'raw',
+            sharedPoint,
+            { name: 'HKDF' },
+            false,
+            ['deriveBits']
+        );
+
+        // Derive 32-byte conversation key
+        const conversationKeyBits = await crypto.subtle.deriveBits(
+            {
+                name: 'HKDF',
+                hash: 'SHA-256',
+                salt: salt,
+                info: new Uint8Array(0),
+            },
+            keyMaterial,
+            256
+        );
+
+        return new Uint8Array(conversationKeyBits);
+    },
+
+    // NIP-44 encrypt using ChaCha20-Poly1305
+    async nip44Encrypt(plaintext, theirPubkey) {
+        // Wait for libsodium
+        if (typeof sodium === 'undefined') {
+            throw new Error('libsodium not loaded');
+        }
+        await sodium.ready;
+
+        const conversationKey = await this.nip44ConversationKey(theirPubkey);
+
+        // Encode plaintext
+        const encoder = new TextEncoder();
+        const plaintextBytes = encoder.encode(plaintext);
+
+        // Calculate padded length (NIP-44 padding)
+        const unpaddedLen = plaintextBytes.length;
+        const paddedLen = this.nip44CalcPaddedLen(unpaddedLen);
+
+        // Create padded plaintext: 2-byte big-endian length + plaintext + padding
+        const padded = new Uint8Array(2 + paddedLen);
+        padded[0] = (unpaddedLen >> 8) & 0xff;
+        padded[1] = unpaddedLen & 0xff;
+        padded.set(plaintextBytes, 2);
+        // Rest is already zeros (padding)
+
+        // Generate 32-byte nonce
+        const nonce = this.randomBytes(32);
+
+        // Derive message key using HKDF
+        const nonceKey = await crypto.subtle.importKey(
+            'raw',
+            conversationKey,
+            { name: 'HKDF' },
+            false,
+            ['deriveBits']
+        );
+
+        const messageKeyBits = await crypto.subtle.deriveBits(
+            {
+                name: 'HKDF',
+                hash: 'SHA-256',
+                salt: nonce,
+                info: new TextEncoder().encode('nip44-v2'),
+            },
+            nonceKey,
+            256
+        );
+        const messageKey = new Uint8Array(messageKeyBits);
+
+        // Encrypt with ChaCha20-Poly1305 (use first 12 bytes of nonce as IETF nonce)
+        const chachaNonce = nonce.slice(0, 12);
+        const ciphertext = sodium.crypto_aead_chacha20poly1305_ietf_encrypt(
+            padded,
+            null, // no additional data
+            null, // no secret nonce
+            chachaNonce,
+            messageKey
+        );
+
+        // Format: version (1) + nonce (32) + ciphertext
+        const result = new Uint8Array(1 + 32 + ciphertext.length);
+        result[0] = 0x02; // NIP-44 version 2
+        result.set(nonce, 1);
+        result.set(ciphertext, 33);
+
+        // Return as base64
+        return btoa(String.fromCharCode(...result));
+    },
+
+    // NIP-44 decrypt
+    async nip44Decrypt(encrypted, theirPubkey) {
+        // Wait for libsodium
+        if (typeof sodium === 'undefined') {
+            throw new Error('libsodium not loaded');
+        }
+        await sodium.ready;
+
+        // Decode base64
+        const data = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+
+        // Check version
+        if (data[0] !== 0x02) {
+            throw new Error(`Unsupported NIP-44 version: ${data[0]}`);
+        }
+
+        // Extract nonce and ciphertext
+        const nonce = data.slice(1, 33);
+        const ciphertext = data.slice(33);
+
+        const conversationKey = await this.nip44ConversationKey(theirPubkey);
+
+        // Derive message key using HKDF
+        const nonceKey = await crypto.subtle.importKey(
+            'raw',
+            conversationKey,
+            { name: 'HKDF' },
+            false,
+            ['deriveBits']
+        );
+
+        const messageKeyBits = await crypto.subtle.deriveBits(
+            {
+                name: 'HKDF',
+                hash: 'SHA-256',
+                salt: nonce,
+                info: new TextEncoder().encode('nip44-v2'),
+            },
+            nonceKey,
+            256
+        );
+        const messageKey = new Uint8Array(messageKeyBits);
+
+        // Decrypt with ChaCha20-Poly1305
+        const chachaNonce = nonce.slice(0, 12);
+        let padded;
+        try {
+            padded = sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+                null, // no secret nonce
+                ciphertext,
+                null, // no additional data
+                chachaNonce,
+                messageKey
+            );
+        } catch (err) {
+            throw new Error('NIP-44 decryption failed: invalid key or corrupted data');
+        }
+
+        // Extract plaintext length and remove padding
+        const plaintextLen = (padded[0] << 8) | padded[1];
+        if (plaintextLen > padded.length - 2) {
+            throw new Error('Invalid NIP-44 padding');
+        }
+
+        const plaintextBytes = padded.slice(2, 2 + plaintextLen);
+        const decoder = new TextDecoder();
+        return decoder.decode(plaintextBytes);
+    },
+
+    // NIP-44 padding calculation
+    nip44CalcPaddedLen(unpaddedLen) {
+        if (unpaddedLen <= 32) return 32;
+        const nextPower = Math.ceil(Math.log2(unpaddedLen));
+        const chunk = Math.max(32, Math.pow(2, nextPower - 1));
+        return chunk * Math.ceil(unpaddedLen / chunk);
+    },
+
+    // Detect encryption type and decrypt accordingly
+    async decrypt(encrypted, theirPubkey) {
+        // NIP-04 format contains "?iv="
+        if (encrypted.includes('?iv=')) {
+            return this.nip04Decrypt(encrypted, theirPubkey);
+        }
+
+        // Otherwise assume NIP-44 (base64 blob starting with version byte)
+        try {
+            return await this.nip44Decrypt(encrypted, theirPubkey);
+        } catch (err) {
+            console.error('NIP-44 decrypt failed, trying NIP-04:', err.message);
+            // Last resort: try NIP-04 anyway
+            return this.nip04Decrypt(encrypted, theirPubkey);
+        }
+    },
+
+    // Encrypt using NIP-44 (preferred) with NIP-04 fallback
+    async encrypt(plaintext, theirPubkey) {
+        try {
+            return await this.nip44Encrypt(plaintext, theirPubkey);
+        } catch (err) {
+            console.warn('NIP-44 encrypt failed, falling back to NIP-04:', err.message);
+            return this.nip04Encrypt(plaintext, theirPubkey);
+        }
+    },
+
     // Connect to a single relay via WebSocket
     connectSingleRelay(url) {
         return new Promise((resolve, reject) => {
@@ -456,7 +661,7 @@ const NIP46 = {
                 if (event.kind === 24133 && event.pubkey === this.remotePubkey) {
                     console.log('NIP-46: Decrypting response...');
                     // Decrypt the content
-                    const decrypted = await this.nip04Decrypt(event.content, this.remotePubkey);
+                    const decrypted = await this.decrypt(event.content, this.remotePubkey);
                     const response = JSON.parse(decrypted);
                     console.log('NIP-46: Response id:', response.id, 'result type:', typeof response.result, 'pending ids:', [...this.pendingRequests.keys()]);
 
@@ -642,6 +847,8 @@ const NIP46 = {
         };
 
         // Encrypt the request
+        // Use NIP-04 for outgoing requests (compatible with all signers)
+        // Responses are auto-detected (NIP-04 or NIP-44)
         const encrypted = await this.nip04Encrypt(JSON.stringify(request), this.remotePubkey);
 
         // Create NIP-46 event (kind 24133)
