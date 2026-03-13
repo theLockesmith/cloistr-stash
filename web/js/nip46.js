@@ -932,6 +932,9 @@ const NIP46 = {
         return responsePromise;
     },
 
+    // Default relay for NIP-46 traffic (rate-limit exempt for kind:24133)
+    DEFAULT_NIP46_RELAY: 'wss://relay.cloistr.xyz',
+
     // Connect to bunker
     async connect(bunkerUrl) {
         // Reset any existing state first (handles case where previous attempt failed)
@@ -943,8 +946,17 @@ const NIP46 = {
         // Parse bunker URL
         const { remotePubkey, relayUrls, secret } = this.parseBunkerUrl(bunkerUrl);
 
+        // Ensure relay.cloistr.xyz is included for NIP-46 traffic
+        // (it's rate-limit exempt for kind:24133 - see architecture/development-philosophy.md)
+        const finalRelays = [...relayUrls];
+        if (!finalRelays.includes(this.DEFAULT_NIP46_RELAY)) {
+            // Add at the beginning for priority
+            finalRelays.unshift(this.DEFAULT_NIP46_RELAY);
+            console.log('NIP-46: Added relay.cloistr.xyz for rate-limit exempt NIP-46 traffic');
+        }
+
         this.remotePubkey = remotePubkey;
-        this.relayUrls = relayUrls;
+        this.relayUrls = finalRelays;
         this.secret = secret;
 
         // Generate client keypair
@@ -1044,11 +1056,18 @@ const NIP46 = {
 
             // Restore state from saved session
             this.remotePubkey = session.remotePubkey;
-            this.relayUrls = session.relayUrls;
             this.secret = session.secret;
             this.userPubkey = session.userPubkey;
             this.clientPrivkey = session.clientPrivkey;
             this.clientPubkey = session.clientPubkey;
+
+            // Ensure relay.cloistr.xyz is included for NIP-46 traffic
+            const sessionRelays = session.relayUrls || [];
+            if (!sessionRelays.includes(this.DEFAULT_NIP46_RELAY)) {
+                sessionRelays.unshift(this.DEFAULT_NIP46_RELAY);
+                console.log('NIP-46: Added relay.cloistr.xyz for rate-limit exempt NIP-46 traffic');
+            }
+            this.relayUrls = sessionRelays;
 
             // Connect to relays
             await this.connectRelays(this.relayUrls);

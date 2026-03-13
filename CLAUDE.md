@@ -1,40 +1,69 @@
 # CLAUDE.md - cloistr-drive
 
-**Zero-knowledge file manager - Google Drive replacement with end-to-end encryption**
+**Zero-knowledge file manager - Google Drive replacement with E2E encryption**
 
-**Domain:** drive.cloistr.xyz
+**Status:** Production | **Domain:** drive.cloistr.xyz
 
-## REQUIRED READING (Before ANY Action)
+## Required Reading
 
-**Claude MUST read these files at the start of every session:**
+| Document | Purpose |
+|----------|---------|
+| `~/claude/coldforge/cloistr/CLAUDE.md` | Cloistr project rules |
+| `~/claude/coldforge/cloistr/services/drive/CLAUDE.md` | Full architecture spec |
+| [docs/reference.md](docs/reference.md) | API, crypto, deployment |
 
-1. `~/claude/coldforge/cloistr/CLAUDE.md` - Cloistr project rules
-2. `~/claude/coldforge/cloistr/services/drive/CLAUDE.md` - **Full Drive architecture documentation**
+## Autonomous Work Mode
 
-The services/drive/CLAUDE.md contains the complete zero-knowledge architecture specification.
+**Work autonomously. Do NOT stop to ask what to do next.**
 
-## Quick Reference
+- Keep working until task complete or genuine blocker
+- Make reasonable decisions - don't ask permission on obvious choices
+- If tests fail, fix them. Use reviewer agent. Keep going.
 
-### What is Drive?
+## Agent Usage
 
-Drive is the **user-facing file manager** that uses Blossom as storage. Think:
-- **Blossom** = S3 (dumb blob storage)
-- **Drive** = Google Drive UI (organization, sharing, collaboration)
+| When | Agent |
+|------|-------|
+| Starting work / need context | `explore` |
+| After significant code changes | `reviewer` |
+| Writing/running tests | `test-writer` / `tester` |
+| Security-sensitive code | `security` |
 
-**The key difference from Google Drive:** All encryption happens client-side. Coldforge cannot read user files.
+## Quick Commands
 
-### Architecture Summary
+```bash
+cp config.example.yml config.yml && go run ./cmd/server  # Run locally
+go test ./...                                             # Run tests
+npx playwright test                                       # E2E tests
+docker build -t cloistr-drive .                           # Docker
+atlas kube apply cloistr-drive --kube-context atlantis   # Deploy
+```
+
+## Project Structure
 
 ```
-User's Nostr Key
-       │
-       └── Root Key (random, stored encrypted)
-                │
-                └── Folder Keys (HKDF derived OR random)
-                         │
-                         └── File Keys (HKDF from folder + file_id)
-                                  │
-                                  └── XChaCha20-Poly1305 encrypted blobs → Blossom
+cmd/server/           Entry point
+internal/
+  auth/               NIP-07/NIP-46 auth
+  blossom/            Blossom API client
+  config/             Configuration
+  metadata/           Nostr relay integration
+  metrics/            Prometheus metrics
+  server/             HTTP handlers
+web/                  Frontend (vanilla JS)
+  js/
+    crypto.js         XChaCha20-Poly1305 + chunked
+    keys.js           HKDF key derivation
+    sharing.js        NIP-44 sharing, public links
+    collaboration.js  Yjs CRDT + WebRTC
+    search.js         Encrypted search index
+tests/e2e/            Playwright tests
+```
+
+## Architecture Summary
+
+```
+User's Nostr Key → Root Key (encrypted) → Folder Keys → File Keys → XChaCha20 blobs → Blossom
 ```
 
 | Component | Responsibility |
@@ -44,322 +73,62 @@ User's Nostr Key
 | Blossom | Encrypted blob storage |
 | Nostr relay | Folder/file metadata events |
 
-### Key Features
-
-| Feature | Approach | Status |
-|---------|----------|--------|
-| File encryption | Client-side XChaCha20-Poly1305, HKDF key derivation | **DONE** |
-| Sharing | NIP-44 encrypted folder/file keys | **DONE** |
-| Public links | Key in URL fragment (never sent to server) | **DONE** |
-| Versioning | Linked encrypted blobs, same file key | **DONE** |
-| Collaboration | Yjs CRDT + WebRTC + encrypted operations | **DONE** |
-| Search | Client-side encrypted index per user | **DONE** |
-| Revocation | Full re-encrypt (cryptographically correct) | **DONE** |
-| Expiring links | Time-limited shares with server validation | **DONE** |
-| Offline support | Service Worker + cache-first strategy | **DONE** |
-| Chunked encryption | Large files split into 5MB encrypted chunks | **DONE** |
-| File deduplication | Plaintext hash comparison before upload | **DONE** |
-| Batch operations | Multi-select, bulk delete/download | **DONE** |
-| Drag-and-drop | Move files between folders | **DONE** |
-| Image thumbnails | IndexedDB cached, lazy-loaded | **DONE** |
-| Storage usage | Real-time display in sidebar | **DONE** |
-| Mobile touch | Long-press menu, swipe actions | **DONE** |
-| Keyboard shortcuts | Ctrl+A, Delete, Enter, arrows, etc. | **DONE** |
-| Trash/recycle bin | Soft delete with 30-day retention | **DONE** |
-| Starred files | Quick-access favorites list | **DONE** |
-| Recent files | Track recently accessed files | **DONE** |
-| File tags/labels | User-defined tags with autocomplete | **DONE** |
-| Virtual scrolling | Efficient rendering for large lists | **DONE** |
-| Accessibility | ARIA labels, keyboard nav, screen reader support | **DONE** |
-| E2E testing | Playwright test suite | **DONE** |
-
-### Current State
+## Completed Features
 
 | Feature | Status |
 |---------|--------|
-| Basic file browser | **DONE** |
-| NIP-07 auth | **DONE** |
-| NIP-46 remote signer | **DONE** |
-| File upload with encryption | **DONE** |
-| File download with decryption | **DONE** |
-| Client-side encryption (XChaCha20-Poly1305) | **DONE** |
-| Key management (HKDF derivation) | **DONE** |
-| Encrypted folders | **DONE** |
-| NIP-44 file/folder sharing | **DONE** |
-| Public links with key-in-URL | **DONE** |
-| Expiring/timed shares | **DONE** |
-| Revocation with re-encryption | **DONE** |
-| Version tracking | **DONE** |
-| Version history/restore | **DONE** |
-| Yjs CRDT collaboration | **DONE** |
-| WebRTC peer sync | **DONE** |
-| Encrypted search index | **DONE** |
-| Version history UI | **DONE** |
-| Collaboration editor UI | **DONE** |
-| Public link generation modal | **DONE** |
-| Search integration | **DONE** |
-| Key backup/recovery | **DONE** |
-| Migration tool (unencrypted files) | **DONE** |
-| Crypto progress indicators | **DONE** |
-| Download counting | **DONE** |
-| Share expiration validation | **DONE** |
-| Offline support (PWA) | **DONE** |
-| Service worker caching | **DONE** |
-| Chunked encryption (>10MB files) | **DONE** |
-| File deduplication | **DONE** |
-| Batch operations (multi-select) | **DONE** |
-| Drag-and-drop file moving | **DONE** |
-| Image thumbnails | **DONE** |
-| Storage usage display | **DONE** |
-| Mobile touch gestures | **DONE** |
-| Long-press context menu | **DONE** |
-| Swipe actions | **DONE** |
-| Keyboard shortcuts | **DONE** |
-| Trash/recycle bin | **DONE** |
-| Starred files | **DONE** |
-| Recent files view | **DONE** |
-| File tags/labels | **DONE** |
-| Virtual scrolling | **DONE** |
-| Accessibility (ARIA) | **DONE** |
-| E2E tests (Playwright) | **DONE** |
-
-## Project Structure
-
-```
-cloistr-drive/
-├── cmd/server/main.go      # Entry point
-├── internal/
-│   ├── auth/               # NIP-07/NIP-46 auth, whitelist
-│   ├── blossom/            # Blossom API client
-│   ├── config/             # Configuration
-│   ├── metadata/           # Nostr relay integration
-│   ├── metrics/            # Prometheus metrics
-│   └── server/             # HTTP handlers
-├── tests/                  # Test suites
-│   └── e2e/                # Playwright E2E tests
-│       ├── landing.spec.js
-│       ├── keyboard-shortcuts.spec.js
-│       └── ui-components.spec.js
-├── playwright.config.js    # Playwright configuration
-└── web/                    # Frontend
-    ├── index.html
-    ├── manifest.json       # PWA manifest
-    ├── sw.js               # Service worker for offline
-    ├── css/style.css
-    └── js/
-        ├── api.js          # API client
-        ├── auth.js         # Nostr auth + event signing
-        ├── nip46.js        # NIP-46 remote signer
-        ├── crypto.js       # XChaCha20-Poly1305 + chunked encryption
-        ├── keys.js         # HKDF key derivation & management
-        ├── sharing.js      # NIP-44 sharing, public links, revocation
-        ├── versioning.js   # Version tracking & restore
-        ├── collaboration.js # Yjs CRDT + WebRTC
-        ├── search.js       # Encrypted search index
-        ├── upload.js       # Encrypted upload + deduplication
-        ├── ui.js           # UI rendering + thumbnails + touch
-        ├── app.js          # Main app controller + batch ops
-        └── tests/
-            └── crypto.test.js  # Crypto test suite
-```
-
-## Cryptographic Details
-
-### Encryption
-- **Algorithm:** XChaCha20-Poly1305 (libsodium)
-- **Key length:** 256 bits
-- **Nonce:** 192 bits (prepended to ciphertext)
-- **Authentication:** Poly1305 MAC (16 bytes)
-
-### Chunked Encryption (Large Files)
-Files over 10MB are encrypted in chunks for memory efficiency:
-- **Chunk size:** 5MB (plaintext)
-- **Format:** `CLCH` magic (4 bytes) + version (1) + chunk_size (4) + chunk_count (4) + base_nonce (24) + encrypted chunks
-- **Nonce derivation:** XOR base_nonce with chunk index (last 4 bytes)
-- **Authentication:** Per-chunk Poly1305 MAC
-
-### Key Derivation
-- **Algorithm:** HKDF-SHA256 (Web Crypto API)
-- **Root key:** Random 256-bit, encrypted with user's Nostr key
-- **Folder keys:** Random OR derived from parent via HKDF
-- **File keys:** HKDF(folder_key, file_id, "cloistr-drive-file-v1")
-
-### Key Storage
-- **Location:** IndexedDB (per-browser)
-- **Encryption:** NIP-04 with user's own pubkey
-- **Cache:** In-memory Map, cleared on disconnect
-
-### Sharing
-- **Protocol:** NIP-04/NIP-44 encrypted key exchange
-- **File share:** Encrypt file_key with recipient's pubkey
-- **Folder share:** Encrypt folder_key with recipient's pubkey
-- **Public links:** Key in URL fragment (never sent to server)
-
-### Nostr Event Kinds
-- **24242:** Blossom upload/delete authorization
-- **30078:** Encrypted file metadata
-- **30079:** Encrypted folder metadata
-- **30080:** File/folder share (NIP-04 encrypted)
-- **30081:** Public share (expiration tracking)
-
-## API Endpoints
-
-### File Operations
-- `GET /api/files` - List files (query: pubkey, folder)
-- `POST /api/files` - Upload file (requires whitelist)
-- `GET /api/files/{sha256}` - Get file metadata
-- `DELETE /api/files/{sha256}` - Delete file (requires whitelist)
-- `GET /api/files/{sha256}/download` - Download file
-
-### Folder Operations
-- `GET /api/folders` - List folders (query: pubkey, parent)
-- `POST /api/folders` - Create folder (requires whitelist)
-- `GET /api/folders/{id}` - Get folder metadata
-- `DELETE /api/folders/{id}` - Delete folder (requires whitelist)
-
-### Share Operations
-- `GET /api/shares` - List shares (query: pubkey, type)
-- `POST /api/shares` - Create share (requires whitelist)
-- `DELETE /api/shares/{id}` - Revoke share (requires whitelist)
-
-### Public Links
-- `GET /public/{sha256}` - Access public link (serves download page)
-- `GET /api/public/{sha256}` - Get public link metadata (JSON)
-
-### Metadata & Auth
-- `POST /api/metadata` - Publish Nostr metadata event (requires whitelist)
-- `GET /api/auth/status` - Check auth status
-
-## Quick Commands
-
-```bash
-# Run locally
-cp config.example.yml config.yml
-go run ./cmd/server
-
-# Run tests
-go test ./...
-
-# Run crypto tests (in browser console)
-runCryptoTests()
-
-# Run E2E tests (requires npm install @playwright/test)
-npx playwright test
-
-# Run E2E tests with UI
-npx playwright test --ui
-
-# Build Docker
-docker build -t cloistr-drive .
-```
-
-## Deployment
-
-ArgoCD GitOps via cloistr-config:
-- **Namespace:** cloistr
-- **Tunnel:** drive.cloistr.xyz via cloistr-tunnel
-
-```bash
-# Deploy via Atlas
-atlas kube apply cloistr-drive --kube-context atlantis
-```
-
-## CDN Dependencies
-
-```html
-<!-- libsodium for XChaCha20-Poly1305 -->
-<script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/sodium.js"></script>
-
-<!-- Yjs for CRDT collaboration -->
-<script src="https://cdn.jsdelivr.net/npm/yjs@13.6.10/dist/yjs.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/y-protocols@1.0.6/dist/y-protocols.min.js"></script>
-
-<!-- Noble curves for Nostr crypto -->
-<script type="module">
-  import { schnorr, secp256k1 } from 'https://esm.sh/@noble/curves@1.6.0/secp256k1';
-  // ...
-</script>
-```
-
-## Security Considerations
-
-1. **Zero-knowledge:** Server never sees plaintext or keys
-2. **Key derivation:** HKDF ensures unique keys per file
-3. **Forward secrecy:** Revocation re-encrypts with new keys
-4. **Memory safety:** Keys wiped from memory after use
-5. **URL fragments:** Never sent to server (browser security)
-6. **Constant-time:** Key comparisons use constant-time operations
-
-## Autonomous Work Mode
-
-**Work autonomously. Do NOT stop to ask what to do next.**
-
-- Read services/drive/CLAUDE.md for full architecture
-- Follow the implementation phases documented there
-- Make reasonable decisions without asking
-- Update documentation as you make progress
+| XChaCha20-Poly1305 client-side encryption | Done |
+| NIP-07 / NIP-46 authentication | Done |
+| NIP-44 file/folder sharing | Done |
+| Public links (key-in-URL) | Done |
+| Version history | Done |
+| Yjs CRDT collaboration | Done |
+| Encrypted search index | Done |
+| Offline support (PWA) | Done |
+| Chunked encryption (large files) | Done |
+| Deduplication, batch ops, drag-drop | Done |
+| Thumbnails, starred, recent, tags | Done |
+| Mobile touch gestures | Done |
+| Keyboard shortcuts | Done |
+| Accessibility (ARIA) | Done |
+| E2E tests (Playwright) | Done |
+| Relay preferences | Done |
 
 ## Roadmap
 
-### Completed (Web App)
-- Full zero-knowledge file manager with E2E encryption
-- NIP-07/NIP-46 authentication
-- File/folder sharing, public links, versioning
-- Collaborative editing, search, offline support
-- Storage quotas and rate limiting (server)
-- **Relay Preferences Integration** - User data published to preferred relays
-  - Frontend `relayprefs.js` module with full query chain
-  - `Auth.publishEvent()` uses user's preferred relays
-  - Settings UI modal for viewing/editing relay preferences
-  - Go backend `cloistr-common/relayprefs` integration
-  - `metadata.Store.PublishToUserRelays()` for server-side publishing
-  - See: `~/claude/coldforge/cloistr/architecture/relay-preferences.md`
+| Item | Priority |
+|------|----------|
+| Desktop App (Tauri) | P1 |
+| Mobile Apps | P2 |
 
-### In Progress
-- **Desktop App (Tauri)** - See `docs/DESKTOP_APP.md`
-  - Native file system integration
-  - Sync folders
-  - System tray
-  - Background sync daemon
+## API Endpoints
 
-### Planned
-- **Mobile Apps** - See `docs/MOBILE_APP.md`
-  - React Native or Flutter
-  - iOS and Android
-  - Camera upload, share extensions
+| Method | Path | Description |
+|--------|------|-------------|
+| GET/POST/DELETE | `/api/files/*` | File operations |
+| GET/POST/DELETE | `/api/folders/*` | Folder operations |
+| GET/POST/DELETE | `/api/shares/*` | Share management |
+| GET | `/public/{sha256}` | Public link access |
+| POST | `/api/metadata` | Publish Nostr event |
 
-### Not Planned
-- Browser extension (low value, web UI sufficient)
+**Full API:** See [docs/reference.md](docs/reference.md)
 
-## NIP-46 Authentication Notes
+## Nostr Event Kinds
 
-When using NIP-46 remote signers (Amber, nsec.app), there's a special authentication flow:
-
-1. **Ephemeral client keypair**: Drive generates a temporary keypair for the NIP-46 session
-2. **NIP-42 relay auth**: Initially authenticated with client keypair
-3. **Identity mismatch**: Published events use user's actual pubkey, causing "restricted" errors
-4. **Lazy re-auth**: On first "restricted" error, we re-authenticate with user's pubkey and retry
-
-See `docs/NIP46_AUTH_FLOW.md` for full details.
-
-## Self-Hosted Libraries
-
-All crypto libraries are self-hosted to avoid CDN MIME type issues:
-
-| Library | File | Size |
-|---------|------|------|
-| libsodium (core) | `web/js/vendor/libsodium.js` | ~521KB |
-| libsodium-wrappers | `web/js/vendor/sodium.js` | ~102KB |
-| noble-curves | `web/js/vendor/noble-secp256k1.min.js` | ~40KB |
-| Yjs | `web/js/vendor/yjs.min.js` | ~92KB |
-
-Libraries load locally first with CDN fallback.
+| Kind | Purpose |
+|------|---------|
+| 24242 | Blossom upload/delete auth |
+| 30078 | Encrypted file metadata |
+| 30079 | Encrypted folder metadata |
+| 30080 | File/folder share |
+| 30081 | Public share tracking |
 
 ## See Also
 
-- **Full architecture:** `~/claude/coldforge/cloistr/services/drive/CLAUDE.md`
-- **Blossom storage:** `~/Development/cloistr-blossom/CLAUDE.md`
-- **Cloistr overview:** `~/claude/coldforge/cloistr/CLAUDE.md`
-- **NIP-46 Auth Flow:** `docs/NIP46_AUTH_FLOW.md`
-- **Desktop App Plan:** `docs/DESKTOP_APP.md`
-- **Mobile App Plan:** `docs/MOBILE_APP.md`
+- [Desktop App Plan](docs/DESKTOP_APP.md)
+- [Mobile App Plan](docs/MOBILE_APP.md)
+- [NIP-46 Auth Flow](docs/NIP46_AUTH_FLOW.md)
+
+---
+
+**Last Updated:** 2026-03-11
