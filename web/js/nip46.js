@@ -26,48 +26,96 @@ const NIP46 = {
     // Track seen events to deduplicate responses from multiple relays
     seenEvents: new Set(),
 
-    // Circuit breaker for relay health tracking
-    // Prevents repeated failures from blocking the auth flow
-    relayHealth: new Map(), // url -> { failures: number, lastFailure: timestamp, disabled: boolean }
+    // Adaptive rate limiting and circuit breaker for relay health
+    // Works WITH rate limits instead of fighting them
+    relayHealth: new Map(), // url -> { failures, lastFailure, disabled, throttleMs, lastRequest }
 
-    CIRCUIT_BREAKER: {
-        MAX_FAILURES: 3,        // Disable relay after N consecutive failures
-        COOLDOWN_MS: 60000,     // Re-enable after 60 seconds
-        TIMEOUT_MS: 10000,      // Per-relay connection timeout
+    RELAY_CONFIG: {
+        // Circuit breaker settings
+        MAX_FAILURES: 5,           // Disable relay after N consecutive failures
+        COOLDOWN_MS: 60000,        // Re-enable after 60 seconds
+
+        // Throttling settings (adaptive rate limiting)
+        MIN_THROTTLE_MS: 0,        // No delay when healthy
+        MAX_THROTTLE_MS: 5000,     // Max 5 second delay between requests
+        THROTTLE_INCREASE: 500,    // Add 500ms per rate-limit hit
+        THROTTLE_DECREASE: 100,    // Remove 100ms per success
+
+        // Connection settings
+        CONNECT_TIMEOUT_MS: 10000, // Per-relay connection timeout
     },
 
-    // Record a relay success - reset failure count
+    // Get or create relay health record
+    getRelayHealth(url) {
+        if (!this.relayHealth.has(url)) {
+            this.relayHealth.set(url, {
+                failures: 0,
+                lastFailure: 0,
+                disabled: false,
+                throttleMs: 0,
+                lastRequest: 0,
+                rateLimited: false,
+            });
+        }
+        return this.relayHealth.get(url);
+    },
+
+    // Record a relay success - reduce throttle, reset failures
     recordRelaySuccess(url) {
-        this.relayHealth.set(url, { failures: 0, lastFailure: 0, disabled: false });
+        const health = this.getRelayHealth(url);
+        health.failures = 0;
+        health.disabled = false;
+        health.rateLimited = false;
+        // Gradually reduce throttle on success
+        health.throttleMs = Math.max(
+            this.RELAY_CONFIG.MIN_THROTTLE_MS,
+            health.throttleMs - this.RELAY_CONFIG.THROTTLE_DECREASE
+        );
+    },
+
+    // Record rate limiting - increase throttle
+    recordRelayRateLimit(url) {
+        const health = this.getRelayHealth(url);
+        health.rateLimited = true;
+        health.lastFailure = Date.now();
+        // Increase throttle to slow down requests
+        health.throttleMs = Math.min(
+            this.RELAY_CONFIG.MAX_THROTTLE_MS,
+            health.throttleMs + this.RELAY_CONFIG.THROTTLE_INCREASE
+        );
+        console.warn(`NIP-46: Rate limited by ${url}, throttling to ${health.throttleMs}ms between requests`);
     },
 
     // Record a relay failure - may trigger circuit breaker
     recordRelayFailure(url, reason = 'unknown') {
-        const health = this.relayHealth.get(url) || { failures: 0, lastFailure: 0, disabled: false };
+        const health = this.getRelayHealth(url);
         health.failures++;
         health.lastFailure = Date.now();
         health.lastReason = reason;
 
-        if (health.failures >= this.CIRCUIT_BREAKER.MAX_FAILURES) {
+        // Rate limit detection
+        if (reason.includes('rate') || reason.includes('limit') || reason.includes('429')) {
+            this.recordRelayRateLimit(url);
+            return; // Rate limiting is handled separately, don't circuit-break
+        }
+
+        if (health.failures >= this.RELAY_CONFIG.MAX_FAILURES) {
             health.disabled = true;
             console.warn(`NIP-46: Circuit breaker OPEN for ${url} (${health.failures} failures: ${reason})`);
         }
-
-        this.relayHealth.set(url, health);
     },
 
     // Check if relay is healthy (not disabled or cooldown expired)
     isRelayHealthy(url) {
-        const health = this.relayHealth.get(url);
-        if (!health) return true; // Unknown relay is assumed healthy
+        const health = this.getRelayHealth(url);
 
         if (health.disabled) {
             // Check if cooldown has expired
-            if (Date.now() - health.lastFailure > this.CIRCUIT_BREAKER.COOLDOWN_MS) {
+            if (Date.now() - health.lastFailure > this.RELAY_CONFIG.COOLDOWN_MS) {
                 console.log(`NIP-46: Circuit breaker HALF-OPEN for ${url} - allowing retry`);
                 health.disabled = false;
-                health.failures = Math.floor(health.failures / 2); // Reduce but don't reset
-                this.relayHealth.set(url, health);
+                health.failures = Math.floor(health.failures / 2);
+                health.throttleMs = Math.floor(health.throttleMs / 2);
                 return true;
             }
             return false;
@@ -76,17 +124,37 @@ const NIP46 = {
         return true;
     },
 
+    // Wait for throttle delay if needed (respects rate limits)
+    async waitForThrottle(url) {
+        const health = this.getRelayHealth(url);
+        if (health.throttleMs > 0) {
+            const timeSinceLastRequest = Date.now() - health.lastRequest;
+            const waitTime = Math.max(0, health.throttleMs - timeSinceLastRequest);
+            if (waitTime > 0) {
+                console.log(`NIP-46: Throttling ${url} for ${waitTime}ms`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+        }
+        health.lastRequest = Date.now();
+    },
+
     // Get list of healthy relays for sending
     getHealthyRelays() {
         return this.relayUrls.filter(url => this.isRelayHealthy(url));
     },
 
-    // Get healthy sockets for sending
+    // Get healthy sockets sorted by throttle (prefer faster relays)
     getHealthySockets() {
-        return this.sockets.filter(ws => {
-            if (ws.readyState !== WebSocket.OPEN) return false;
-            return this.isRelayHealthy(ws.url);
-        });
+        return this.sockets
+            .filter(ws => {
+                if (ws.readyState !== WebSocket.OPEN) return false;
+                return this.isRelayHealthy(ws.url);
+            })
+            .sort((a, b) => {
+                const healthA = this.getRelayHealth(a.url);
+                const healthB = this.getRelayHealth(b.url);
+                return healthA.throttleMs - healthB.throttleMs; // Prefer less-throttled relays
+            });
     },
 
     // Parse bunker:// URL
@@ -514,7 +582,7 @@ const NIP46 = {
                     ws.close();
                     resolve(null);
                 }
-            }, this.CIRCUIT_BREAKER.TIMEOUT_MS);
+            }, this.RELAY_CONFIG.CONNECT_TIMEOUT_MS);
 
             ws.onopen = () => {
                 if (resolved) return;
@@ -900,13 +968,31 @@ const NIP46 = {
                         pending.reject(new Error('Identity mismatch: please disconnect and reconnect'));
                         this.pendingPublishes.delete(eventId);
                     }
-                } else if (reason.includes('rate-limit') || reason.includes('noting too much')) {
-                    // Rate limited by relay - reject with clear message
-                    console.warn('NIP-46: Rate limited by relay:', reason);
+                } else if (reason.includes('rate-limit') || reason.includes('rate limit') || reason.includes('noting too much') || reason.includes('too fast')) {
+                    // Rate limited by relay - record it and retry with throttling
+                    console.warn('NIP-46: Rate limited by relay:', relayUrl, reason);
+                    this.recordRelayRateLimit(relayUrl);
+
                     const pending = this.pendingPublishes.get(eventId);
-                    if (pending) {
-                        pending.reject(new Error('Rate limited by relay. Please wait a moment and try again.'));
-                        this.pendingPublishes.delete(eventId);
+                    if (pending && pending.event) {
+                        // Retry after throttle delay
+                        const retryAfterThrottle = async () => {
+                            const healthySockets = this.getHealthySockets();
+                            if (healthySockets.length > 0) {
+                                const ws = healthySockets[0]; // Use least-throttled relay
+                                await this.waitForThrottle(ws.url);
+                                console.log('NIP-46: Retrying rate-limited event via', ws.url);
+                                ws.send(JSON.stringify(['EVENT', pending.event]));
+                            } else {
+                                pending.reject(new Error('Rate limited by all relays. Please wait and try again.'));
+                                this.pendingPublishes.delete(eventId);
+                            }
+                        };
+                        retryAfterThrottle().catch(err => {
+                            console.error('NIP-46: Rate-limit retry failed:', err.message);
+                            pending.reject(new Error('Rate limited by relay: ' + reason));
+                            this.pendingPublishes.delete(eventId);
+                        });
                     }
                 } else {
                     // Handle pending publish confirmations
@@ -1024,7 +1110,7 @@ const NIP46 = {
             }, 60000);
         });
 
-        // Get healthy sockets for sending
+        // Get healthy sockets sorted by throttle (least-throttled first)
         const healthySockets = this.getHealthySockets();
 
         if (healthySockets.length === 0) {
@@ -1040,20 +1126,38 @@ const NIP46 = {
         }
 
         // Store event for potential retry after AUTH
-        // Only store the first healthy socket's event for retry
         const firstHealthySocket = healthySockets[0] || this.sockets.find(ws => ws.readyState === WebSocket.OPEN);
         if (firstHealthySocket && !this.authenticated) {
             this.pendingRetry = { event, ws: firstHealthySocket };
         }
 
-        // Publish event to healthy relays first, then try others
+        // Publish event with throttle-aware sending
         const message = JSON.stringify(['EVENT', event]);
         const socketsToUse = healthySockets.length > 0 ? healthySockets : this.sockets;
 
-        socketsToUse.forEach(ws => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(message);
+        // Send to relays, respecting per-relay throttle
+        // First relay (least-throttled) sends immediately, others may wait
+        const sendToRelay = async (ws, index) => {
+            if (ws.readyState !== WebSocket.OPEN) return;
+
+            // First relay sends immediately for responsiveness
+            // Others wait for throttle to avoid rate limiting
+            if (index > 0) {
+                await this.waitForThrottle(ws.url);
+            } else {
+                // Record request time even for first relay
+                const health = this.getRelayHealth(ws.url);
+                health.lastRequest = Date.now();
             }
+
+            ws.send(message);
+        };
+
+        // Send to all relays (parallel, each respecting its own throttle)
+        socketsToUse.forEach((ws, index) => {
+            sendToRelay(ws, index).catch(err => {
+                console.warn('NIP-46: Failed to send to', ws.url, err.message);
+            });
         });
 
         return responsePromise;
