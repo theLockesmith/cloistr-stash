@@ -36,13 +36,34 @@ const NIP46 = {
         COOLDOWN_MS: 60000,        // Re-enable after 60 seconds
 
         // Throttling settings (adaptive rate limiting)
+        // Keep these LOW - signer also has backoff, combined delay adds up fast
         MIN_THROTTLE_MS: 0,        // No delay when healthy
-        MAX_THROTTLE_MS: 5000,     // Max 5 second delay between requests
-        THROTTLE_INCREASE: 500,    // Add 500ms per rate-limit hit
+        MAX_THROTTLE_MS: 2000,     // Max 2s delay (was 5s - too aggressive with signer backoff)
+        THROTTLE_INCREASE: 250,    // Add 250ms per rate-limit hit (was 500ms)
         THROTTLE_DECREASE: 100,    // Remove 100ms per success
 
         // Connection settings
         CONNECT_TIMEOUT_MS: 10000, // Per-relay connection timeout
+
+        // Request timeout settings
+        BASE_TIMEOUT_MS: 30000,    // Base timeout for NIP-46 requests
+        THROTTLE_TIMEOUT_BUFFER: 3, // Multiply throttle by this for timeout buffer
+    },
+
+    // Calculate dynamic timeout based on current throttle state
+    getDynamicTimeout() {
+        let maxThrottle = 0;
+        for (const [url, health] of this.relayHealth) {
+            if (health.throttleMs > maxThrottle) {
+                maxThrottle = health.throttleMs;
+            }
+        }
+        // Base timeout + buffer for throttled relays
+        // Account for signer-side backoff too (assume up to 10s signer delay)
+        const signerBuffer = maxThrottle > 0 ? 15000 : 0;
+        return this.RELAY_CONFIG.BASE_TIMEOUT_MS +
+               (maxThrottle * this.RELAY_CONFIG.THROTTLE_TIMEOUT_BUFFER) +
+               signerBuffer;
     },
 
     // Get or create relay health record
@@ -1097,18 +1118,26 @@ const NIP46 = {
         const sig = nobleSchnorr.sign(msgBytes, privkeyBytes);
         event.sig = this.bytesToHex(sig);
 
-        // Create promise for response
+        // Create promise for response with dynamic timeout
+        const timeout = this.getDynamicTimeout();
         const responsePromise = new Promise((resolve, reject) => {
             this.pendingRequests.set(id, { resolve, reject });
 
-            // Timeout after 60 seconds
+            // Dynamic timeout based on relay throttle state
             setTimeout(() => {
                 if (this.pendingRequests.has(id)) {
                     this.pendingRequests.delete(id);
-                    reject(new Error('Request timed out'));
+                    const throttleInfo = timeout > this.RELAY_CONFIG.BASE_TIMEOUT_MS
+                        ? ` (extended due to rate limiting)`
+                        : '';
+                    reject(new Error(`Request timed out after ${Math.round(timeout/1000)}s${throttleInfo}`));
                 }
-            }, 60000);
+            }, timeout);
         });
+
+        if (timeout > this.RELAY_CONFIG.BASE_TIMEOUT_MS) {
+            console.log(`NIP-46: Using extended timeout ${Math.round(timeout/1000)}s due to rate limiting`);
+        }
 
         // Get healthy sockets sorted by throttle (least-throttled first)
         const healthySockets = this.getHealthySockets();
@@ -1202,8 +1231,15 @@ const NIP46 = {
         // Send connect request
         const result = await this.sendRequest('connect', [this.clientPubkey, secret]);
 
-        // Get user's public key
-        this.userPubkey = await this.sendRequest('get_public_key', []);
+        // Check if signer returned pubkey in connect response (cloistr extension)
+        // This saves a round-trip on rate-limited relays
+        if (result && typeof result === 'object' && result.pubkey) {
+            console.log('NIP-46: Got pubkey from connect response (skipping get_public_key)');
+            this.userPubkey = result.pubkey;
+        } else {
+            // Standard NIP-46: separate get_public_key call
+            this.userPubkey = await this.sendRequest('get_public_key', []);
+        }
         this.connected = true;
 
         // Note: We don't proactively re-authenticate here anymore to avoid
