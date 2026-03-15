@@ -1233,9 +1233,19 @@ const NIP46 = {
 
         // Check if signer returned pubkey in connect response (cloistr extension)
         // This saves a round-trip on rate-limited relays
-        if (result && typeof result === 'object' && result.pubkey) {
+        // Result may be string "ack", string '{"pubkey":"..."}', or object {pubkey:"..."}
+        let connectData = result;
+        if (typeof result === 'string' && result.startsWith('{')) {
+            try {
+                connectData = JSON.parse(result);
+            } catch (e) {
+                // Not JSON, treat as standard "ack"
+            }
+        }
+
+        if (connectData && typeof connectData === 'object' && connectData.pubkey) {
             console.log('NIP-46: Got pubkey from connect response (skipping get_public_key)');
-            this.userPubkey = result.pubkey;
+            this.userPubkey = connectData.pubkey;
         } else {
             // Standard NIP-46: separate get_public_key call
             this.userPubkey = await this.sendRequest('get_public_key', []);
