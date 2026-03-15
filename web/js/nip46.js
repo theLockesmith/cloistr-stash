@@ -1228,6 +1228,10 @@ const NIP46 = {
         // Subscribe to responses on all relays
         this.subscribeToResponses();
 
+        // Small delay to ensure subscription is established before sending request
+        // Prevents race condition where response arrives before subscription is ready
+        await new Promise(resolve => setTimeout(resolve, 100));
+
         // Send connect request
         const result = await this.sendRequest('connect', [this.clientPubkey, secret]);
 
@@ -1351,6 +1355,9 @@ const NIP46 = {
 
             // Subscribe to responses
             this.subscribeToResponses();
+
+            // Small delay to ensure subscription is established
+            await new Promise(resolve => setTimeout(resolve, 100));
 
             // Send connect request with a shorter timeout for restore
             // (signer should respond quickly if it's available)
