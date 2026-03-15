@@ -1456,6 +1456,59 @@ const NIP46 = {
         return signedEvent;
     },
 
+    // Batch sign multiple events in one request (reduces round-trips on rate-limited relays)
+    // Cloistr extension: not part of standard NIP-46
+    async batchSignEvents(events) {
+        if (!this.connected) {
+            throw new Error('Not connected to remote signer');
+        }
+
+        if (!events || events.length === 0) {
+            return [];
+        }
+
+        // Add pubkey if not present
+        const eventsWithPubkey = events.map(event => ({
+            ...event,
+            pubkey: event.pubkey || this.userPubkey,
+        }));
+
+        console.log('NIP-46: batchSignEvents called for', events.length, 'events');
+
+        // Try batch_sign first (cloistr extension)
+        try {
+            const params = eventsWithPubkey.map(e => JSON.stringify(e));
+            const result = await this.sendRequest('batch_sign', params);
+
+            // Parse the result (array of signed events)
+            let signedEvents;
+            if (typeof result === 'string') {
+                signedEvents = JSON.parse(result);
+            } else {
+                signedEvents = result;
+            }
+
+            // Parse each signed event if needed
+            return signedEvents.map((se, i) => {
+                if (typeof se === 'string') {
+                    return JSON.parse(se);
+                }
+                return se;
+            });
+        } catch (err) {
+            // If batch_sign not supported, fall back to individual signEvent calls
+            if (err.message.includes('unknown method')) {
+                console.log('NIP-46: batch_sign not supported, falling back to individual signs');
+                const signedEvents = [];
+                for (const event of eventsWithPubkey) {
+                    signedEvents.push(await this.signEvent(event));
+                }
+                return signedEvents;
+            }
+            throw err;
+        }
+    },
+
     // Get public key (mimics window.nostr.getPublicKey)
     async getPublicKey() {
         if (!this.connected) {
