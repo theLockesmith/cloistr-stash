@@ -1037,7 +1037,10 @@ const NIP46 = {
 
     // Subscribe to responses from remote signer on all relays
     subscribeToResponses() {
-        if (this.sockets.length === 0) return;
+        if (this.sockets.length === 0) {
+            console.warn('NIP-46: No sockets to subscribe on!');
+            return;
+        }
 
         const subId = 'nip46-' + Date.now();
         const filter = {
@@ -1047,11 +1050,17 @@ const NIP46 = {
             since: Math.floor(Date.now() / 1000) - 60,
         };
         console.log('NIP-46: Subscribing with filter:', JSON.stringify(filter));
+        console.log('NIP-46: remotePubkey:', this.remotePubkey);
+        console.log('NIP-46: clientPubkey:', this.clientPubkey);
 
         const message = JSON.stringify(['REQ', subId, filter]);
         this.sockets.forEach(ws => {
+            console.log('NIP-46: Socket state for', ws.url, ':', ws.readyState, '(OPEN=1)');
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(message);
+                console.log('NIP-46: Sent subscription to', ws.url);
+            } else {
+                console.warn('NIP-46: Socket not open for', ws.url);
             }
         });
     },
@@ -1222,8 +1231,8 @@ const NIP46 = {
         // Generate client keypair
         await this.generateClientKeypair();
 
-        // Connect to all relays
-        await this.connectRelays(relayUrls);
+        // Connect to all relays (including relay.cloistr.xyz)
+        await this.connectRelays(finalRelays);
 
         // Subscribe to responses on all relays
         this.subscribeToResponses();
