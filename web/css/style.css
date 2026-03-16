@@ -288,7 +288,7 @@ body {
 }
 
 .file-actions {
-    width: 280px;
+    min-width: 420px;
     text-align: right;
     flex-shrink: 0;
 }

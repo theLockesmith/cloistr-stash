@@ -2599,9 +2599,20 @@ const App = {
             const file = this.files.find(f => f.sha256 === sha256);
             if (!file) throw new Error('File not found');
 
+            // Debug: log file structure to understand available fields
+            console.log('moveToTrash: file object:', JSON.stringify(file, null, 2));
+            console.log('moveToTrash: file.id =', file.id);
+            console.log('moveToTrash: file.file_id =', file.file_id);
+            console.log('moveToTrash: file.fileId =', file.fileId);
+
+            const fileId = file.id || file.file_id || file.fileId || file.d;
+            if (!fileId) {
+                throw new Error(`Cannot delete: file has no ID (sha256: ${sha256})`);
+            }
+
             // Update metadata with deleted_at timestamp
             const metadataEvent = await Auth.createEncryptedFileMetadataEvent({
-                fileId: file.file_id || file.fileId || file.d,
+                fileId: fileId,
                 sha256: file.sha256,
                 plaintextHash: file.plaintext_hash || file.plaintextHash,
                 name: file.name,
@@ -2631,7 +2642,7 @@ const App = {
 
             // Update metadata without deleted_at
             const metadataEvent = await Auth.createEncryptedFileMetadataEvent({
-                fileId: file.file_id || file.fileId || file.d,
+                fileId: file.id || file.file_id || file.fileId || file.d,
                 sha256: file.sha256,
                 plaintextHash: file.plaintext_hash || file.plaintextHash,
                 name: file.name,
@@ -2708,7 +2719,7 @@ const App = {
                 UI.toast(`Decrypting ${file.name}...`, 'info');
 
                 // Get the file key for decryption
-                const fileId = file.file_id || file.fileId || file.d;  // Get file ID from metadata
+                const fileId = file.id || file.file_id || file.fileId || file.d;  // Get file ID from metadata
                 const folderId = file.folder_id || file.folderId || file.folder || null;
 
                 if (!fileId) {
@@ -2889,7 +2900,7 @@ const App = {
 
             const isEncrypted = file.encrypted || file.encryption;
             if (isEncrypted) {
-                const fileId = file.file_id || file.fileId || file.d;
+                const fileId = file.id || file.file_id || file.fileId || file.d;
                 const folderId = file.folder_id || file.folderId || file.folder || null;
 
                 if (!fileId) {
@@ -3976,7 +3987,7 @@ const App = {
             // Get the file key if file is encrypted
             let fileKeyHex = null;
             const isEncrypted = file.encrypted || file.encryption;
-            const fileId = file.file_id || file.fileId || file.d;
+            const fileId = file.id || file.file_id || file.fileId || file.d;
 
             if (isEncrypted && fileId) {
                 // Derive the file key
@@ -4040,7 +4051,7 @@ const App = {
 
     async showVersionHistory(file) {
         this.versionFile = file;
-        const fileId = file.file_id || file.fileId || file.d;
+        const fileId = file.id || file.file_id || file.fileId || file.d;
 
         // Update modal content
         document.getElementById('version-file-name').textContent = file.name;
@@ -4236,7 +4247,7 @@ const App = {
 
     async showManageSharesModal(file) {
         this.manageSharesFile = file;
-        const fileId = file.file_id || file.fileId || file.d;
+        const fileId = file.id || file.file_id || file.fileId || file.d;
 
         document.getElementById('manage-shares-file-name').textContent = file.name;
         const sharesList = document.getElementById('manage-shares-list');
@@ -4784,7 +4795,7 @@ const App = {
         const isEncrypted = file.encrypted || file.encryption;
 
         if (isEncrypted) {
-            const fileId = file.file_id || file.fileId || file.d;
+            const fileId = file.id || file.file_id || file.fileId || file.d;
             const folderId = file.folder_id || file.folderId || file.folder || null;
 
             let fileKey;

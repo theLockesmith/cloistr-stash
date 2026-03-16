@@ -204,15 +204,27 @@ const Auth = {
     async createEncryptedFileMetadataEvent(fileInfo) {
         const now = Math.floor(Date.now() / 1000);
 
+        // Validate required fileId
+        if (!fileInfo.fileId) {
+            throw new Error('fileId is required for encrypted file metadata');
+        }
+
         // Content includes encrypted file details
         // Note: name is stored in plaintext for search (can be encrypted later)
-        const content = JSON.stringify({
+        const contentObj = {
             name: fileInfo.name,                    // Original filename
             size: fileInfo.size,                    // Original size (plaintext)
             encrypted_size: fileInfo.encryptedSize, // Encrypted blob size
             mime_type: fileInfo.mimeType,           // Original MIME type
             encrypted: true,                        // Flag indicating encryption
-        });
+        };
+
+        // Add deleted_at for trash functionality
+        if (fileInfo.deletedAt) {
+            contentObj.deleted_at = fileInfo.deletedAt;
+        }
+
+        const content = JSON.stringify(contentObj);
 
         const event = {
             kind: 30078,  // File metadata kind
@@ -231,6 +243,11 @@ const Auth = {
         // Add folder tag if provided
         if (fileInfo.folderId) {
             event.tags.push(['folder', fileInfo.folderId]);
+        }
+
+        // Add deleted_at tag for trash (allows relay filtering)
+        if (fileInfo.deletedAt) {
+            event.tags.push(['deleted_at', fileInfo.deletedAt.toString()]);
         }
 
         // Add version tags if this is a version update
