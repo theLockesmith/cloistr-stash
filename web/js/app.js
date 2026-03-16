@@ -2599,13 +2599,10 @@ const App = {
             const file = this.files.find(f => f.sha256 === sha256);
             if (!file) throw new Error('File not found');
 
-            // Debug: log file structure to understand available fields
-            console.log('moveToTrash: file object:', JSON.stringify(file, null, 2));
-            console.log('moveToTrash: file.id =', file.id);
-            console.log('moveToTrash: file.file_id =', file.file_id);
-            console.log('moveToTrash: file.fileId =', file.fileId);
+            // Get file ID - try various field names, fall back to sha256 for legacy files
+            const fileId = file.id || file.file_id || file.fileId || file.d || file.sha256;
+            console.log('moveToTrash: fileId =', fileId, '(from:', file.id ? 'id' : file.file_id ? 'file_id' : file.sha256 ? 'sha256' : 'unknown', ')');
 
-            const fileId = file.id || file.file_id || file.fileId || file.d;
             if (!fileId) {
                 throw new Error(`Cannot delete: file has no ID (sha256: ${sha256})`);
             }
@@ -2642,7 +2639,7 @@ const App = {
 
             // Update metadata without deleted_at
             const metadataEvent = await Auth.createEncryptedFileMetadataEvent({
-                fileId: file.id || file.file_id || file.fileId || file.d,
+                fileId: file.id || file.file_id || file.fileId || file.d || file.sha256,
                 sha256: file.sha256,
                 plaintextHash: file.plaintext_hash || file.plaintextHash,
                 name: file.name,
