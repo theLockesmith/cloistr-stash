@@ -55,6 +55,10 @@ type FileMetadata struct {
 
 	// Last update timestamp
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// DeletedAt is set when the file is moved to trash (soft delete)
+	// Zero value means the file is not deleted
+	DeletedAt int64 `json:"deleted_at,omitempty"`
 }
 
 // FolderMetadata represents a folder for organizing files

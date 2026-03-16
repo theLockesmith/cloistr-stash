@@ -2082,9 +2082,11 @@ const App = {
             ]);
 
             this.folders = foldersResponse.folders || [];
-            this.files = filesResponse.files || [];
+            // Filter out deleted files (they go to trash view)
+            const allFiles = filesResponse.files || [];
+            this.files = allFiles.filter(f => !f.deleted_at && !f.deletedAt);
 
-            console.log('loadFiles: Loaded', this.folders.length, 'folders,', this.files.length, 'files');
+            console.log('loadFiles: Loaded', this.folders.length, 'folders,', this.files.length, 'files (', allFiles.length - this.files.length, 'in trash)');
             if (this.files.length > 0) {
                 console.log('loadFiles: First file:', this.files[0]?.name, 'id:', this.files[0]?.id?.slice(0, 16));
             }

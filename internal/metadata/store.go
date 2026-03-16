@@ -285,6 +285,10 @@ func ParseFileEvent(event *nostr.Event) (*FileMetadata, error) {
 		case "encrypted":
 			file.Encrypted = true
 			file.Encryption = tag[1]
+		case "deleted_at":
+			var deletedAt int64
+			_, _ = fmt.Sscanf(tag[1], "%d", &deletedAt)
+			file.DeletedAt = deletedAt
 		}
 	}
 
@@ -303,6 +307,10 @@ func ParseFileEvent(event *nostr.Event) (*FileMetadata, error) {
 			}
 			if encSize, ok := content["encrypted_size"].(float64); ok {
 				file.EncryptedSize = int64(encSize)
+			}
+			// Parse deleted_at from content (in addition to tag)
+			if deletedAt, ok := content["deleted_at"].(float64); ok && file.DeletedAt == 0 {
+				file.DeletedAt = int64(deletedAt)
 			}
 		}
 	}
