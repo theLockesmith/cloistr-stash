@@ -1234,16 +1234,41 @@ const NIP46 = {
         // Connect to all relays (including relay.cloistr.xyz)
         await this.connectRelays(finalRelays);
 
-        // Subscribe to responses on all relays
-        this.subscribeToResponses();
+        // Retry logic for connect request
+        const MAX_RETRIES = 3;
+        let lastError = null;
+        let result = null;
 
-        // Delay to ensure subscription is fully established before sending request
-        // Prevents race condition where response arrives before subscription is ready
-        // 500ms because relay may need time to register subscription internally
-        await new Promise(resolve => setTimeout(resolve, 500));
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                // Subscribe to responses on all relays
+                this.subscribeToResponses();
 
-        // Send connect request
-        const result = await this.sendRequest('connect', [this.clientPubkey, secret]);
+                // Delay to ensure subscription is fully established
+                // Increases with each retry attempt
+                const delay = 500 * attempt;
+                console.log(`NIP-46: Attempt ${attempt}/${MAX_RETRIES}, waiting ${delay}ms for subscription`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+
+                // Send connect request
+                result = await this.sendRequest('connect', [this.clientPubkey, secret]);
+                console.log(`NIP-46: Connect succeeded on attempt ${attempt}`);
+                break; // Success, exit retry loop
+            } catch (err) {
+                lastError = err;
+                console.warn(`NIP-46: Connect attempt ${attempt} failed:`, err.message);
+
+                if (attempt < MAX_RETRIES) {
+                    // Reconnect to relays before retry (connection may have dropped)
+                    console.log('NIP-46: Reconnecting to relays before retry...');
+                    await this.connectRelays(finalRelays);
+                }
+            }
+        }
+
+        if (!result) {
+            throw lastError || new Error('Connect failed after retries');
+        }
 
         // Check if signer returned pubkey in connect response (cloistr extension)
         // This saves a round-trip on rate-limited relays
@@ -1363,20 +1388,46 @@ const NIP46 = {
             // Connect to relays
             await this.connectRelays(this.relayUrls);
 
-            // Subscribe to responses
-            this.subscribeToResponses();
+            // Retry logic for session restore
+            const MAX_RETRIES = 2; // Fewer retries for restore (user can manually login)
+            let lastError = null;
+            let success = false;
 
-            // Delay to ensure subscription is fully established
-            await new Promise(resolve => setTimeout(resolve, 500));
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                    // Subscribe to responses
+                    this.subscribeToResponses();
 
-            // Send connect request with a shorter timeout for restore
-            // (signer should respond quickly if it's available)
-            const connectPromise = this.sendRequest('connect', [this.clientPubkey, this.secret]);
-            const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Session restore timed out - signer may be offline')), 30000)
-            );
+                    // Delay to ensure subscription is fully established
+                    const delay = 500 * attempt;
+                    console.log(`NIP-46: Restore attempt ${attempt}/${MAX_RETRIES}, waiting ${delay}ms`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
 
-            await Promise.race([connectPromise, timeoutPromise]);
+                    // Send connect request with timeout
+                    const connectPromise = this.sendRequest('connect', [this.clientPubkey, this.secret]);
+                    const timeoutPromise = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('Session restore timed out')), 20000)
+                    );
+
+                    await Promise.race([connectPromise, timeoutPromise]);
+                    console.log(`NIP-46: Session restore succeeded on attempt ${attempt}`);
+                    success = true;
+                    break;
+                } catch (err) {
+                    lastError = err;
+                    console.warn(`NIP-46: Restore attempt ${attempt} failed:`, err.message);
+
+                    if (attempt < MAX_RETRIES) {
+                        // Reconnect to relays before retry
+                        console.log('NIP-46: Reconnecting to relays before retry...');
+                        await this.connectRelays(this.relayUrls);
+                    }
+                }
+            }
+
+            if (!success) {
+                throw lastError || new Error('Session restore failed after retries');
+            }
 
             this.connected = true;
 
