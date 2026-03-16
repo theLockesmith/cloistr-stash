@@ -226,29 +226,32 @@ const Auth = {
 
         const content = JSON.stringify(contentObj);
 
+        // Build tags array - only include tags with valid values
+        const tags = [
+            ['d', fileInfo.fileId],                    // File ID (for key derivation)
+            ['x', fileInfo.sha256],                    // Hash of encrypted blob (Blossom hash)
+            ['m', fileInfo.mimeType || 'application/octet-stream'],
+            ['size', String(fileInfo.size || 0)],      // Original size
+            ['encrypted', 'xchacha20-poly1305'],       // Encryption algorithm
+        ];
+
+        // Optional tags - only add if value exists
+        if (fileInfo.plaintextHash) {
+            tags.push(['ox', fileInfo.plaintextHash]); // Original (plaintext) hash
+        }
+        if (fileInfo.folderId) {
+            tags.push(['folder', fileInfo.folderId]);
+        }
+        if (fileInfo.deletedAt) {
+            tags.push(['deleted_at', fileInfo.deletedAt.toString()]);
+        }
+
         const event = {
             kind: 30078,  // File metadata kind
             created_at: now,
-            tags: [
-                ['d', fileInfo.fileId],                    // File ID (for key derivation)
-                ['x', fileInfo.sha256],                    // Hash of encrypted blob (Blossom hash)
-                ['ox', fileInfo.plaintextHash],            // Original (plaintext) hash
-                ['m', fileInfo.mimeType || 'application/octet-stream'],
-                ['size', fileInfo.size.toString()],        // Original size
-                ['encrypted', 'xchacha20-poly1305'],       // Encryption algorithm
-            ],
+            tags: tags,
             content: content,
         };
-
-        // Add folder tag if provided
-        if (fileInfo.folderId) {
-            event.tags.push(['folder', fileInfo.folderId]);
-        }
-
-        // Add deleted_at tag for trash (allows relay filtering)
-        if (fileInfo.deletedAt) {
-            event.tags.push(['deleted_at', fileInfo.deletedAt.toString()]);
-        }
 
         // Add version tags if this is a version update
         if (fileInfo.version) {
