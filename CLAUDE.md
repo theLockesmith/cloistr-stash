@@ -36,7 +36,21 @@ cp config.example.yml config.yml && go run ./cmd/server  # Run locally
 go test ./...                                             # Run tests
 npx playwright test                                       # E2E tests
 docker build -t cloistr-drive .                           # Docker
-atlas kube apply cloistr-drive --kube-context atlantis   # Deploy
+```
+
+## Deployment
+
+**Deployments use ArgoCD.** After pushing, sync via kubectl:
+
+```bash
+# Check current deployed image
+kubectl --context atlantis get deploy -n cloistr cloistr-drive -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+# Update to new image (use commit SHA from pipeline)
+kubectl --context atlantis set image deployment/cloistr-drive -n cloistr drive=registry.coldforge.xyz/coldforge/cloistr-drive:<commit-sha>
+
+# Watch rollout
+kubectl --context atlantis rollout status deployment/cloistr-drive -n cloistr
 ```
 
 ## Project Structure
