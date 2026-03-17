@@ -213,9 +213,16 @@ const Search = {
                 let documents = [];
 
                 if (getRequest.result) {
-                    // Decrypt existing documents
-                    const encrypted = Crypto.base64ToBytes(getRequest.result.encryptedDocs);
-                    documents = Crypto.decryptJSON(encrypted, this.indexKey);
+                    try {
+                        // Decrypt existing documents
+                        const encrypted = Crypto.base64ToBytes(getRequest.result.encryptedDocs);
+                        documents = Crypto.decryptJSON(encrypted, this.indexKey);
+                    } catch (decryptErr) {
+                        // Index was created with different key (different browser/session)
+                        // Start fresh for this term
+                        console.warn('Search: Index entry decrypt failed, recreating:', decryptErr.message);
+                        documents = [];
+                    }
                 }
 
                 // Add or update document entry
