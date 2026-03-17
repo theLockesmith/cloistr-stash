@@ -519,20 +519,22 @@ const Auth = {
                 successCount++;
                 successRelays.push(url);
             } else {
-                failedRelays.push(url);
+                failedRelays.push({ url, error: result.error });
             }
         }
 
         if (successCount > 0) {
             console.log(`Auth: Event published to ${successCount}/${relayUrls.size} relays:`, successRelays);
             if (failedRelays.length > 0) {
-                console.warn('Auth: Failed relays:', failedRelays);
+                console.warn('Auth: Failed relays:', failedRelays.map(f => f.url));
             }
-            return { success: true, published: successRelays, failed: failedRelays };
+            return { success: true, published: successRelays, failed: failedRelays.map(f => f.url) };
         }
 
-        // All failed
-        throw new Error('Failed to publish to any relay');
+        // All failed - log details
+        console.error('Auth: Failed to publish to any relay. Errors:', failedRelays);
+        const errorDetails = failedRelays.map(f => `${f.url}: ${f.error}`).join(', ');
+        throw new Error(`Failed to publish to any relay (${errorDetails})`);
     },
 
     // Publish to a single relay

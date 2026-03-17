@@ -154,8 +154,9 @@ const Relay = {
 
     // Publish a signed event to the relay
     async publish(signedEvent) {
-        // Ensure connected
-        if (!this.connected) {
+        // Ensure connected - check both flag and actual socket state
+        if (!this.connected || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
+            console.log('Relay: Reconnecting before publish (connected:', this.connected, 'readyState:', this.socket?.readyState, ')');
             await this.connect();
         }
 
