@@ -42,12 +42,17 @@ type Server struct {
 
 // FileMetadata represents file information returned to the frontend
 type FileMetadata struct {
-	SHA256    string `json:"sha256"`
-	Name      string `json:"name,omitempty"`
-	Size      int64  `json:"size"`
-	MimeType  string `json:"mime_type,omitempty"`
-	FolderID  string `json:"folder_id,omitempty"`
-	CreatedAt int64  `json:"created_at,omitempty"`
+	SHA256        string `json:"sha256"`
+	Name          string `json:"name,omitempty"`
+	Size          int64  `json:"size"`
+	MimeType      string `json:"mime_type,omitempty"`
+	FolderID      string `json:"folder_id,omitempty"`
+	CreatedAt     int64  `json:"created_at,omitempty"`
+	DeletedAt     int64  `json:"deleted_at,omitempty"`
+	FileID        string `json:"file_id,omitempty"`
+	PlaintextHash string `json:"plaintext_hash,omitempty"`
+	Encrypted     bool   `json:"encrypted,omitempty"`
+	EncryptedSize int64  `json:"encrypted_size,omitempty"`
 }
 
 // FolderMetadataResponse represents folder information returned to the frontend
@@ -308,12 +313,17 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 
 	for _, f := range files {
 		response.Files = append(response.Files, FileMetadata{
-			SHA256:    f.SHA256,
-			Name:      f.Name,
-			Size:      f.Size,
-			MimeType:  f.MimeType,
-			FolderID:  f.FolderID,
-			CreatedAt: f.CreatedAt.Unix(),
+			SHA256:        f.SHA256,
+			Name:          f.Name,
+			Size:          f.Size,
+			MimeType:      f.MimeType,
+			FolderID:      f.FolderID,
+			CreatedAt:     f.CreatedAt.Unix(),
+			DeletedAt:     f.DeletedAt,
+			FileID:        f.FileID,
+			PlaintextHash: f.PlaintextHash,
+			Encrypted:     f.Encrypted,
+			EncryptedSize: f.EncryptedSize,
 		})
 	}
 
