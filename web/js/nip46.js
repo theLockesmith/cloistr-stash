@@ -639,7 +639,7 @@ const NIP46 = {
             };
 
             ws.onmessage = (msg) => {
-                this.handleRelayMessage(msg.data, url);
+                this.handleRelayMessage(msg.data, url, ws);
             };
         });
     },
@@ -828,7 +828,7 @@ const NIP46 = {
     },
 
     // Handle incoming relay messages
-    async handleRelayMessage(data, relayUrl = 'unknown') {
+    async handleRelayMessage(data, relayUrl = 'unknown', sourceWs = null) {
         try {
             const message = JSON.parse(data);
             console.log('NIP-46: Received message from', relayUrl, ':', message[0], message.length > 2 ? JSON.stringify(message[2]).slice(0, 100) : '');
@@ -841,10 +841,11 @@ const NIP46 = {
             // Handle NIP-42 AUTH challenge
             if (message[0] === 'AUTH') {
                 const challenge = message[1];
-                // Find the socket that received this
-                const ws = this.sockets.find(s => s.url === relayUrl && s.readyState === WebSocket.OPEN);
-                if (ws) {
-                    await this.handleAuthChallenge(challenge, relayUrl, ws);
+                // Use the socket that received this message directly (avoids URL matching issues)
+                if (sourceWs && sourceWs.readyState === WebSocket.OPEN) {
+                    await this.handleAuthChallenge(challenge, relayUrl, sourceWs);
+                } else {
+                    console.warn('NIP-46: AUTH received but no valid socket to respond on');
                 }
                 return;
             }
