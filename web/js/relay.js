@@ -16,6 +16,9 @@ const Relay = {
     // Pending requests (for tracking OK responses)
     pendingPublishes: new Map(),
 
+    // Events pending retry after auth (auth-required rejection)
+    pendingAuthRetry: new Map(),
+
     // Connect to relay
     async connect(url = null) {
         this.url = url || this.defaultUrl;
@@ -76,10 +79,22 @@ const Relay = {
                     if (pending) {
                         if (success) {
                             pending.resolve({ success: true, message: okMessage });
+                            this.pendingPublishes.delete(eventId);
+                        } else if (okMessage && okMessage.includes('auth')) {
+                            // Auth required - queue for retry after authentication
+                            console.log('Relay: Auth required for event', eventId.slice(0, 8) + '..., queueing for retry');
+                            this.pendingAuthRetry.set(eventId, {
+                                event: pending.event,
+                                resolve: pending.resolve,
+                                reject: pending.reject,
+                                timeout: pending.timeout,
+                            });
+                            this.pendingPublishes.delete(eventId);
+                            // Note: don't reject - wait for auth and retry
                         } else {
                             pending.reject(new Error(okMessage || 'Publish rejected'));
+                            this.pendingPublishes.delete(eventId);
                         }
-                        this.pendingPublishes.delete(eventId);
                     }
                     break;
 
@@ -139,8 +154,37 @@ const Relay = {
             this.authenticated = true;
             console.log('Relay: NIP-42 authentication sent');
 
+            // Retry any events that were rejected with auth-required
+            await this.retryPendingAfterAuth();
+
         } catch (err) {
             console.error('Relay: Failed to handle auth challenge:', err);
+        }
+    },
+
+    // Retry events that were rejected with auth-required after successful auth
+    async retryPendingAfterAuth() {
+        if (this.pendingAuthRetry.size === 0) {
+            return;
+        }
+
+        console.log('Relay: Retrying', this.pendingAuthRetry.size, 'events after auth');
+
+        for (const [eventId, pending] of this.pendingAuthRetry) {
+            try {
+                // Move back to pendingPublishes for response tracking
+                this.pendingPublishes.set(eventId, pending);
+                this.pendingAuthRetry.delete(eventId);
+
+                // Resend the event
+                this.send(['EVENT', pending.event]);
+                console.log('Relay: Retried event', eventId.slice(0, 8) + '...');
+
+            } catch (err) {
+                console.error('Relay: Failed to retry event', eventId.slice(0, 8) + '...:', err);
+                pending.reject(err);
+                this.pendingAuthRetry.delete(eventId);
+            }
         }
     },
 
@@ -166,8 +210,10 @@ const Relay = {
                 reject(new Error('Publish timeout'));
             }, 10000);
 
-            // Track this publish
+            // Track this publish (store event for potential retry after auth)
             this.pendingPublishes.set(signedEvent.id, {
+                event: signedEvent,
+                timeout: timeout,
                 resolve: (result) => {
                     clearTimeout(timeout);
                     resolve(result);
@@ -199,6 +245,7 @@ const Relay = {
         this.connected = false;
         this.authenticated = false;
         this.pendingPublishes.clear();
+        this.pendingAuthRetry.clear();
     },
 
     // Check if connected
