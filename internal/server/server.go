@@ -93,6 +93,14 @@ type PublicLinkResponse struct {
 	CreatedAt    int64  `json:"created_at"`
 }
 
+// truncateForLog safely truncates a string for logging, avoiding panics on short strings
+func truncateForLog(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen]
+}
+
 // New creates a new HTTP server
 func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metadata.Store, whitelist *auth.Whitelist, quotaManager *quota.Manager, rateLimiter *ratelimit.Limiter, webDir string, logger *slog.Logger) *Server {
 	s := &Server{
@@ -203,6 +211,14 @@ func (s *Server) ListenAndServe(addr string) error {
 // handleHealth is the health check endpoint
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	// Check metadata store health (relay connection)
+	if s.metadata != nil && !s.metadata.IsHealthy() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = fmt.Fprint(w, `{"status":"unhealthy","reason":"relay connection failed"}`)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 	_, _ = fmt.Fprint(w, `{"status":"healthy"}`)
 }
@@ -296,7 +312,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("failed to list files from relay",
 			"error", err,
-			"pubkey", pubkey[:16],
+			"pubkey", truncateForLog(pubkey, 16),
 		)
 		// Return empty list on error rather than failing
 		w.Header().Set("Content-Type", "application/json")
@@ -666,7 +682,7 @@ func (s *Server) handleListFolders(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("failed to list folders from relay",
 			"error", err,
-			"pubkey", pubkey[:16],
+			"pubkey", truncateForLog(pubkey, 16),
 		)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprint(w, `{"folders":[]}`)
@@ -781,7 +797,7 @@ func (s *Server) handleGetFolder(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Warn("folder not found",
 			"folder_id", folderID,
-			"pubkey", pubkey[:16],
+			"pubkey", truncateForLog(pubkey, 16),
 			"error", err,
 		)
 		http.Error(w, "Folder not found", http.StatusNotFound)

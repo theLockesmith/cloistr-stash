@@ -12,6 +12,12 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+// Connection health constants
+const (
+	maxConsecutiveFailures = 10              // Mark unhealthy after this many failures
+	failureResetDuration   = 2 * time.Minute // Reset failure count after successful connection for this long
+)
+
 // Store handles file metadata storage via Nostr relay
 type Store struct {
 	relayURL string
@@ -29,6 +35,11 @@ type Store struct {
 	connMu      sync.Mutex
 	baseCtx     context.Context
 	cancelFunc  context.CancelFunc
+
+	// Connection health tracking
+	consecutiveFailures int
+	lastSuccessTime     time.Time
+	unhealthy           bool
 }
 
 // NewStore creates a new metadata store
@@ -63,7 +74,11 @@ func (s *Store) Connect(ctx context.Context) error {
 
 // connectLocked performs the actual connection (must hold connMu)
 func (s *Store) connectLocked() error {
-	relay, err := nostr.RelayConnect(s.baseCtx, s.relayURL)
+	// Use a timeout to prevent indefinite hangs on connection failures
+	ctx, cancel := context.WithTimeout(s.baseCtx, 15*time.Second)
+	defer cancel()
+
+	relay, err := nostr.RelayConnect(ctx, s.relayURL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to relay: %w", err)
 	}
@@ -79,6 +94,12 @@ func (s *Store) ensureConnected() error {
 
 	// Check if we have a connection and it's still alive
 	if s.relay != nil && s.relay.IsConnected() {
+		// Reset failure tracking on sustained healthy connection
+		if time.Since(s.lastSuccessTime) < failureResetDuration {
+			s.consecutiveFailures = 0
+			s.unhealthy = false
+		}
+		s.lastSuccessTime = time.Now()
 		return nil
 	}
 
@@ -95,11 +116,28 @@ func (s *Store) ensureConnected() error {
 
 	// Reconnect
 	if err := s.connectLocked(); err != nil {
+		s.consecutiveFailures++
+		if s.consecutiveFailures >= maxConsecutiveFailures {
+			s.unhealthy = true
+			s.logger.Error("relay connection unhealthy, marking for restart",
+				"consecutive_failures", s.consecutiveFailures,
+				"url", s.relayURL)
+		}
 		return fmt.Errorf("failed to reconnect to relay: %w", err)
 	}
 
+	// Success - reset failure count
+	s.consecutiveFailures = 0
+	s.lastSuccessTime = time.Now()
 	s.logger.Info("reconnected to relay", "url", s.relayURL)
 	return nil
+}
+
+// IsHealthy returns false if the store has exceeded max consecutive connection failures
+func (s *Store) IsHealthy() bool {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	return !s.unhealthy
 }
 
 // Close closes the relay connection
