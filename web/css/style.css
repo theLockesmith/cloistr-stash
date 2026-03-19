@@ -367,7 +367,8 @@ body {
     flex-shrink: 0;
 }
 
-.file-checkbox {
+.file-checkbox,
+.folder-checkbox {
     width: 16px;
     height: 16px;
     cursor: pointer;
@@ -4246,7 +4247,8 @@ body {
         padding: 0.875rem 1rem;
     }
 
-    .file-checkbox {
+    .file-checkbox,
+    .folder-checkbox {
         width: 24px;
         height: 24px;
     }

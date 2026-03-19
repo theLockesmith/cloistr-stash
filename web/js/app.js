@@ -14,6 +14,7 @@ const App = {
     searchQuery: '',      // Current search query
     shareFile: null,      // File currently being shared
     selectedFiles: new Set(), // Selected file sha256 hashes for batch operations
+    selectedFolders: new Set(), // Selected folder IDs for batch operations
     selectionMode: false, // Whether in multi-select mode
     TRASH_RETENTION_DAYS: 30, // Auto-purge after 30 days
     fileTags: {},  // Map of sha256 -> array of tags
@@ -5495,71 +5496,128 @@ const App = {
         this.updateSelectionUI();
     },
 
-    // Select all files in current view
+    // Toggle folder selection
+    toggleFolderSelection(folderId) {
+        if (this.selectedFolders.has(folderId)) {
+            this.selectedFolders.delete(folderId);
+        } else {
+            this.selectedFolders.add(folderId);
+        }
+        this.updateSelectionUI();
+    },
+
+    // Select all files and folders in current view
     selectAllFiles() {
         this.files.forEach(f => this.selectedFiles.add(f.sha256));
+        this.folders.forEach(f => this.selectedFolders.add(f.id));
         this.updateSelectionUI();
     },
 
     // Clear all selections
     clearSelection() {
         this.selectedFiles.clear();
+        this.selectedFolders.clear();
         this.selectionMode = false;
         this.updateSelectionUI();
     },
 
     // Update selection UI (checkboxes, toolbar)
     updateSelectionUI() {
-        const count = this.selectedFiles.size;
+        const fileCount = this.selectedFiles.size;
+        const folderCount = this.selectedFolders.size;
+        const totalCount = fileCount + folderCount;
         const toolbar = document.getElementById('batch-toolbar');
 
-        if (count > 0) {
+        if (totalCount > 0) {
             this.selectionMode = true;
             if (toolbar) {
                 toolbar.classList.remove('hidden');
-                document.getElementById('selected-count').textContent = `${count} selected`;
+                // Build descriptive selection count
+                const parts = [];
+                if (fileCount > 0) parts.push(`${fileCount} file${fileCount > 1 ? 's' : ''}`);
+                if (folderCount > 0) parts.push(`${folderCount} folder${folderCount > 1 ? 's' : ''}`);
+                document.getElementById('selected-count').textContent = parts.join(', ') + ' selected';
             }
         } else {
             this.selectionMode = false;
             if (toolbar) toolbar.classList.add('hidden');
         }
 
-        // Update checkboxes
+        // Update file checkboxes
         document.querySelectorAll('.file-checkbox').forEach(cb => {
             const sha256 = cb.dataset.sha256;
             cb.checked = this.selectedFiles.has(sha256);
         });
+
+        // Update folder checkboxes
+        document.querySelectorAll('.folder-checkbox').forEach(cb => {
+            const folderId = cb.dataset.folderId;
+            cb.checked = this.selectedFolders.has(folderId);
+        });
+
+        // Update item selected state
+        document.querySelectorAll('.file-item').forEach(item => {
+            const sha256 = item.dataset.sha256;
+            const folderId = item.dataset.folderId;
+            if (sha256) {
+                item.classList.toggle('selected', this.selectedFiles.has(sha256));
+            } else if (folderId) {
+                item.classList.toggle('selected', this.selectedFolders.has(folderId));
+            }
+        });
     },
 
-    // Bulk delete selected files
+    // Bulk delete selected files and folders
     async bulkDelete() {
-        const count = this.selectedFiles.size;
-        if (count === 0) return;
+        const fileCount = this.selectedFiles.size;
+        const folderCount = this.selectedFolders.size;
+        const totalCount = fileCount + folderCount;
+        if (totalCount === 0) return;
 
-        if (!confirm(`Delete ${count} file${count > 1 ? 's' : ''}? This cannot be undone.`)) {
+        const parts = [];
+        if (fileCount > 0) parts.push(`${fileCount} file${fileCount > 1 ? 's' : ''}`);
+        if (folderCount > 0) parts.push(`${folderCount} folder${folderCount > 1 ? 's' : ''}`);
+        const description = parts.join(' and ');
+
+        if (!confirm(`Delete ${description}? This cannot be undone.`)) {
             return;
         }
 
-        UI.toast(`Deleting ${count} files...`, 'info');
+        UI.toast(`Deleting ${description}...`, 'info');
 
         let deleted = 0;
         let failed = 0;
 
+        // Delete files
         for (const sha256 of this.selectedFiles) {
             try {
                 await this.deleteFile(sha256, true); // silent mode
                 deleted++;
             } catch (err) {
-                console.error(`Failed to delete ${sha256}:`, err);
+                console.error(`Failed to delete file ${sha256}:`, err);
+                failed++;
+            }
+        }
+
+        // Delete folders
+        for (const folderId of this.selectedFolders) {
+            try {
+                const folder = this.folders.find(f => f.id === folderId);
+                const signedEvent = await Auth.createFolderDeleteEvent(folderId);
+                await Auth.publishEvent(signedEvent);
+                deleted++;
+            } catch (err) {
+                console.error(`Failed to delete folder ${folderId}:`, err);
                 failed++;
             }
         }
 
         this.clearSelection();
         await this.loadFiles();
+        await this.loadFolderTree();
 
         if (failed === 0) {
-            UI.toast(`Deleted ${deleted} files`, 'success');
+            UI.toast(`Deleted ${deleted} items`, 'success');
         } else {
             UI.toast(`Deleted ${deleted}, failed ${failed}`, 'warning');
         }

@@ -640,6 +640,19 @@ const UI = {
             const folderName = item.dataset.folderName;
             if (!folderId) return;
 
+            // Checkbox for batch selection
+            const checkbox = item.querySelector('.folder-checkbox');
+            if (checkbox) {
+                checkbox.addEventListener('change', (e) => {
+                    e.stopPropagation();
+                    App.toggleFolderSelection(folderId);
+                });
+
+                checkbox.addEventListener('click', (e) => {
+                    e.stopPropagation(); // Prevent row click from opening folder
+                });
+            }
+
             // Double-click to open folder
             item.addEventListener('dblclick', (e) => {
                 e.stopPropagation();
@@ -648,7 +661,7 @@ const UI = {
 
             // Single click also opens (for usability)
             item.addEventListener('click', (e) => {
-                if (e.target.closest('.action-btn')) return; // Ignore if clicking action button
+                if (e.target.closest('.action-btn') || e.target.closest('.folder-checkbox')) return; // Ignore if clicking action button or checkbox
                 App.openFolder(folderId, folderName);
             });
 
@@ -710,9 +723,13 @@ const UI = {
         const icon = custom.icon || '&#128193;';
         const colorStyle = custom.color ? `style="color: ${custom.color}"` : '';
 
+        const isSelected = typeof App !== 'undefined' && App.selectedFolders?.has(folder.id);
+
         return `
-            <div class="file-item folder-item" data-folder-id="${folder.id}" data-folder-name="${this.escapeHtml(folder.name)}" role="listitem" tabindex="0" aria-label="Folder: ${this.escapeHtml(folder.name)}">
-                <div class="file-col file-select"></div>
+            <div class="file-item folder-item ${isSelected ? 'selected' : ''}" data-folder-id="${folder.id}" data-folder-name="${this.escapeHtml(folder.name)}" role="listitem" tabindex="0" aria-label="Folder: ${this.escapeHtml(folder.name)}" aria-selected="${isSelected}">
+                <div class="file-col file-select">
+                    <input type="checkbox" class="folder-checkbox" data-folder-id="${folder.id}" ${isSelected ? 'checked' : ''} aria-label="Select ${this.escapeHtml(folder.name)}">
+                </div>
                 <div class="file-col file-name">
                     <span class="file-icon folder-icon" ${colorStyle} aria-hidden="true">${icon}</span>
                     <span class="file-name-text">${this.escapeHtml(folder.name)}</span>
