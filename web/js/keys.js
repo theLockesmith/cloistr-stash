@@ -33,38 +33,52 @@ const Keys = {
         console.log('Keys: Initialized for', pubkey.slice(0, 8) + '...');
     },
 
-    // Restore root key from Nostr event (for cross-device/session persistence)
+    // Sync root key between local storage and Nostr for cross-device persistence
     async restoreRootKeyFromNostr() {
         if (!this.userPubkey) return;
+        if (typeof Auth === 'undefined' || !Auth.isConnected) {
+            console.log('Keys: Auth not connected, skipping root key sync');
+            return;
+        }
 
         try {
-            // Check if we already have a root key locally
+            // Check what we have locally and in Nostr
             const localKey = await this.loadEncryptedKey('root');
-            if (localKey) {
-                console.log('Keys: Root key already present locally');
+            const nostrResult = await API.getKeyring(this.userPubkey);
+            const hasNostrKey = nostrResult && nostrResult.encrypted_root_key;
+
+            if (localKey && hasNostrKey) {
+                // Both exist - use local, already synced
+                console.log('Keys: Root key present locally and in Nostr');
+                this.keyCache.set('root', localKey);
                 return;
             }
 
-            // Fetch from server/Nostr
-            const result = await API.getKeyring(this.userPubkey);
-            if (!result.encrypted_root_key) {
-                console.log('Keys: No root key found in Nostr');
+            if (localKey && !hasNostrKey) {
+                // Local exists but not in Nostr - MIGRATE to Nostr
+                console.log('Keys: Migrating local root key to Nostr...');
+                this.keyCache.set('root', localKey);
+                await this.publishRootKeyToNostr(localKey);
                 return;
             }
 
-            // Decrypt the root key (it's encrypted with our own pubkey)
-            if (typeof Auth !== 'undefined' && Auth.isConnected) {
-                const keyHex = await Auth.nip04Decrypt(this.userPubkey, result.encrypted_root_key);
+            if (!localKey && hasNostrKey) {
+                // Nostr exists but not local - RESTORE from Nostr
+                console.log('Keys: Restoring root key from Nostr...');
+                const keyHex = await Auth.nip04Decrypt(this.userPubkey, nostrResult.encrypted_root_key);
                 const rootKey = Crypto.hexToBytes(keyHex);
 
                 // Store locally and cache
                 await this.storeEncryptedKey('root', rootKey, null);
                 this.keyCache.set('root', rootKey);
-
                 console.log('Keys: Restored root key from Nostr');
+                return;
             }
+
+            // Neither exists - will be generated on first use
+            console.log('Keys: No root key found locally or in Nostr');
         } catch (err) {
-            console.warn('Keys: Failed to restore root key from Nostr:', err.message);
+            console.warn('Keys: Failed to sync root key:', err.message);
             // Non-fatal - will generate new key if needed
         }
     },
