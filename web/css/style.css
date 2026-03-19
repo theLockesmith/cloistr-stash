@@ -453,10 +453,24 @@ body {
     color: var(--text-secondary);
 }
 
+.file-item .file-size {
+    width: 100px;
+    flex-shrink: 0;
+    text-align: right;
+}
+
+.file-item .file-date {
+    width: 150px;
+    flex-shrink: 0;
+    text-align: right;
+}
+
 .file-item .file-actions {
     display: flex;
     gap: 0.5rem;
     justify-content: flex-end;
+    min-width: 420px;
+    flex-shrink: 0;
 }
 
 /* File tags */

@@ -712,6 +712,7 @@ const UI = {
 
         return `
             <div class="file-item folder-item" data-folder-id="${folder.id}" data-folder-name="${this.escapeHtml(folder.name)}" role="listitem" tabindex="0" aria-label="Folder: ${this.escapeHtml(folder.name)}">
+                <div class="file-col file-select"></div>
                 <div class="file-col file-name">
                     <span class="file-icon folder-icon" ${colorStyle} aria-hidden="true">${icon}</span>
                     <span class="file-name-text">${this.escapeHtml(folder.name)}</span>
