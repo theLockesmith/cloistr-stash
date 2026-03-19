@@ -391,6 +391,11 @@ func (s *Store) ListFiles(ctx context.Context, pubkey string) ([]*FileMetadata, 
 			continue
 		}
 
+		// Skip config events that use the same kind (root-key, etc.)
+		if file.Identifier == "root-key" {
+			continue
+		}
+
 		// Keep the most recent version (by created_at)
 		existing, exists := fileMap[file.Identifier]
 		if !exists || file.CreatedAt.After(existing.CreatedAt) {
@@ -690,15 +695,12 @@ func (s *Store) ListFilesInFolder(ctx context.Context, pubkey, folderID string) 
 		return nil, err
 	}
 
+	// Fetch all files for this user (don't rely on relay's tag filtering)
+	// This is more reliable since some relays don't properly support custom tag filters
 	filter := nostr.Filter{
 		Kinds:   []int{KindFileMetadata},
 		Authors: []string{pubkey},
 		Limit:   500,
-	}
-
-	// If folderID is specified, filter by folder tag
-	if folderID != "" {
-		filter.Tags = map[string][]string{"folder": {folderID}}
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -709,7 +711,7 @@ func (s *Store) ListFilesInFolder(ctx context.Context, pubkey, folderID string) 
 		return nil, fmt.Errorf("failed to query file events: %w", err)
 	}
 
-	// Parse and deduplicate
+	// Parse and deduplicate by identifier (newer event wins)
 	fileMap := make(map[string]*FileMetadata)
 	for _, event := range events {
 		file, err := ParseFileEvent(event)
@@ -717,8 +719,8 @@ func (s *Store) ListFilesInFolder(ctx context.Context, pubkey, folderID string) 
 			continue
 		}
 
-		// For root folder (empty folderID), only include files without a folder
-		if folderID == "" && file.FolderID != "" {
+		// Skip config events that use the same kind (root-key, etc.)
+		if file.Identifier == "root-key" {
 			continue
 		}
 
@@ -728,9 +730,16 @@ func (s *Store) ListFilesInFolder(ctx context.Context, pubkey, folderID string) 
 		}
 	}
 
+	// Filter by folder server-side
 	files := make([]*FileMetadata, 0, len(fileMap))
 	for _, file := range fileMap {
-		files = append(files, file)
+		// Root folder: include files without a folder
+		// Specific folder: include files with matching folder
+		if folderID == "" && file.FolderID == "" {
+			files = append(files, file)
+		} else if folderID != "" && file.FolderID == folderID {
+			files = append(files, file)
+		}
 	}
 
 	return files, nil
