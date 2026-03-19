@@ -713,14 +713,21 @@ func (s *Store) ListFilesInFolder(ctx context.Context, pubkey, folderID string) 
 
 	// Parse and deduplicate by identifier (newer event wins)
 	fileMap := make(map[string]*FileMetadata)
+	var parseErrors, configSkipped int
 	for _, event := range events {
 		file, err := ParseFileEvent(event)
 		if err != nil {
+			parseErrors++
+			s.logger.Debug("failed to parse file event in folder listing",
+				"event_id", event.ID[:16],
+				"error", err,
+			)
 			continue
 		}
 
 		// Skip config events that use the same kind (root-key, etc.)
 		if file.Identifier == "root-key" {
+			configSkipped++
 			continue
 		}
 
@@ -741,6 +748,20 @@ func (s *Store) ListFilesInFolder(ctx context.Context, pubkey, folderID string) 
 			files = append(files, file)
 		}
 	}
+
+	folderDesc := folderID
+	if folderID == "" {
+		folderDesc = "(root)"
+	}
+	s.logger.Info("listed files in folder",
+		"pubkey", pubkey[:16],
+		"folder", folderDesc,
+		"events_received", len(events),
+		"unique_files", len(fileMap),
+		"files_in_folder", len(files),
+		"parse_errors", parseErrors,
+		"config_skipped", configSkipped,
+	)
 
 	return files, nil
 }
