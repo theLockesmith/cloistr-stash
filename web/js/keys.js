@@ -26,7 +26,47 @@ const Keys = {
     async init(pubkey) {
         this.userPubkey = pubkey;
         await this.openDB();
+
+        // Try to restore root key from Nostr
+        await this.restoreRootKeyFromNostr();
+
         console.log('Keys: Initialized for', pubkey.slice(0, 8) + '...');
+    },
+
+    // Restore root key from Nostr event (for cross-device/session persistence)
+    async restoreRootKeyFromNostr() {
+        if (!this.userPubkey) return;
+
+        try {
+            // Check if we already have a root key locally
+            const localKey = await this.loadEncryptedKey('root');
+            if (localKey) {
+                console.log('Keys: Root key already present locally');
+                return;
+            }
+
+            // Fetch from server/Nostr
+            const result = await API.getKeyring(this.userPubkey);
+            if (!result.encrypted_root_key) {
+                console.log('Keys: No root key found in Nostr');
+                return;
+            }
+
+            // Decrypt the root key (it's encrypted with our own pubkey)
+            if (typeof Auth !== 'undefined' && Auth.isConnected) {
+                const keyHex = await Auth.nip04Decrypt(this.userPubkey, result.encrypted_root_key);
+                const rootKey = Crypto.hexToBytes(keyHex);
+
+                // Store locally and cache
+                await this.storeEncryptedKey('root', rootKey, null);
+                this.keyCache.set('root', rootKey);
+
+                console.log('Keys: Restored root key from Nostr');
+            }
+        } catch (err) {
+            console.warn('Keys: Failed to restore root key from Nostr:', err.message);
+            // Non-fatal - will generate new key if needed
+        }
     },
 
     // Open IndexedDB for key storage
@@ -68,8 +108,36 @@ const Keys = {
         // Cache in memory
         this.keyCache.set('root', rootKey);
 
+        // Publish to Nostr for cross-device/session persistence
+        await this.publishRootKeyToNostr(rootKey);
+
         console.log('Keys: Generated new root key');
         return rootKey;
+    },
+
+    // Publish root key to Nostr for persistence across devices/sessions
+    async publishRootKeyToNostr(rootKey) {
+        if (typeof Auth === 'undefined' || !Auth.isConnected) {
+            console.warn('Keys: Cannot publish root key - Auth not connected');
+            return;
+        }
+
+        try {
+            // Encrypt the root key with our own pubkey
+            const keyHex = Crypto.bytesToHex(rootKey);
+            const encryptedKey = await Auth.nip04Encrypt(this.userPubkey, keyHex);
+
+            // Create and sign the root key event (kind 30078 with d='root-key')
+            const signedEvent = await Auth.createRootKeyEvent(encryptedKey);
+
+            // Publish to relay
+            await Auth.publishEvent(signedEvent);
+
+            console.log('Keys: Published root key to Nostr');
+        } catch (err) {
+            console.warn('Keys: Failed to publish root key to Nostr:', err.message);
+            // Non-fatal - key is still stored locally
+        }
     },
 
     // Get or create the root key

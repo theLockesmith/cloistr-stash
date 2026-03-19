@@ -278,7 +278,7 @@ body {
 }
 
 .file-actions {
-    min-width: 420px;
+    width: 420px;
     text-align: right;
     flex-shrink: 0;
 }
@@ -470,7 +470,7 @@ body {
     display: flex;
     gap: 0.5rem;
     justify-content: flex-end;
-    min-width: 420px;
+    width: 420px;
     flex-shrink: 0;
 }
 

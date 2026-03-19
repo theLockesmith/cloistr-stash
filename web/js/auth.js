@@ -393,6 +393,28 @@ const Auth = {
         return this.signEvent(event);
     },
 
+    // Create a root key storage event (kind 30078 with d='root-key')
+    // The encrypted key is stored for cross-device/session persistence
+    async createRootKeyEvent(encryptedKey) {
+        if (!this.isConnected || !this.pubkey) {
+            throw new Error('Not connected');
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+
+        const event = {
+            kind: 30078,  // File/config metadata kind (parameterized replaceable)
+            created_at: now,
+            tags: [
+                ['d', 'root-key'],           // Identifier (makes it replaceable)
+                ['key', encryptedKey],       // Encrypted root key
+            ],
+            content: '',
+        };
+
+        return this.signEvent(event);
+    },
+
     // Create a folder deletion event (kind 5 - NIP-09)
     async createFolderDeleteEvent(folderId) {
         if (!this.isConnected || !this.pubkey) {

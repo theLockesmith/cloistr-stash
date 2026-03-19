@@ -299,4 +299,17 @@ const API = {
 
         return response.json();
     },
+
+    // Get the user's encrypted root key from Nostr
+    async getKeyring(pubkey) {
+        const url = `${this.baseURL}/api/keyring?pubkey=${pubkey}`;
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`Failed to get keyring: ${response.status}`);
+        }
+
+        return response.json();
+    },
 };

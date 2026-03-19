@@ -959,6 +959,54 @@ func (s *Store) CalculateStorageUsage(ctx context.Context, pubkey string) (int64
 	return totalSize, nil
 }
 
+// GetRootKey retrieves the encrypted root key event for a user
+// The root key is stored as a kind 30078 event with d='root-key'
+func (s *Store) GetRootKey(ctx context.Context, pubkey string) (string, error) {
+	if err := s.ensureConnected(); err != nil {
+		return "", err
+	}
+
+	filter := nostr.Filter{
+		Kinds:   []int{KindFileMetadata},
+		Authors: []string{pubkey},
+		Tags:    map[string][]string{"d": {"root-key"}},
+		Limit:   1,
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	events, err := s.relay.QuerySync(ctx, filter)
+	if err != nil {
+		return "", fmt.Errorf("failed to query root key event: %w", err)
+	}
+
+	if len(events) == 0 {
+		return "", nil // No root key stored yet
+	}
+
+	// Get the most recent event
+	var latest *nostr.Event
+	for _, event := range events {
+		if latest == nil || event.CreatedAt > latest.CreatedAt {
+			latest = event
+		}
+	}
+
+	// Extract the encrypted key from the 'key' tag
+	for _, tag := range latest.Tags {
+		if len(tag) >= 2 && tag[0] == "key" {
+			s.logger.Debug("found root key event",
+				"pubkey", pubkey[:16],
+				"event_id", latest.ID[:16],
+			)
+			return tag[1], nil
+		}
+	}
+
+	return "", nil // No key tag found
+}
+
 // CreateDeleteShareEvent creates a kind 5 deletion event for a share
 func CreateDeleteShareEvent(pubkey, shareIdentifier string) *nostr.Event {
 	return &nostr.Event{

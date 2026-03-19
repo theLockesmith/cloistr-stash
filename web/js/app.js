@@ -484,10 +484,11 @@ const App = {
         });
     },
 
-    switchView(view) {
+    async switchView(view) {
         this.currentView = view;
         this.clearSelection();
         this.closeMobileSidebar();
+        this.clearSearch();
 
         // Update active state in sidebar
         document.querySelectorAll('.sidebar-nav-item').forEach(item => {
@@ -504,22 +505,36 @@ const App = {
             document.querySelector('.folder-tree-item.root')?.classList.add('active');
         }
 
+        // Update tab states
+        document.getElementById('tab-my-files')?.classList.toggle('active', view === 'my-files');
+        document.getElementById('tab-shared')?.classList.toggle('active', view === 'shared');
+
+        // Show/hide appropriate UI elements
+        const breadcrumbBar = document.getElementById('breadcrumb-bar');
+        const uploadBtn = document.getElementById('upload-btn');
+        const newFolderBtn = document.getElementById('new-folder-btn');
+        const showFilesUI = view === 'my-files';
+
+        if (breadcrumbBar) breadcrumbBar.style.display = showFilesUI ? '' : 'none';
+        if (uploadBtn) uploadBtn.style.display = showFilesUI ? '' : 'none';
+        if (newFolderBtn) newFolderBtn.style.display = showFilesUI ? '' : 'none';
+
         // Render appropriate view
         switch (view) {
             case 'my-files':
-                this.loadFiles();
+                await this.loadFiles();
                 break;
             case 'shared':
-                this.loadSharedFiles();
+                await this.loadSharedFiles();
                 break;
             case 'starred':
-                this.loadStarredFiles();
+                await this.loadStarredFiles();
                 break;
             case 'recent':
-                this.loadRecentFiles();
+                await this.loadRecentFiles();
                 break;
             case 'trash':
-                this.loadTrashFiles();
+                await this.loadTrashFiles();
                 break;
         }
     },
@@ -940,34 +955,6 @@ const App = {
             const filteredShared = this.filterBySearch(this.sharedFiles);
             const sortedShared = this.sortFiles(filteredShared);
             UI.renderSharedFiles(sortedShared, this.searchQuery);
-        }
-    },
-
-    async switchView(view) {
-        this.currentView = view;
-
-        // Clear search when switching views
-        this.clearSearch();
-
-        // Update tab states
-        document.getElementById('tab-my-files').classList.toggle('active', view === 'my-files');
-        document.getElementById('tab-shared').classList.toggle('active', view === 'shared');
-
-        // Show/hide appropriate UI elements
-        const breadcrumbBar = document.getElementById('breadcrumb-bar');
-        const uploadBtn = document.getElementById('upload-btn');
-        const newFolderBtn = document.getElementById('new-folder-btn');
-
-        if (view === 'my-files') {
-            breadcrumbBar.style.display = '';
-            uploadBtn.style.display = '';
-            newFolderBtn.style.display = '';
-            await this.loadFiles();
-        } else {
-            breadcrumbBar.style.display = 'none';
-            uploadBtn.style.display = 'none';
-            newFolderBtn.style.display = 'none';
-            await this.loadSharedFiles();
         }
     },
 
@@ -5084,6 +5071,16 @@ const App = {
 
     // Setup additional modal event listeners
     setupModalEventListeners() {
+        // Click outside modal to close
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                // Only close if clicking on the backdrop (the modal itself), not the content
+                if (e.target === modal) {
+                    UI.hideModal(modal.id);
+                }
+            });
+        });
+
         // Batch toolbar
         document.getElementById('select-all-checkbox')?.addEventListener('change', (e) => {
             if (e.target.checked) {

@@ -185,6 +185,9 @@ func (s *Server) registerRoutes() {
 	// Quota endpoints
 	s.mux.HandleFunc("GET /api/quota", s.handleGetQuota)
 
+	// Keyring endpoint - get root key event (requires authorization)
+	s.mux.HandleFunc("GET /api/keyring", s.handleGetKeyring)
+
 	// Serve static files (web UI)
 	s.mux.HandleFunc("/", s.handleStatic)
 }
@@ -1060,6 +1063,41 @@ func (s *Server) handleRevokeShare(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprint(w, `{"status":"revoked"}`)
 
 	s.logger.Info("share revoked", "share_id", shareID)
+}
+
+// KeyringResponse represents the response from the keyring endpoint
+type KeyringResponse struct {
+	EncryptedRootKey string `json:"encrypted_root_key,omitempty"`
+}
+
+// handleGetKeyring retrieves the user's encrypted root key from Nostr
+func (s *Server) handleGetKeyring(w http.ResponseWriter, r *http.Request) {
+	pubkey := r.URL.Query().Get("pubkey")
+	if pubkey == "" {
+		http.Error(w, "pubkey parameter required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate pubkey format (64 hex chars)
+	if len(pubkey) != 64 {
+		http.Error(w, "Invalid pubkey format", http.StatusBadRequest)
+		return
+	}
+
+	encryptedKey, err := s.metadata.GetRootKey(r.Context(), pubkey)
+	if err != nil {
+		s.logger.Error("failed to get root key",
+			"error", err,
+			"pubkey", pubkey[:16],
+		)
+		http.Error(w, "Failed to get root key", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(KeyringResponse{
+		EncryptedRootKey: encryptedKey,
+	})
 }
 
 // handlePublicLink serves the public link access page
