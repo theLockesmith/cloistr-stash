@@ -84,6 +84,10 @@ type FolderMetadata struct {
 
 	// Last update timestamp
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// Encrypted folder key (NIP-04 encrypted with owner's pubkey)
+	// Used to restore folder encryption keys after session refresh
+	EncryptedKey string `json:"encrypted_key,omitempty"`
 }
 
 // Event kinds for Drive metadata

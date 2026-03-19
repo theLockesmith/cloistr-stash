@@ -4,10 +4,44 @@ const Auth = {
     pubkey: null,
     isConnected: false,
     connectionType: null, // 'nip07' | 'nip46'
+    SESSION_KEY: 'cloistr-auth-session',
 
     // Check if NIP-07 extension is available
     hasExtension() {
         return typeof window.nostr !== 'undefined';
+    },
+
+    // Save session info to localStorage
+    saveSession() {
+        if (this.isConnected && this.pubkey && this.connectionType) {
+            try {
+                localStorage.setItem(this.SESSION_KEY, JSON.stringify({
+                    connectionType: this.connectionType,
+                    pubkey: this.pubkey,
+                }));
+            } catch (err) {
+                console.warn('Failed to save session:', err);
+            }
+        }
+    },
+
+    // Clear saved session
+    clearSavedSession() {
+        try {
+            localStorage.removeItem(this.SESSION_KEY);
+        } catch (err) {
+            console.warn('Failed to clear session:', err);
+        }
+    },
+
+    // Get saved session info
+    getSavedSession() {
+        try {
+            const stored = localStorage.getItem(this.SESSION_KEY);
+            return stored ? JSON.parse(stored) : null;
+        } catch (err) {
+            return null;
+        }
     },
 
     // Connect to NIP-07 extension
@@ -20,6 +54,7 @@ const Auth = {
             this.pubkey = await window.nostr.getPublicKey();
             this.isConnected = true;
             this.connectionType = 'nip07';
+            this.saveSession();
             return this.pubkey;
         } catch (err) {
             throw new Error(`Failed to connect: ${err.message}`);
@@ -36,36 +71,70 @@ const Auth = {
             this.pubkey = await NIP46.connect(bunkerUrl);
             this.isConnected = true;
             this.connectionType = 'nip46';
+            this.saveSession();
             return this.pubkey;
         } catch (err) {
             throw new Error(`Failed to connect to bunker: ${err.message}`);
         }
     },
 
-    // Check if there's a saved NIP-46 session
+    // Check if there's a saved session (NIP-07 or NIP-46)
     hasSavedSession() {
+        const saved = this.getSavedSession();
+        if (saved) {
+            if (saved.connectionType === 'nip07') {
+                // NIP-07 requires extension to be available
+                return this.hasExtension();
+            } else if (saved.connectionType === 'nip46') {
+                return typeof NIP46 !== 'undefined' && NIP46.hasSavedSession();
+            }
+        }
+        // Fallback: check NIP-46 directly for backward compatibility
         return typeof NIP46 !== 'undefined' && NIP46.hasSavedSession();
     },
 
-    // Restore a saved NIP-46 session
+    // Restore a saved session (NIP-07 or NIP-46)
     async restoreSession() {
-        if (typeof NIP46 === 'undefined') {
-            return false;
+        const saved = this.getSavedSession();
+
+        // Try to restore NIP-07 session
+        if (saved?.connectionType === 'nip07' && this.hasExtension()) {
+            try {
+                // Re-request pubkey from extension (may auto-approve or prompt)
+                const pubkey = await window.nostr.getPublicKey();
+                if (pubkey === saved.pubkey) {
+                    this.pubkey = pubkey;
+                    this.isConnected = true;
+                    this.connectionType = 'nip07';
+                    console.log('NIP-07: Session restored');
+                    return true;
+                }
+                // Different pubkey - user may have switched accounts
+                console.log('NIP-07: Different pubkey, clearing saved session');
+                this.clearSavedSession();
+            } catch (err) {
+                console.warn('Failed to restore NIP-07 session:', err);
+                this.clearSavedSession();
+            }
         }
 
-        try {
-            const pubkey = await NIP46.restoreSession();
-            if (pubkey) {
-                this.pubkey = pubkey;
-                this.isConnected = true;
-                this.connectionType = 'nip46';
-                return true;
+        // Try to restore NIP-46 session
+        if (typeof NIP46 !== 'undefined') {
+            try {
+                const pubkey = await NIP46.restoreSession();
+                if (pubkey) {
+                    this.pubkey = pubkey;
+                    this.isConnected = true;
+                    this.connectionType = 'nip46';
+                    console.log('NIP-46: Session restored');
+                    return true;
+                }
+            } catch (err) {
+                console.error('Failed to restore NIP-46 session:', err);
             }
-            return false;
-        } catch (err) {
-            console.error('Failed to restore session:', err);
-            return false;
         }
+
+        return false;
     },
 
     // Sign a Nostr event (works with both NIP-07 and NIP-46)
@@ -592,6 +661,9 @@ const Auth = {
         if (this.connectionType === 'nip46' && typeof NIP46 !== 'undefined') {
             NIP46.disconnect();
         }
+
+        // Clear saved session
+        this.clearSavedSession();
 
         this.pubkey = null;
         this.isConnected = false;

@@ -39,6 +39,14 @@ const Collaboration = {
             onAwarenessChange = null,
         } = options;
 
+        // Check for required Yjs libraries
+        if (typeof Y === 'undefined' || typeof Y.Doc !== 'function') {
+            throw new Error('Collaboration requires Yjs library which failed to load');
+        }
+        if (typeof awarenessProtocol === 'undefined') {
+            throw new Error('Collaboration requires y-protocols awareness module which is not loaded');
+        }
+
         if (!Auth.isConnected) {
             throw new Error('Not connected');
         }

@@ -694,6 +694,7 @@ const UI = {
                 const folder = App.folders.find(f => f.id === folderId) || { id: folderId, name: folderName };
                 this.showContextMenu(e.clientX, e.clientY, [
                     { label: 'Open', action: () => App.openFolder(folderId, folderName) },
+                    { label: 'Rename', action: () => App.renameFolder(folderId, folderName) },
                     { label: 'Customize', action: () => App.showFolderCustomizeModal(folderId, folderName) },
                     { label: 'Share', action: () => App.showShareFolderModal(folder) },
                     { label: 'Delete', action: () => App.deleteFolder(folderId, folderName), className: 'danger' },
@@ -836,6 +837,9 @@ const UI = {
             label: isStarred ? 'Remove from Starred' : 'Add to Starred',
             action: () => App.toggleStar(fileObj.sha256)
         });
+
+        // Rename option
+        menuItems.push({ label: 'Rename', action: () => App.renameFile(fileObj) });
 
         // Tags option
         menuItems.push({ label: 'Tags...', action: () => App.showTagsModal(fileObj) });
@@ -1295,13 +1299,26 @@ const RelaySettingsUI = {
 
     addRelay() {
         const urlInput = document.getElementById('relay-add-url');
-        const url = urlInput.value.trim();
+        let url = urlInput.value.trim();
 
-        if (!url) return;
-        if (!url.startsWith('wss://') && !url.startsWith('ws://')) {
-            UI.toast('Relay URL must start with wss:// or ws://', 'warning');
+        if (!url) {
+            UI.toast('Please enter a relay URL', 'error');
             return;
         }
+
+        // Add wss:// prefix if missing
+        if (!url.startsWith('wss://') && !url.startsWith('ws://')) {
+            url = 'wss://' + url;
+        }
+
+        // Validate URL format
+        try {
+            new URL(url);
+        } catch {
+            UI.toast('Invalid relay URL format', 'error');
+            return;
+        }
+
         if (this.relays.some(r => r.url === url)) {
             UI.toast('Relay already in list', 'warning');
             return;
@@ -1318,6 +1335,9 @@ const RelaySettingsUI = {
         this.relays.push({ url, read, write });
         this.render();
         urlInput.value = '';
+        document.getElementById('relay-add-read').checked = true;
+        document.getElementById('relay-add-write').checked = true;
+        UI.toast('Relay added', 'success');
     },
 
     handleListClick(e) {

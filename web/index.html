@@ -290,10 +290,10 @@
                         <div class="file-col file-actions"></div>
                     </div>
                     <div id="file-list-body" class="file-list-body" role="list" aria-label="Files and folders" tabindex="0">
-                        <div class="empty-state" id="empty-state" role="status">
-                            <p>No files yet</p>
-                            <p class="empty-state-subtext">Drag files here or click Upload to get started</p>
-                        </div>
+                    </div>
+                    <div class="empty-state" id="empty-state" role="status">
+                        <p>No files yet</p>
+                        <p class="empty-state-subtext">Drag files here or click Upload to get started</p>
                     </div>
                 </div>
                 </main>
@@ -610,6 +610,33 @@
             </div>
         </div>
 
+        <!-- Keyboard Shortcuts Modal -->
+        <div id="keyboard-shortcuts-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Keyboard Shortcuts</h2>
+                    <button class="modal-close" id="keyboard-shortcuts-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="shortcuts-list">
+                        <div class="shortcut-item"><kbd>?</kbd><span>Show this help</span></div>
+                        <div class="shortcut-item"><kbd>u</kbd><span>Upload files</span></div>
+                        <div class="shortcut-item"><kbd>n</kbd><span>New folder</span></div>
+                        <div class="shortcut-item"><kbd>/</kbd><span>Focus search</span></div>
+                        <div class="shortcut-item"><kbd>Esc</kbd><span>Close modal / Clear selection</span></div>
+                        <div class="shortcut-item"><kbd>Delete</kbd><span>Delete selected files</span></div>
+                        <div class="shortcut-item"><kbd>d</kbd><span>Download selected</span></div>
+                        <div class="shortcut-item"><kbd>Enter</kbd><span>Open selected file</span></div>
+                        <div class="shortcut-item"><kbd>Ctrl+A</kbd><span>Select all</span></div>
+                        <div class="shortcut-item"><kbd>↑</kbd> <kbd>↓</kbd><span>Navigate files</span></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" id="keyboard-shortcuts-done">Done</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Encryption Info Modal -->
         <div id="encryption-info-modal" class="modal hidden">
             <div class="modal-content modal-small">
@@ -721,6 +748,24 @@
                 <div class="modal-footer">
                     <button class="btn" id="new-folder-cancel">Cancel</button>
                     <button class="btn btn-primary" id="new-folder-create">Create Folder</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Rename Modal -->
+        <div id="rename-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2 id="rename-modal-title">Rename</h2>
+                    <button class="modal-close" id="rename-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-description" id="rename-modal-description">Enter new name:</p>
+                    <input type="text" id="rename-input" class="input-full" placeholder="New name" autocomplete="off" autofocus>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="rename-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="rename-confirm">Rename</button>
                 </div>
             </div>
         </div>

@@ -542,6 +542,38 @@ const App = {
             const ctrlKey = isMac ? e.metaKey : e.ctrlKey;
 
             switch (e.key) {
+                case '?':
+                    // ?: Show keyboard shortcuts help
+                    e.preventDefault();
+                    this.showKeyboardShortcutsHelp();
+                    break;
+
+                case '/':
+                    // /: Focus search
+                    e.preventDefault();
+                    const searchInput = document.getElementById('search-input');
+                    if (searchInput) searchInput.focus();
+                    break;
+
+                case 'u':
+                    // u: Upload (without Ctrl)
+                    if (!ctrlKey) {
+                        e.preventDefault();
+                        Upload.clear();
+                        UI.renderUploadList([]);
+                        UI.showModal('upload-modal');
+                    }
+                    break;
+
+                case 'n':
+                    // n: New folder (without Ctrl)
+                    if (!ctrlKey) {
+                        e.preventDefault();
+                        UI.showModal('new-folder-modal');
+                        document.getElementById('new-folder-name')?.focus();
+                    }
+                    break;
+
                 case 'a':
                     // Ctrl+A: Select all
                     if (ctrlKey) {
@@ -569,43 +601,15 @@ const App = {
                     break;
 
                 case 'd':
-                    // Ctrl+D: Download selected
-                    if (ctrlKey && hasSelection) {
+                    // d: Download selected (without Ctrl)
+                    if (!ctrlKey && hasSelection) {
                         e.preventDefault();
                         this.bulkDownload();
                     }
                     break;
 
-                case 'f':
-                    // Ctrl+F: Focus search
-                    if (ctrlKey) {
-                        e.preventDefault();
-                        const searchInput = document.getElementById('search-input');
-                        if (searchInput) searchInput.focus();
-                    }
-                    break;
-
-                case 'n':
-                    // Ctrl+N: New folder
-                    if (ctrlKey) {
-                        e.preventDefault();
-                        UI.showModal('new-folder-modal');
-                        document.getElementById('new-folder-name')?.focus();
-                    }
-                    break;
-
-                case 'u':
-                    // Ctrl+U: Upload
-                    if (ctrlKey) {
-                        e.preventDefault();
-                        Upload.clear();
-                        UI.renderUploadList([]);
-                        UI.showModal('upload-modal');
-                    }
-                    break;
-
                 case 'Enter':
-                    // Enter: Open/preview first selected file
+                    // Enter: Open/preview first selected file or folder
                     if (hasSelection) {
                         e.preventDefault();
                         const sha256 = Array.from(this.selectedFiles)[0];
@@ -715,10 +719,20 @@ const App = {
     },
 
     dragCounter: 0,
+    dragHideTimeout: null,
 
     setupDragAndDrop() {
         const fileList = document.getElementById('file-list');
         const dropOverlay = document.getElementById('drop-overlay');
+
+        const hideOverlay = () => {
+            dropOverlay?.classList.add('hidden');
+            this.dragCounter = 0;
+            if (this.dragHideTimeout) {
+                clearTimeout(this.dragHideTimeout);
+                this.dragHideTimeout = null;
+            }
+        };
 
         // Track drag enter/leave globally for overlay
         document.addEventListener('dragenter', (e) => {
@@ -731,14 +745,27 @@ const App = {
                 if (this.dragCounter === 1) {
                     dropOverlay?.classList.remove('hidden');
                 }
+                // Clear any pending hide timeout since we're still dragging
+                if (this.dragHideTimeout) {
+                    clearTimeout(this.dragHideTimeout);
+                    this.dragHideTimeout = null;
+                }
             }
         });
 
         document.addEventListener('dragleave', (e) => {
             e.preventDefault();
+            // Only decrement for file drags
+            if (!e.dataTransfer?.types?.includes('Files')) return;
+
             this.dragCounter--;
-            if (this.dragCounter === 0) {
-                dropOverlay?.classList.add('hidden');
+            if (this.dragCounter <= 0) {
+                // Use timeout to handle edge cases where dragleave fires before dragenter on child elements
+                this.dragHideTimeout = setTimeout(() => {
+                    if (this.dragCounter <= 0) {
+                        hideOverlay();
+                    }
+                }, 100);
             }
         });
 
@@ -760,8 +787,7 @@ const App = {
         fileList.addEventListener('drop', (e) => {
             e.preventDefault();
             fileList.classList.remove('drag-over');
-            dropOverlay?.classList.add('hidden');
-            this.dragCounter = 0;
+            hideOverlay();
 
             if (this.authState !== 'authenticated') {
                 return;
@@ -786,8 +812,7 @@ const App = {
 
         document.addEventListener('drop', (e) => {
             e.preventDefault();
-            dropOverlay?.classList.add('hidden');
-            this.dragCounter = 0;
+            hideOverlay();
         });
     },
 
@@ -1353,7 +1378,7 @@ const App = {
                 this.selectedFolderIcon
             );
             // Refresh the file list to show updated folder
-            this.refreshFileList();
+            this.loadFiles();
         }
         UI.hideModal('folder-customize-modal');
         this.customizingFolder = null;
@@ -1362,7 +1387,7 @@ const App = {
     resetFolderCustomization() {
         if (this.customizingFolder) {
             UI.setFolderCustomization(this.customizingFolder, null, null);
-            this.refreshFileList();
+            this.loadFiles();
         }
         UI.hideModal('folder-customize-modal');
         this.customizingFolder = null;
@@ -2087,6 +2112,10 @@ const App = {
             this.files = allFiles.filter(f => !f.deleted_at && !f.deletedAt);
 
             console.log('loadFiles: Loaded', this.folders.length, 'folders,', this.files.length, 'files (', allFiles.length - this.files.length, 'in trash)');
+
+            // Restore folder keys from encrypted_key field
+            // This ensures folder keys are available after page refresh
+            await this.restoreFolderKeys(this.folders);
             if (this.files.length > 0) {
                 console.log('loadFiles: First file:', this.files[0]?.name, 'id:', this.files[0]?.id?.slice(0, 16));
             }
@@ -2139,14 +2168,48 @@ const App = {
         }
     },
 
+    // Calculate the full path from root to a folder using folder tree data
+    getPathToFolder(folderId) {
+        if (!folderId) return [];
+
+        const path = [];
+        let currentId = folderId;
+
+        // Build a map for quick parent lookup
+        const folderMap = new Map();
+        this.folderTreeData.forEach(f => folderMap.set(f.id, f));
+
+        // Walk up the tree from target to root
+        while (currentId) {
+            const folder = folderMap.get(currentId);
+            if (!folder) break;
+            path.unshift({ id: folder.id, name: folder.name });
+            currentId = folder.parent_id;
+        }
+
+        return path;
+    },
+
     async navigateToFolder(folderId, folderName) {
         if (folderId === '') {
             // Going to root
             this.currentFolderId = '';
             this.folderPath = [];
         } else {
-            // Add to path
+            // Add to path (for relative navigation from file list)
             this.folderPath.push({ id: folderId, name: folderName });
+            this.currentFolderId = folderId;
+        }
+        await this.loadFiles();
+    },
+
+    // Navigate to a folder with absolute path (for sidebar navigation)
+    async navigateToFolderAbsolute(folderId) {
+        if (folderId === '') {
+            this.currentFolderId = '';
+            this.folderPath = [];
+        } else {
+            this.folderPath = this.getPathToFolder(folderId);
             this.currentFolderId = folderId;
         }
         await this.loadFiles();
@@ -2292,6 +2355,201 @@ const App = {
         }
     },
 
+    // Rename tracking state
+    renameTarget: null,  // { type: 'file'|'folder', file?, folderId?, folderName? }
+
+    renameFile(fileObj) {
+        this.renameTarget = { type: 'file', file: fileObj };
+        const input = document.getElementById('rename-input');
+        const title = document.getElementById('rename-modal-title');
+        const desc = document.getElementById('rename-modal-description');
+
+        title.textContent = 'Rename File';
+        desc.textContent = `Rename "${fileObj.name}":`;
+        input.value = fileObj.name;
+        input.placeholder = 'New filename';
+
+        UI.showModal('rename-modal');
+        setTimeout(() => {
+            input.focus();
+            // Select filename without extension
+            const lastDot = fileObj.name.lastIndexOf('.');
+            if (lastDot > 0) {
+                input.setSelectionRange(0, lastDot);
+            } else {
+                input.select();
+            }
+        }, 100);
+    },
+
+    renameFolder(folderId, folderName) {
+        this.renameTarget = { type: 'folder', folderId, folderName };
+        const input = document.getElementById('rename-input');
+        const title = document.getElementById('rename-modal-title');
+        const desc = document.getElementById('rename-modal-description');
+
+        title.textContent = 'Rename Folder';
+        desc.textContent = `Rename "${folderName}":`;
+        input.value = folderName;
+        input.placeholder = 'New folder name';
+
+        UI.showModal('rename-modal');
+        setTimeout(() => {
+            input.focus();
+            input.select();
+        }, 100);
+    },
+
+    validateName(name) {
+        if (!name || !name.trim()) {
+            return { valid: false, error: 'Name cannot be empty' };
+        }
+        const trimmed = name.trim();
+        if (trimmed.length > 255) {
+            return { valid: false, error: 'Name is too long (max 255 characters)' };
+        }
+        // Disallow path separators and other dangerous characters
+        if (/[<>:"|?*\\\/\x00-\x1f]/.test(trimmed)) {
+            return { valid: false, error: 'Name contains invalid characters' };
+        }
+        // Disallow names that are only dots
+        if (/^\.+$/.test(trimmed)) {
+            return { valid: false, error: 'Invalid name' };
+        }
+        return { valid: true };
+    },
+
+    async doRename() {
+        const newName = document.getElementById('rename-input').value.trim();
+
+        const validation = this.validateName(newName);
+        if (!validation.valid) {
+            UI.toast(validation.error, 'error');
+            return;
+        }
+
+        if (!this.renameTarget) {
+            UI.toast('No item selected for rename', 'error');
+            return;
+        }
+
+        try {
+            if (this.renameTarget.type === 'file') {
+                await this.performFileRename(this.renameTarget.file, newName);
+            } else if (this.renameTarget.type === 'folder') {
+                await this.performFolderRename(this.renameTarget.folderId, this.renameTarget.folderName, newName);
+            }
+        } finally {
+            this.renameTarget = null;
+        }
+    },
+
+    async performFileRename(file, newName) {
+        if (newName === file.name) {
+            UI.hideModal('rename-modal');
+            return;  // No change
+        }
+
+        try {
+            const fileId = file.id || file.file_id || file.fileId || file.d || file.sha256;
+
+            // Create updated metadata event with new name
+            const metadataEvent = await Auth.createEncryptedFileMetadataEvent({
+                fileId: fileId,
+                sha256: file.sha256,
+                plaintextHash: file.plaintext_hash || file.plaintextHash,
+                name: newName,  // New name
+                size: file.size,
+                encryptedSize: file.encrypted_size || file.encryptedSize,
+                mimeType: file.mime_type,
+                folderId: file.folder_id || file.folderId || file.folder,
+                encrypted: file.encrypted,
+                deletedAt: file.deleted_at || file.deletedAt,
+            });
+
+            await Auth.publishEvent(metadataEvent);
+
+            UI.hideModal('rename-modal');
+            UI.toast(`Renamed to "${newName}"`, 'success');
+            this.logActivity('rename', { oldName: file.name, newName });
+
+            await this.loadFiles();
+        } catch (err) {
+            console.error('Failed to rename file:', err);
+            UI.toast(`Failed to rename: ${err.message}`, 'error');
+        }
+    },
+
+    async performFolderRename(folderId, oldName, newName) {
+        if (newName === oldName) {
+            UI.hideModal('rename-modal');
+            return;  // No change
+        }
+
+        try {
+            // Find the folder to get all its metadata
+            const folder = this.folders.find(f => f.id === folderId);
+            if (!folder) {
+                throw new Error('Folder not found');
+            }
+
+            // Create updated folder event with new name
+            const folderEvent = await Auth.createFolderEvent({
+                id: folderId,
+                name: newName,  // New name
+                description: folder.description || '',
+                parentId: folder.parent_id || folder.parentId,
+                color: folder.color,
+                icon: folder.icon,
+                encryptedFolderKey: folder.encrypted_key || folder.encryptedFolderKey,
+            });
+
+            await Auth.publishEvent(folderEvent);
+
+            UI.hideModal('rename-modal');
+            UI.toast(`Renamed folder to "${newName}"`, 'success');
+            this.logActivity('folder_rename', { oldName, newName });
+
+            await this.loadFiles();
+            await this.loadFolderTree();
+        } catch (err) {
+            console.error('Failed to rename folder:', err);
+            UI.toast(`Failed to rename folder: ${err.message}`, 'error');
+        }
+    },
+
+    // Restore folder keys from server response
+    // Called after loading folders to ensure keys are available for decryption
+    async restoreFolderKeys(folders) {
+        if (!Auth.isConnected || !folders || folders.length === 0) return;
+
+        let restored = 0;
+        let errors = 0;
+
+        for (const folder of folders) {
+            // Skip folders without encrypted keys
+            if (!folder.encrypted_key) continue;
+
+            // Check if we already have this folder key
+            const hasCachedKey = await Keys.hasFolderKey(folder.id);
+            if (hasCachedKey) continue;
+
+            try {
+                // Decrypt and restore the folder key
+                // The key was encrypted with our own pubkey (self-encryption)
+                await Keys.importSharedFolderKey(folder.id, folder.encrypted_key, Auth.pubkey);
+                restored++;
+            } catch (err) {
+                console.error('Failed to restore folder key for', folder.id, ':', err.message);
+                errors++;
+            }
+        }
+
+        if (restored > 0 || errors > 0) {
+            console.log(`restoreFolderKeys: Restored ${restored} keys, ${errors} errors`);
+        }
+    },
+
     // Folder tree state
     folderTreeData: [],
     expandedFolders: new Set(),
@@ -2303,6 +2561,10 @@ const App = {
         try {
             const result = await API.listFolders(Auth.pubkey);
             this.folderTreeData = result.folders || [];
+
+            // Restore folder keys from encrypted_key field
+            await this.restoreFolderKeys(this.folderTreeData);
+
             this.renderFolderTree();
         } catch (err) {
             console.error('Failed to load folder tree:', err);
@@ -2379,7 +2641,8 @@ const App = {
         const rootItem = tree.querySelector('.folder-tree-item.root');
         if (rootItem) {
             rootItem.addEventListener('click', () => {
-                this.openFolder('', 'My Drive');
+                this.closeMobileSidebar();
+                this.navigateToFolderAbsolute('');
                 this.updateFolderTreeActive('');
             });
         }
@@ -2387,7 +2650,6 @@ const App = {
         // Folder items
         tree.querySelectorAll('.folder-tree-item:not(.root)').forEach(item => {
             const folderId = item.dataset.id;
-            const folderName = item.dataset.name;
 
             // Toggle expand/collapse on toggle click
             const toggle = item.querySelector('.folder-tree-toggle');
@@ -2398,9 +2660,10 @@ const App = {
                 });
             }
 
-            // Navigate on item click
+            // Navigate on item click (use absolute navigation for sidebar)
             item.addEventListener('click', () => {
-                this.openFolder(folderId, folderName);
+                this.closeMobileSidebar();
+                this.navigateToFolderAbsolute(folderId);
                 this.updateFolderTreeActive(folderId);
             });
         });
@@ -4186,6 +4449,11 @@ const App = {
         UI.showModal('encryption-info-modal');
     },
 
+    // === Keyboard Shortcuts Help ===
+    showKeyboardShortcutsHelp() {
+        UI.showModal('keyboard-shortcuts-modal');
+    },
+
     // === Public Link Modal ===
     publicLinkFile: null,
 
@@ -4895,6 +5163,14 @@ const App = {
             }
         });
 
+        // Keyboard Shortcuts modal
+        document.getElementById('keyboard-shortcuts-close')?.addEventListener('click', () => {
+            UI.hideModal('keyboard-shortcuts-modal');
+        });
+        document.getElementById('keyboard-shortcuts-done')?.addEventListener('click', () => {
+            UI.hideModal('keyboard-shortcuts-modal');
+        });
+
         // Encryption Info modal
         document.getElementById('encryption-info-close').addEventListener('click', () => {
             UI.hideModal('encryption-info-modal');
@@ -4943,6 +5219,28 @@ const App = {
                 this.createFolder(name);
             } else if (e.key === 'Escape') {
                 UI.hideModal('new-folder-modal');
+            }
+        });
+
+        // Rename modal
+        document.getElementById('rename-modal-close').addEventListener('click', () => {
+            UI.hideModal('rename-modal');
+            this.renameTarget = null;
+        });
+        document.getElementById('rename-cancel').addEventListener('click', () => {
+            UI.hideModal('rename-modal');
+            this.renameTarget = null;
+        });
+        document.getElementById('rename-confirm').addEventListener('click', () => {
+            this.doRename();
+        });
+        document.getElementById('rename-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.doRename();
+            } else if (e.key === 'Escape') {
+                UI.hideModal('rename-modal');
+                this.renameTarget = null;
             }
         });
 
@@ -5074,30 +5372,8 @@ const App = {
             this.showNotificationsModal();
         });
 
-        // Relay Settings modal
-        document.getElementById('relay-settings-btn')?.addEventListener('click', () => {
-            this.showRelaySettingsModal();
-        });
-        document.getElementById('nav-relay-settings')?.addEventListener('click', () => {
-            this.showRelaySettingsModal();
-        });
-        document.getElementById('relay-settings-close')?.addEventListener('click', () => {
-            UI.hideModal('relay-settings-modal');
-        });
-        document.getElementById('relay-settings-cancel')?.addEventListener('click', () => {
-            UI.hideModal('relay-settings-modal');
-        });
-        document.getElementById('relay-settings-save')?.addEventListener('click', () => {
-            this.saveRelaySettings();
-        });
-        document.getElementById('relay-add-btn')?.addEventListener('click', () => {
-            this.addRelayFromInput();
-        });
-        document.getElementById('relay-add-url')?.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                this.addRelayFromInput();
-            }
-        });
+        // Relay Settings modal - event listeners are handled by RelaySettingsUI.setupEventListeners()
+        // in setupDragAndDrop() init, so we don't duplicate them here.
 
         // Request notification permission when user interacts
         document.addEventListener('click', () => {

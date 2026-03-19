@@ -206,16 +206,6 @@ body {
     color: var(--accent-primary);
 }
 
-.breadcrumb-item::after {
-    content: '/';
-    margin: 0 0.5rem;
-    color: var(--border-color);
-}
-
-.breadcrumb-item:last-child::after {
-    content: '';
-}
-
 /* Content area */
 .content {
     flex: 1;
@@ -2142,6 +2132,43 @@ body {
 
 .grid-item {
     position: relative;
+}
+
+/* ============================================
+   Keyboard Shortcuts Modal
+   ============================================ */
+.shortcuts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.shortcut-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+}
+
+.shortcut-item:hover {
+    background-color: var(--bg-tertiary);
+}
+
+.shortcut-item kbd {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.875rem;
+    min-width: 2rem;
+    text-align: center;
+}
+
+.shortcut-item span {
+    color: var(--text-secondary);
 }
 
 /* ============================================

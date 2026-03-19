@@ -549,6 +549,8 @@ func ParseFolderEvent(event *nostr.Event) (*FolderMetadata, error) {
 			folder.Identifier = tag[1]
 		case "parent":
 			folder.ParentID = tag[1]
+		case "key":
+			folder.EncryptedKey = tag[1]
 		}
 	}
 

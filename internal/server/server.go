@@ -57,10 +57,11 @@ type FileMetadata struct {
 
 // FolderMetadataResponse represents folder information returned to the frontend
 type FolderMetadataResponse struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	ParentID  string `json:"parent_id,omitempty"`
-	CreatedAt int64  `json:"created_at,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	ParentID     string `json:"parent_id,omitempty"`
+	CreatedAt    int64  `json:"created_at,omitempty"`
+	EncryptedKey string `json:"encrypted_key,omitempty"`
 }
 
 // ShareResponse represents a file share returned to the frontend
@@ -703,10 +704,11 @@ func (s *Server) handleListFolders(w http.ResponseWriter, r *http.Request) {
 		}
 
 		response.Folders = append(response.Folders, FolderMetadataResponse{
-			ID:        f.Identifier,
-			Name:      f.Name,
-			ParentID:  f.ParentID,
-			CreatedAt: f.CreatedAt.Unix(),
+			ID:           f.Identifier,
+			Name:         f.Name,
+			ParentID:     f.ParentID,
+			CreatedAt:    f.CreatedAt.Unix(),
+			EncryptedKey: f.EncryptedKey,
 		})
 	}
 
@@ -761,10 +763,11 @@ func (s *Server) handleCreateFolder(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(FolderMetadataResponse{
-		ID:        folder.Identifier,
-		Name:      folder.Name,
-		ParentID:  folder.ParentID,
-		CreatedAt: folder.CreatedAt.Unix(),
+		ID:           folder.Identifier,
+		Name:         folder.Name,
+		ParentID:     folder.ParentID,
+		CreatedAt:    folder.CreatedAt.Unix(),
+		EncryptedKey: folder.EncryptedKey,
 	})
 
 	s.logger.Info("folder created",
@@ -806,10 +809,11 @@ func (s *Server) handleGetFolder(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(FolderMetadataResponse{
-		ID:        folder.Identifier,
-		Name:      folder.Name,
-		ParentID:  folder.ParentID,
-		CreatedAt: folder.CreatedAt.Unix(),
+		ID:           folder.Identifier,
+		Name:         folder.Name,
+		ParentID:     folder.ParentID,
+		CreatedAt:    folder.CreatedAt.Unix(),
+		EncryptedKey: folder.EncryptedKey,
 	})
 }
 
