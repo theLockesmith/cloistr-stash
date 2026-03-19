@@ -270,11 +270,13 @@ body {
 .file-size {
     width: 100px;
     text-align: right;
+    flex-shrink: 0;
 }
 
 .file-date {
     width: 150px;
     text-align: right;
+    flex-shrink: 0;
 }
 
 .file-actions {
