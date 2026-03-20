@@ -2924,17 +2924,76 @@ const App = {
 
     async permanentDelete(sha256) {
         try {
+            // Find the file to get its ID for metadata deletion
+            const file = this.trashedFiles.find(f => f.sha256 === sha256);
+            const fileId = file?.id || file?.file_id || file?.fileId || file?.d;
+
+            // Delete blob from Blossom
             let authHeader = null;
             if (Auth.isConnected) {
                 authHeader = await Auth.createDeleteAuth(sha256);
             }
-
             await API.deleteFile(sha256, authHeader);
+
+            // Also delete metadata from relay via kind:5
+            if (fileId && Auth.isConnected) {
+                try {
+                    const deleteEvent = await Auth.createBatchDeleteEvent([fileId], []);
+                    await Auth.publishEvent(deleteEvent);
+                } catch (err) {
+                    console.warn('Failed to delete metadata from relay:', err.message);
+                    // Don't fail the whole operation - blob is already deleted
+                }
+            }
+
             UI.toast('File permanently deleted', 'success');
             await this.loadTrashFiles();
         } catch (err) {
             UI.toast(`Delete failed: ${err.message}`, 'error');
         }
+    },
+
+    // Batch permanent delete for emptying trash
+    async batchPermanentDelete(files) {
+        if (!files || files.length === 0) return { deleted: 0, failed: 0 };
+
+        let deleted = 0;
+        let failed = 0;
+        const fileIds = [];
+
+        // Delete blobs from Blossom (must be done individually due to auth)
+        for (const file of files) {
+            try {
+                let authHeader = null;
+                if (Auth.isConnected) {
+                    authHeader = await Auth.createDeleteAuth(file.sha256);
+                }
+                await API.deleteFile(file.sha256, authHeader);
+                deleted++;
+
+                // Collect file IDs for batch metadata deletion
+                const fileId = file.id || file.file_id || file.fileId || file.d;
+                if (fileId) {
+                    fileIds.push(fileId);
+                }
+            } catch (err) {
+                console.error(`Failed to delete blob ${file.sha256}:`, err);
+                failed++;
+            }
+        }
+
+        // Batch delete all metadata from relay with single kind:5 event
+        if (fileIds.length > 0 && Auth.isConnected) {
+            try {
+                const deleteEvent = await Auth.createBatchDeleteEvent(fileIds, []);
+                await Auth.publishEvent(deleteEvent);
+                console.log(`Batch deleted ${fileIds.length} file metadata events`);
+            } catch (err) {
+                console.warn('Failed to batch delete metadata from relay:', err.message);
+            }
+        }
+
+        return { deleted, failed };
     },
 
     updateTrashCount() {
@@ -5607,7 +5666,7 @@ const App = {
         // Throttle delay to avoid relay rate limits (5 events/sec for unknown pubkeys)
         const throttleDelay = () => new Promise(resolve => setTimeout(resolve, 250));
 
-        // Delete files with throttling
+        // Soft delete files with throttling (each file needs unique metadata update)
         for (const sha256 of this.selectedFiles) {
             try {
                 await this.deleteFile(sha256, true); // silent mode
@@ -5619,17 +5678,17 @@ const App = {
             }
         }
 
-        // Delete folders with throttling
-        for (const folderId of this.selectedFolders) {
+        // Batch delete folders with single kind:5 event (NIP-09)
+        if (this.selectedFolders.size > 0) {
             try {
-                const folder = this.folders.find(f => f.id === folderId);
-                const signedEvent = await Auth.createFolderDeleteEvent(folderId);
+                const folderIds = Array.from(this.selectedFolders);
+                const signedEvent = await Auth.createBatchDeleteEvent([], folderIds);
                 await Auth.publishEvent(signedEvent);
-                deleted++;
-                await throttleDelay();
+                deleted += folderIds.length;
+                console.log(`Batch deleted ${folderIds.length} folders with single event`);
             } catch (err) {
-                console.error(`Failed to delete folder ${folderId}:`, err);
-                failed++;
+                console.error('Failed to batch delete folders:', err);
+                failed += this.selectedFolders.size;
             }
         }
 

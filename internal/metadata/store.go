@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -608,18 +609,49 @@ func (s *Store) ListFolders(ctx context.Context, pubkey string) ([]*FolderMetada
 		return nil, err
 	}
 
-	filter := nostr.Filter{
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// Query folder events
+	folderFilter := nostr.Filter{
 		Kinds:   []int{KindFolderMetadata},
 		Authors: []string{pubkey},
 		Limit:   500,
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	events, err := s.relay.QuerySync(ctx, filter)
+	events, err := s.relay.QuerySync(ctx, folderFilter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query folder events: %w", err)
+	}
+
+	// Query deletion events (kind:5) that reference folders
+	// NIP-09: deletion events have 'a' tags like "30079:pubkey:folderId"
+	deletionFilter := nostr.Filter{
+		Kinds:   []int{5},
+		Authors: []string{pubkey},
+		Limit:   500,
+	}
+
+	deletionEvents, err := s.relay.QuerySync(ctx, deletionFilter)
+	if err != nil {
+		s.logger.Warn("failed to query deletion events, proceeding without filtering",
+			"error", err,
+		)
+		deletionEvents = nil
+	}
+
+	// Build set of deleted folder IDs from kind:5 events
+	deletedFolders := make(map[string]bool)
+	for _, event := range deletionEvents {
+		for _, tag := range event.Tags {
+			if len(tag) >= 2 && tag[0] == "a" {
+				// Parse "a" tag: "30079:pubkey:folderId"
+				parts := strings.SplitN(tag[1], ":", 3)
+				if len(parts) == 3 && parts[0] == "30079" {
+					deletedFolders[parts[2]] = true
+				}
+			}
+		}
 	}
 
 	// Parse events into folder metadata
@@ -632,6 +664,11 @@ func (s *Store) ListFolders(ctx context.Context, pubkey string) ([]*FolderMetada
 				"event_id", event.ID[:16],
 				"error", err,
 			)
+			continue
+		}
+
+		// Skip deleted folders
+		if deletedFolders[folder.Identifier] {
 			continue
 		}
 
@@ -651,6 +688,7 @@ func (s *Store) ListFolders(ctx context.Context, pubkey string) ([]*FolderMetada
 	s.logger.Info("listed folders",
 		"pubkey", truncateForLog(pubkey, 16),
 		"count", len(folders),
+		"deleted_count", len(deletedFolders),
 	)
 
 	return folders, nil

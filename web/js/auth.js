@@ -435,6 +435,40 @@ const Auth = {
         return this.signEvent(event);
     },
 
+    // Create a batched deletion event (kind 5 - NIP-09) for multiple files/folders
+    // This allows deleting multiple items with a single relay event
+    async createBatchDeleteEvent(fileIds = [], folderIds = []) {
+        if (!this.isConnected || !this.pubkey) {
+            throw new Error('Not connected');
+        }
+
+        if (fileIds.length === 0 && folderIds.length === 0) {
+            throw new Error('No items to delete');
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+        const tags = [];
+
+        // Add file references (kind:30078 addressable events)
+        for (const fileId of fileIds) {
+            tags.push(['a', `30078:${this.pubkey}:${fileId}`]);
+        }
+
+        // Add folder references (kind:30079 addressable events)
+        for (const folderId of folderIds) {
+            tags.push(['a', `30079:${this.pubkey}:${folderId}`]);
+        }
+
+        const event = {
+            kind: 5,  // Deletion event
+            created_at: now,
+            tags,
+            content: `deleted ${fileIds.length} files, ${folderIds.length} folders`,
+        };
+
+        return this.signEvent(event);
+    },
+
     // Generate a random folder ID
     generateFolderId() {
         const array = new Uint8Array(16);
