@@ -43,8 +43,11 @@ const Collaboration = {
         if (typeof Y === 'undefined' || typeof Y.Doc !== 'function') {
             throw new Error('Collaboration requires Yjs library which failed to load');
         }
-        if (typeof awarenessProtocol === 'undefined') {
-            throw new Error('Collaboration requires y-protocols awareness module which is not loaded');
+
+        // y-protocols is optional - without it, we run in solo mode (no awareness/cursors)
+        const soloMode = typeof awarenessProtocol === 'undefined';
+        if (soloMode) {
+            console.warn('Collaboration: y-protocols not loaded, running in solo mode (no multi-user awareness)');
         }
 
         if (!Auth.isConnected) {
@@ -72,19 +75,22 @@ const Collaboration = {
         const yDoc = new Y.Doc();
         this.yDocs.set(sessionId, yDoc);
 
-        // Create awareness for presence/cursors
-        const awarenessInstance = new awarenessProtocol.Awareness(yDoc);
-        this.awareness.set(sessionId, awarenessInstance);
+        // Create awareness for presence/cursors (only if y-protocols is available)
+        let awarenessInstance = null;
+        if (!soloMode) {
+            awarenessInstance = new awarenessProtocol.Awareness(yDoc);
+            this.awareness.set(sessionId, awarenessInstance);
 
-        // Set local awareness state
-        awarenessInstance.setLocalState({
-            user: {
-                pubkey: Auth.pubkey,
-                name: Auth.formatPubkey(Auth.pubkey),
-                color: this.generateUserColor(Auth.pubkey),
-            },
-            cursor: null,
-        });
+            // Set local awareness state
+            awarenessInstance.setLocalState({
+                user: {
+                    pubkey: Auth.pubkey,
+                    name: Auth.formatPubkey(Auth.pubkey),
+                    color: this.generateUserColor(Auth.pubkey),
+                },
+                cursor: null,
+            });
+        }
 
         // Create session object
         const session = {
@@ -93,6 +99,7 @@ const Collaboration = {
             file: file,
             yDoc: yDoc,
             awareness: awarenessInstance,
+            soloMode: soloMode,
             peers: new Map(),
             provider: null,
             editor: null,
@@ -143,12 +150,14 @@ const Collaboration = {
         // Use Nostr relay for signaling
         await this.setupNostrSignaling(session);
 
-        // Listen for awareness changes
-        session.awareness.on('change', (changes) => {
-            if (session.callbacks.onAwarenessChange) {
-                session.callbacks.onAwarenessChange(changes, session.awareness.getStates());
-            }
-        });
+        // Listen for awareness changes (only if not in solo mode)
+        if (session.awareness) {
+            session.awareness.on('change', (changes) => {
+                if (session.callbacks.onAwarenessChange) {
+                    session.callbacks.onAwarenessChange(changes, session.awareness.getStates());
+                }
+            });
+        }
     },
 
     // Setup Nostr relay for WebRTC signaling
@@ -376,6 +385,10 @@ const Collaboration = {
 
     // Handle awareness update
     async handleAwareness(session, peer, message) {
+        // Skip if in solo mode (no awareness)
+        if (session.soloMode || !session.awareness) {
+            return;
+        }
         const update = Crypto.base64ToBytes(message.update);
         awarenessProtocol.applyAwarenessUpdate(session.awareness, update, peer.pubkey);
     },
@@ -456,8 +469,10 @@ const Collaboration = {
             if (peer.connection) peer.connection.close();
         }
 
-        // Clear awareness
-        session.awareness.destroy();
+        // Clear awareness (only if not in solo mode)
+        if (session.awareness) {
+            session.awareness.destroy();
+        }
 
         // Clear Yjs document
         session.yDoc.destroy();
@@ -471,7 +486,9 @@ const Collaboration = {
 
         // Remove from caches
         this.yDocs.delete(session.id);
-        this.awareness.delete(session.id);
+        if (session.awareness) {
+            this.awareness.delete(session.id);
+        }
         this.sessions.delete(fileId);
 
         console.log(`Collaboration: Ended session ${session.id.slice(0, 8)}...`);
@@ -502,7 +519,7 @@ const Collaboration = {
     // Get active peers in a session
     getActivePeers(fileId) {
         const session = this.sessions.get(fileId);
-        if (!session) return [];
+        if (!session || !session.awareness) return [];
 
         return Array.from(session.awareness.getStates())
             .filter(([clientId, state]) => state.user)
@@ -512,7 +529,7 @@ const Collaboration = {
     // Update cursor position
     updateCursor(fileId, position) {
         const session = this.sessions.get(fileId);
-        if (!session) return;
+        if (!session || !session.awareness) return;
 
         const localState = session.awareness.getLocalState();
         session.awareness.setLocalState({
