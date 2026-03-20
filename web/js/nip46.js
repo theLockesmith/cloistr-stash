@@ -307,26 +307,8 @@ const NIP46 = {
         return sharedPoint.slice(1, 33);
     },
 
-    // NIP-04 encrypt (uses remote signer for self-encryption, client key for protocol messages)
+    // NIP-04 encrypt
     async nip04Encrypt(plaintext, theirPubkey) {
-        // For self-encryption (e.g., folder keys), use remote signer with user's actual key
-        // This ensures the encrypted data can be decrypted by the user on any device
-        if (this.connected && this.userPubkey && theirPubkey === this.userPubkey) {
-            try {
-                console.log('NIP-46: nip04Encrypt using remote signer for self-encryption');
-                const result = await this.sendRequest('nip04_encrypt', [theirPubkey, plaintext]);
-                console.log('NIP-46: nip04Encrypt remote success');
-                return result;
-            } catch (err) {
-                // Log error but fall back to local encryption to avoid crashing app
-                // WARNING: Data encrypted with local key won't work across devices/sessions
-                console.error('NIP-46: Remote nip04_encrypt failed:', err.message);
-                console.warn('NIP-46: Falling back to local encryption - DATA WILL NOT SYNC ACROSS DEVICES');
-                // Fall through to local encryption
-            }
-        }
-
-        // Local encryption with client key (for NIP-46 protocol messages to remote signer)
         const sharedSecret = await this.computeSharedSecret(theirPubkey);
 
         // Import shared secret as AES key
@@ -357,28 +339,8 @@ const NIP46 = {
         return `${ciphertextB64}?iv=${ivB64}`;
     },
 
-    // NIP-04 decrypt via remote signer (uses user's actual key, not ephemeral client key)
+    // NIP-04 decrypt
     async nip04Decrypt(encrypted, theirPubkey) {
-        // Use remote signer for NIP-04 decryption when connected
-        // This is critical for decrypting folder keys which are encrypted TO the user's pubkey
-        if (this.connected && this.userPubkey) {
-            try {
-                console.log('NIP-46: nip04Decrypt using remote signer, theirPubkey:', theirPubkey?.slice(0, 16));
-                const result = await this.sendRequest('nip04_decrypt', [theirPubkey, encrypted]);
-                console.log('NIP-46: nip04Decrypt remote success, result length:', result?.length);
-                return result;
-            } catch (err) {
-                console.error('NIP-46: Remote nip04_decrypt failed:', err.message);
-                // For self-encrypted data, local decryption will likely fail (wrong key)
-                // but we try anyway to avoid crashing - user will see decryption error
-                if (theirPubkey === this.userPubkey) {
-                    console.warn('NIP-46: Self-encrypted data - local decrypt will likely fail');
-                }
-                // Fall through to local decryption
-            }
-        }
-
-        // Fallback: local decryption with client key (only works for NIP-46 protocol messages)
         const sharedSecret = await this.computeSharedSecret(theirPubkey);
 
         // Parse format: base64(ciphertext)?iv=base64(iv)
