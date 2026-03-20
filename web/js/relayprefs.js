@@ -428,7 +428,7 @@ const RelayPrefs = {
                         }
                     }
                 } catch (err) {
-                    // Ignore parse errors
+                    console.warn('RelayPrefs: Failed to parse relay message:', err.message, msg.data);
                 }
             };
 

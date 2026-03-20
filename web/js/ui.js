@@ -190,7 +190,7 @@ const UI = {
                     return result.dataUrl;
                 }
             } catch (err) {
-                // Ignore cache errors
+                console.warn('UI: Thumbnail cache read error:', err.message);
             }
         }
         return null;
@@ -206,7 +206,7 @@ const UI = {
                 const store = tx.objectStore('thumbnails');
                 store.put({ sha256, dataUrl, createdAt: Date.now() });
             } catch (err) {
-                // Ignore storage errors
+                console.warn('UI: Thumbnail storage error:', err.message);
             }
         }
     },
