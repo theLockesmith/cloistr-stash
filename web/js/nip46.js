@@ -318,9 +318,11 @@ const NIP46 = {
                 console.log('NIP-46: nip04Encrypt remote success');
                 return result;
             } catch (err) {
-                // For self-encryption, don't fall back - it will create unrecoverable data
+                // Log error but fall back to local encryption to avoid crashing app
+                // WARNING: Data encrypted with local key won't work across devices/sessions
                 console.error('NIP-46: Remote nip04_encrypt failed:', err.message);
-                throw new Error('Remote signer nip04_encrypt failed: ' + err.message);
+                console.warn('NIP-46: Falling back to local encryption - DATA WILL NOT SYNC ACROSS DEVICES');
+                // Fall through to local encryption
             }
         }
 
@@ -367,12 +369,12 @@ const NIP46 = {
                 return result;
             } catch (err) {
                 console.error('NIP-46: Remote nip04_decrypt failed:', err.message);
-                // For self-encrypted data (folder keys), don't fall back - it will fail with wrong key
+                // For self-encrypted data, local decryption will likely fail (wrong key)
+                // but we try anyway to avoid crashing - user will see decryption error
                 if (theirPubkey === this.userPubkey) {
-                    throw new Error('Remote signer nip04_decrypt failed: ' + err.message);
+                    console.warn('NIP-46: Self-encrypted data - local decrypt will likely fail');
                 }
-                console.warn('NIP-46: Falling back to local decryption (non-self-encrypted data)');
-                // Fall through to local decryption only for protocol messages
+                // Fall through to local decryption
             }
         }
 
