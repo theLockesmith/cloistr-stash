@@ -1137,10 +1137,7 @@ const NIP46 = {
             setTimeout(() => {
                 if (this.pendingRequests.has(id)) {
                     this.pendingRequests.delete(id);
-                    const throttleInfo = timeout > this.RELAY_CONFIG.BASE_TIMEOUT_MS
-                        ? ` (extended due to rate limiting)`
-                        : '';
-                    reject(new Error(`Request timed out after ${Math.round(timeout/1000)}s${throttleInfo}`));
+                    reject(new Error('Request timed out'));
                 }
             }, timeout);
         });
