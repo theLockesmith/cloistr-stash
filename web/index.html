@@ -1153,6 +1153,40 @@
 
             console.warn('Failed to load Yjs - collaboration features disabled');
         })();
+
+        // Load y-protocols for collaboration awareness
+        (async function loadYProtocols() {
+            // Wait a bit for Yjs to initialize
+            await new Promise(r => setTimeout(r, 100));
+
+            if (typeof Y === 'undefined') {
+                console.warn('Yjs not loaded, skipping y-protocols');
+                return;
+            }
+
+            try {
+                // Try CDN (y-protocols doesn't have a simple UMD build)
+                const response = await fetch('https://cdn.jsdelivr.net/npm/y-protocols@1.0.6/dist/awareness.cjs');
+                if (response.ok) {
+                    // y-protocols uses CommonJS, we need to eval it with module shim
+                    const code = await response.text();
+                    const module = { exports: {} };
+                    const require = (name) => {
+                        if (name === 'yjs') return Y;
+                        throw new Error('Unknown module: ' + name);
+                    };
+                    const fn = new Function('module', 'exports', 'require', code);
+                    fn(module, module.exports, require);
+                    window.awarenessProtocol = module.exports;
+                    console.log('y-protocols loaded from CDN');
+                    return;
+                }
+            } catch (err) {
+                console.warn('Failed to load y-protocols:', err.message);
+            }
+
+            console.warn('y-protocols not available - some collaboration features disabled');
+        })();
     </script>
 
     <script src="/js/api.js"></script>
