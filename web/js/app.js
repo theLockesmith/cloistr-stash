@@ -2647,6 +2647,7 @@ const App = {
         // Folder items
         tree.querySelectorAll('.folder-tree-item:not(.root)').forEach(item => {
             const folderId = item.dataset.id;
+            const folderName = item.dataset.name;
 
             // Toggle expand/collapse on toggle click
             const toggle = item.querySelector('.folder-tree-toggle');
@@ -2662,6 +2663,17 @@ const App = {
                 this.closeMobileSidebar();
                 this.navigateToFolderAbsolute(folderId);
                 this.updateFolderTreeActive(folderId);
+            });
+
+            // Context menu on right-click
+            item.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                UI.showContextMenu(e.clientX, e.clientY, [
+                    { label: 'Open', action: () => this.navigateToFolderAbsolute(folderId) },
+                    { label: 'Rename', action: () => this.renameFolder(folderId, folderName) },
+                    { label: 'Delete', action: () => this.deleteFolder(folderId, folderName), className: 'danger' },
+                ]);
             });
         });
 
@@ -2920,7 +2932,7 @@ const App = {
         UI.toast(`Permanently deleting ${toDelete.length} items...`, 'info');
 
         try {
-            await this.batchPermanentDelete(toDelete.map(f => f.sha256));
+            await this.batchPermanentDelete(toDelete);
             UI.toast(`Permanently deleted ${toDelete.length} items`, 'success');
             this.selectedTrashFiles.clear();
             await this.loadTrashFiles();
@@ -5648,17 +5660,32 @@ const App = {
 
     // Select all files and folders in current view
     selectAllFiles() {
-        this.files.forEach(f => this.selectedFiles.add(f.sha256));
-        this.folders.forEach(f => this.selectedFolders.add(f.id));
-        this.updateSelectionUI();
+        if (this.currentView === 'trash') {
+            // Select all trash files
+            this.selectedTrashFiles = this.selectedTrashFiles || new Set();
+            this.trashedFiles.forEach(f => this.selectedTrashFiles.add(f.sha256));
+            this.updateTrashSelectionUI();
+        } else {
+            // Select all regular files and folders
+            this.files.forEach(f => this.selectedFiles.add(f.sha256));
+            this.folders.forEach(f => this.selectedFolders.add(f.id));
+            this.updateSelectionUI();
+        }
     },
 
     // Clear all selections
     clearSelection() {
         this.selectedFiles.clear();
         this.selectedFolders.clear();
+        if (this.selectedTrashFiles) {
+            this.selectedTrashFiles.clear();
+        }
         this.selectionMode = false;
-        this.updateSelectionUI();
+        if (this.currentView === 'trash') {
+            this.updateTrashSelectionUI();
+        } else {
+            this.updateSelectionUI();
+        }
     },
 
     // Update selection UI (checkboxes, toolbar)
