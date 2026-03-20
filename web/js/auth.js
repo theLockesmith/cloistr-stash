@@ -449,40 +449,45 @@ const Auth = {
         return Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
     },
 
-    // NIP-04 encrypt content for a recipient
-    // Note: This uses the browser extension's nip04.encrypt if available
+    // NIP-04 encrypt content for a recipient (user data like folder keys)
+    // For NIP-07: Uses browser extension's nip04.encrypt
+    // For NIP-46: Uses remote signer's nip04_encrypt (user's actual key)
     async nip04Encrypt(recipientPubkey, content) {
         if (!this.isConnected) {
             throw new Error('Not connected');
         }
 
-        // Try using browser extension's NIP-04 if available
+        // NIP-07: Use browser extension's NIP-04
         if (this.connectionType === 'nip07' && window.nostr?.nip04?.encrypt) {
             return window.nostr.nip04.encrypt(recipientPubkey, content);
         }
 
-        // For NIP-46 or fallback, use our NIP46 module's encryption
-        if (typeof NIP46 !== 'undefined' && NIP46.nip04Encrypt) {
-            return NIP46.nip04Encrypt(content, recipientPubkey);
+        // NIP-46: Use remote signer's nip04_encrypt (user's actual key)
+        // This ensures encrypted data can be decrypted on any device
+        if (this.connectionType === 'nip46' && typeof NIP46 !== 'undefined' && NIP46.encryptForUser) {
+            return NIP46.encryptForUser(content, recipientPubkey);
         }
 
         throw new Error('NIP-04 encryption not available');
     },
 
-    // NIP-04 decrypt content from a sender
+    // NIP-04 decrypt content from a sender (user data like folder keys)
+    // For NIP-07: Uses browser extension's nip04.decrypt
+    // For NIP-46: Uses remote signer's nip04_decrypt (user's actual key)
     async nip04Decrypt(senderPubkey, encryptedContent) {
         if (!this.isConnected) {
             throw new Error('Not connected');
         }
 
-        // Try using browser extension's NIP-04 if available
+        // NIP-07: Use browser extension's NIP-04
         if (this.connectionType === 'nip07' && window.nostr?.nip04?.decrypt) {
             return window.nostr.nip04.decrypt(senderPubkey, encryptedContent);
         }
 
-        // For NIP-46 or fallback, use our NIP46 module's decryption
-        if (typeof NIP46 !== 'undefined' && NIP46.nip04Decrypt) {
-            return NIP46.nip04Decrypt(encryptedContent, senderPubkey);
+        // NIP-46: Use remote signer's nip04_decrypt (user's actual key)
+        // This is required for data encrypted to the user's pubkey
+        if (this.connectionType === 'nip46' && typeof NIP46 !== 'undefined' && NIP46.decryptForUser) {
+            return NIP46.decryptForUser(encryptedContent, senderPubkey);
         }
 
         throw new Error('NIP-04 decryption not available');

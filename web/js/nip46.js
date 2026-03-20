@@ -582,6 +582,48 @@ const NIP46 = {
         }
     },
 
+    // ============================================================
+    // USER DATA ENCRYPTION (uses remote signer for cross-device sync)
+    // These methods send nip04_encrypt/decrypt requests to the signer
+    // so the user's actual private key is used, not the ephemeral client key.
+    // ============================================================
+
+    // Encrypt user data (folder keys, etc.) using remote signer
+    // This ensures data can be decrypted on any device where user authenticates
+    async encryptForUser(plaintext, recipientPubkey) {
+        if (!this.connected) {
+            throw new Error('Not connected to remote signer');
+        }
+
+        console.log('NIP-46: encryptForUser via remote signer');
+        try {
+            const result = await this.sendRequest('nip04_encrypt', [recipientPubkey, plaintext]);
+            console.log('NIP-46: encryptForUser success');
+            return result;
+        } catch (err) {
+            console.error('NIP-46: encryptForUser failed:', err.message);
+            throw new Error('Remote signer nip04_encrypt failed: ' + err.message);
+        }
+    },
+
+    // Decrypt user data (folder keys, etc.) using remote signer
+    // This is required for data encrypted to the user's pubkey
+    async decryptForUser(ciphertext, senderPubkey) {
+        if (!this.connected) {
+            throw new Error('Not connected to remote signer');
+        }
+
+        console.log('NIP-46: decryptForUser via remote signer, sender:', senderPubkey?.slice(0, 16));
+        try {
+            const result = await this.sendRequest('nip04_decrypt', [senderPubkey, ciphertext]);
+            console.log('NIP-46: decryptForUser success, result length:', result?.length);
+            return result;
+        } catch (err) {
+            console.error('NIP-46: decryptForUser failed:', err.message);
+            throw new Error('Remote signer nip04_decrypt failed: ' + err.message);
+        }
+    },
+
     // Connect to a single relay via WebSocket with circuit breaker
     connectSingleRelay(url) {
         // Check circuit breaker before attempting connection
