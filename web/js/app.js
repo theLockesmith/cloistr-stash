@@ -2790,6 +2790,10 @@ const App = {
         document.getElementById('upload-btn').style.display = 'none';
         document.getElementById('new-folder-btn').style.display = 'none';
 
+        // Clear trash selection
+        this.selectedTrashFiles = this.selectedTrashFiles || new Set();
+        this.selectedTrashFiles.clear();
+
         if (this.trashedFiles.length === 0) {
             body.innerHTML = '';
             if (emptyState) {
@@ -2805,8 +2809,18 @@ const App = {
 
         if (emptyState) emptyState.classList.add('hidden');
 
-        const html = this.trashedFiles.map(file => this.renderTrashItem(file)).join('');
-        body.innerHTML = html;
+        // Add trash header with Empty Trash button
+        const headerHtml = `
+            <div class="trash-header">
+                <div class="trash-actions">
+                    <button class="btn btn-small btn-danger" id="empty-trash-btn">Empty Trash</button>
+                    <span class="trash-info">${this.trashedFiles.length} item${this.trashedFiles.length > 1 ? 's' : ''} in trash</span>
+                </div>
+            </div>
+        `;
+
+        const itemsHtml = this.trashedFiles.map(file => this.renderTrashItem(file)).join('');
+        body.innerHTML = headerHtml + itemsHtml;
 
         // Add event listeners
         this.attachTrashEventListeners(body);
@@ -2822,6 +2836,9 @@ const App = {
 
         return `
             <div class="file-item trash-item" data-sha256="${file.sha256}" data-name="${UI.escapeHtml(file.name)}">
+                <div class="file-col file-select">
+                    <input type="checkbox" class="trash-checkbox" data-sha256="${file.sha256}" title="Select for bulk action">
+                </div>
                 <div class="file-col file-name">
                     <span class="file-icon">${icon}</span>
                     <span class="file-name-text">${UI.escapeHtml(file.name)}</span>
@@ -2837,9 +2854,28 @@ const App = {
     },
 
     attachTrashEventListeners(container) {
+        // Empty Trash button
+        container.querySelector('#empty-trash-btn')?.addEventListener('click', () => {
+            if (confirm(`Permanently delete all ${this.trashedFiles.length} items in trash? This cannot be undone.`)) {
+                this.emptyTrash();
+            }
+        });
+
+        // Individual item listeners
         container.querySelectorAll('.trash-item').forEach(item => {
             const sha256 = item.dataset.sha256;
             const fileName = item.dataset.name;
+
+            // Checkbox
+            item.querySelector('.trash-checkbox')?.addEventListener('change', (e) => {
+                e.stopPropagation();
+                if (e.target.checked) {
+                    this.selectedTrashFiles.add(sha256);
+                } else {
+                    this.selectedTrashFiles.delete(sha256);
+                }
+                this.updateTrashSelectionUI();
+            });
 
             item.querySelector('.restore-btn')?.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -2853,6 +2889,45 @@ const App = {
                 }
             });
         });
+    },
+
+    updateTrashSelectionUI() {
+        const count = this.selectedTrashFiles.size;
+        const emptyTrashBtn = document.getElementById('empty-trash-btn');
+        if (emptyTrashBtn) {
+            if (count > 0) {
+                emptyTrashBtn.textContent = `Delete ${count} Selected`;
+            } else {
+                emptyTrashBtn.textContent = 'Empty Trash';
+            }
+        }
+
+        // Update checkbox visual states
+        document.querySelectorAll('.trash-checkbox').forEach(cb => {
+            const sha256 = cb.dataset.sha256;
+            cb.checked = this.selectedTrashFiles.has(sha256);
+        });
+    },
+
+    async emptyTrash() {
+        if (this.trashedFiles.length === 0) return;
+
+        // If specific items are selected, only delete those
+        const toDelete = this.selectedTrashFiles.size > 0
+            ? this.trashedFiles.filter(f => this.selectedTrashFiles.has(f.sha256))
+            : this.trashedFiles;
+
+        UI.toast(`Permanently deleting ${toDelete.length} items...`, 'info');
+
+        try {
+            await this.batchPermanentDelete(toDelete.map(f => f.sha256));
+            UI.toast(`Permanently deleted ${toDelete.length} items`, 'success');
+            this.selectedTrashFiles.clear();
+            await this.loadTrashFiles();
+        } catch (err) {
+            console.error('Failed to empty trash:', err);
+            UI.toast('Failed to delete some items', 'error');
+        }
     },
 
     async moveToTrash(sha256, fileName) {
@@ -5149,8 +5224,8 @@ const App = {
             });
         });
 
-        // Batch toolbar
-        document.getElementById('select-all-checkbox')?.addEventListener('change', (e) => {
+        // Batch toolbar select-all checkbox
+        document.getElementById('batch-select-all-checkbox')?.addEventListener('change', (e) => {
             if (e.target.checked) {
                 this.selectAllFiles();
             } else {
@@ -5631,14 +5706,21 @@ const App = {
             }
         });
 
-        // Update select-all checkbox state
+        // Update select-all checkbox state (both header and batch toolbar)
+        const totalItems = this.files.length + this.folders.length;
+        const allSelected = totalCount > 0 && totalCount === totalItems;
+        const someSelected = totalCount > 0 && totalCount < totalItems;
+
         const selectAllCheckbox = document.getElementById('select-all-checkbox');
         if (selectAllCheckbox) {
-            const totalItems = this.files.length + this.folders.length;
-            const allSelected = totalCount > 0 && totalCount === totalItems;
-            const someSelected = totalCount > 0 && totalCount < totalItems;
             selectAllCheckbox.checked = allSelected;
             selectAllCheckbox.indeterminate = someSelected;
+        }
+
+        const batchSelectAll = document.getElementById('batch-select-all-checkbox');
+        if (batchSelectAll) {
+            batchSelectAll.checked = allSelected;
+            batchSelectAll.indeterminate = someSelected;
         }
     },
 

@@ -935,6 +935,36 @@ body {
     margin-top: 0.5rem;
 }
 
+/* Trash view */
+.trash-header {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg-secondary);
+}
+
+.trash-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.trash-info {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.trash-item .file-select {
+    width: 40px;
+    flex-shrink: 0;
+}
+
+.trash-checkbox {
+    cursor: pointer;
+}
+
 /* Loading skeleton */
 .skeleton {
     background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-secondary) 50%, var(--bg-tertiary) 75%);
