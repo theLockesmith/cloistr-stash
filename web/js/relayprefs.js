@@ -190,6 +190,7 @@ const RelayPrefs = {
                         }
                     }
                 } catch (err) {
+                    console.warn('RelayPrefs: Error processing cloistr-relays message:', err.message);
                     if (originalHandler) {
                         originalHandler(msg);
                     }
@@ -244,6 +245,7 @@ const RelayPrefs = {
                         }
                     }
                 } catch (err) {
+                    console.warn('RelayPrefs: Error processing NIP-65 message:', err.message);
                     if (originalHandler) {
                         originalHandler(msg);
                     }
