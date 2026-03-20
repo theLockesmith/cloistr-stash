@@ -1088,7 +1088,7 @@ func (s *Server) handleGetKeyring(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("failed to get root key",
 			"error", err,
-			"pubkey", pubkey[:16],
+			"pubkey", truncateForLog(pubkey, 16),
 		)
 		http.Error(w, "Failed to get root key", http.StatusInternalServerError)
 		return

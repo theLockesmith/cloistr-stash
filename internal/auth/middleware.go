@@ -125,8 +125,12 @@ func (m *AuthMiddleware) RequireWhitelist(next http.Handler) http.Handler {
 
 		// Check whitelist
 		if !m.whitelist.IsAllowed(pubkey) {
+			truncated := pubkey
+			if len(pubkey) > 16 {
+				truncated = pubkey[:16] + "..."
+			}
 			m.logger.Info("access denied - not on whitelist",
-				"pubkey", pubkey[:16]+"...",
+				"pubkey", truncated,
 			)
 			http.Error(w, "Access denied - not authorized", http.StatusForbidden)
 			return

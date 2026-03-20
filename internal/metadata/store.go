@@ -18,6 +18,14 @@ const (
 	failureResetDuration   = 2 * time.Minute // Reset failure count after successful connection for this long
 )
 
+// truncateForLog safely truncates a string for logging, avoiding panics on short strings
+func truncateForLog(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen]
+}
+
 // Store handles file metadata storage via Nostr relay
 type Store struct {
 	relayURL string
@@ -185,13 +193,13 @@ func (s *Store) PublishToUserRelays(ctx context.Context, event *nostr.Event) err
 		prefs, err := s.relayPrefs.GetRelayPrefs(ctx, pubkey)
 		if err != nil {
 			s.logger.Warn("failed to get relay prefs, using default",
-				"pubkey", pubkey[:16],
+				"pubkey", truncateForLog(pubkey, 16),
 				"error", err,
 			)
 		} else if prefs != nil && len(prefs.WriteRelays()) > 0 {
 			writeRelays = prefs.WriteRelays()
 			s.logger.Debug("using user relay preferences",
-				"pubkey", pubkey[:16],
+				"pubkey", truncateForLog(pubkey, 16),
 				"relays", len(writeRelays),
 				"source", prefs.Source,
 			)
@@ -239,7 +247,7 @@ func (s *Store) PublishToUserRelays(ctx context.Context, event *nostr.Event) err
 
 	s.logger.Info("published to user relays",
 		"event_id", event.ID[:16],
-		"pubkey", pubkey[:16],
+		"pubkey", truncateForLog(pubkey, 16),
 		"success", successCount,
 		"total", len(writeRelays),
 	)
@@ -410,7 +418,7 @@ func (s *Store) ListFiles(ctx context.Context, pubkey string) ([]*FileMetadata, 
 	}
 
 	s.logger.Info("listed files",
-		"pubkey", pubkey[:16],
+		"pubkey", truncateForLog(pubkey, 16),
 		"count", len(files),
 	)
 
@@ -641,7 +649,7 @@ func (s *Store) ListFolders(ctx context.Context, pubkey string) ([]*FolderMetada
 	}
 
 	s.logger.Info("listed folders",
-		"pubkey", pubkey[:16],
+		"pubkey", truncateForLog(pubkey, 16),
 		"count", len(folders),
 	)
 
@@ -754,7 +762,7 @@ func (s *Store) ListFilesInFolder(ctx context.Context, pubkey, folderID string) 
 		folderDesc = "(root)"
 	}
 	s.logger.Info("listed files in folder",
-		"pubkey", pubkey[:16],
+		"pubkey", truncateForLog(pubkey, 16),
 		"folder", folderDesc,
 		"events_received", len(events),
 		"unique_files", len(fileMap),
@@ -1027,7 +1035,7 @@ func (s *Store) GetRootKey(ctx context.Context, pubkey string) (string, error) {
 	for _, tag := range latest.Tags {
 		if len(tag) >= 2 && tag[0] == "key" {
 			s.logger.Debug("found root key event",
-				"pubkey", pubkey[:16],
+				"pubkey", truncateForLog(pubkey, 16),
 				"event_id", latest.ID[:16],
 			)
 			return tag[1], nil
