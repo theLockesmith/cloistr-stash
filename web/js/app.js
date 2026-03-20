@@ -1859,8 +1859,8 @@ const App = {
                 }
             }
         } catch (e) {
-            // Silently fail - this is a background operation
-            console.debug('Share check failed:', e);
+            // Background operation - log but don't interrupt user
+            console.warn('Share check failed:', e);
         }
     },
 
@@ -5784,7 +5784,7 @@ const App = {
         // Soft delete files with throttling (each file needs unique metadata update)
         for (const sha256 of this.selectedFiles) {
             try {
-                await this.deleteFile(sha256, true); // silent mode
+                await this.deleteFile(sha256, true); // suppress individual toasts
                 deleted++;
                 await throttleDelay();
             } catch (err) {
