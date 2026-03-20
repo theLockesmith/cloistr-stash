@@ -139,6 +139,15 @@ const App = {
             this.setViewMode('list');
         });
 
+        // Select all checkbox in header
+        document.getElementById('select-all-checkbox').addEventListener('change', (e) => {
+            if (e.target.checked) {
+                this.selectAllFiles();
+            } else {
+                this.clearSelection();
+            }
+        });
+
         // Tab buttons
         document.getElementById('tab-my-files').addEventListener('click', () => {
             this.switchView('my-files');
@@ -5562,6 +5571,16 @@ const App = {
                 item.classList.toggle('selected', this.selectedFolders.has(folderId));
             }
         });
+
+        // Update select-all checkbox state
+        const selectAllCheckbox = document.getElementById('select-all-checkbox');
+        if (selectAllCheckbox) {
+            const totalItems = this.files.length + this.folders.length;
+            const allSelected = totalCount > 0 && totalCount === totalItems;
+            const someSelected = totalCount > 0 && totalCount < totalItems;
+            selectAllCheckbox.checked = allSelected;
+            selectAllCheckbox.indeterminate = someSelected;
+        }
     },
 
     // Bulk delete selected files and folders
