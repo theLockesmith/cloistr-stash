@@ -313,11 +313,14 @@ const NIP46 = {
         // This ensures the encrypted data can be decrypted by the user on any device
         if (this.connected && this.userPubkey && theirPubkey === this.userPubkey) {
             try {
+                console.log('NIP-46: nip04Encrypt using remote signer for self-encryption');
                 const result = await this.sendRequest('nip04_encrypt', [theirPubkey, plaintext]);
+                console.log('NIP-46: nip04Encrypt remote success');
                 return result;
             } catch (err) {
-                console.warn('NIP-46: Remote nip04_encrypt failed, falling back to local:', err.message);
-                // Fall through to local encryption as fallback
+                // For self-encryption, don't fall back - it will create unrecoverable data
+                console.error('NIP-46: Remote nip04_encrypt failed:', err.message);
+                throw new Error('Remote signer nip04_encrypt failed: ' + err.message);
             }
         }
 
@@ -358,11 +361,18 @@ const NIP46 = {
         // This is critical for decrypting folder keys which are encrypted TO the user's pubkey
         if (this.connected && this.userPubkey) {
             try {
+                console.log('NIP-46: nip04Decrypt using remote signer, theirPubkey:', theirPubkey?.slice(0, 16));
                 const result = await this.sendRequest('nip04_decrypt', [theirPubkey, encrypted]);
+                console.log('NIP-46: nip04Decrypt remote success, result length:', result?.length);
                 return result;
             } catch (err) {
-                console.warn('NIP-46: Remote nip04_decrypt failed, falling back to local:', err.message);
-                // Fall through to local decryption as fallback (only works for client-encrypted data)
+                console.error('NIP-46: Remote nip04_decrypt failed:', err.message);
+                // For self-encrypted data (folder keys), don't fall back - it will fail with wrong key
+                if (theirPubkey === this.userPubkey) {
+                    throw new Error('Remote signer nip04_decrypt failed: ' + err.message);
+                }
+                console.warn('NIP-46: Falling back to local decryption (non-self-encrypted data)');
+                // Fall through to local decryption only for protocol messages
             }
         }
 
