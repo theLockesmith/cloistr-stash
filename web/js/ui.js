@@ -1367,15 +1367,11 @@ const RelaySettingsUI = {
 
         if (action === 'toggle-read') {
             this.relays[idx].read = !this.relays[idx].read;
-            if (!this.relays[idx].read && !this.relays[idx].write) {
-                this.relays[idx].write = true; // Must have at least one
-            }
+            // Allow both to be off - relay will be disabled
             this.render();
         } else if (action === 'toggle-write') {
             this.relays[idx].write = !this.relays[idx].write;
-            if (!this.relays[idx].read && !this.relays[idx].write) {
-                this.relays[idx].read = true; // Must have at least one
-            }
+            // Allow both to be off - relay will be disabled
             this.render();
         } else if (action === 'remove') {
             this.relays.splice(idx, 1);

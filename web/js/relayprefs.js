@@ -359,25 +359,46 @@ const RelayPrefs = {
         // Get current relay prefs to know where to publish
         const currentPrefs = await this.getRelayPrefs(Auth.pubkey);
 
-        // Publish to current write relays
-        const publishPromises = [];
+        // Collect all write relays to publish to
+        const writeRelays = new Set();
         for (const url of currentPrefs.writeRelays) {
-            publishPromises.push(this.publishToRelay(url, signedEvent));
+            writeRelays.add(url);
         }
-
-        // Also publish to new relays (in case user is adding them)
         for (const relay of relays) {
-            if (relay.write && !currentPrefs.writeRelays.includes(relay.url)) {
-                publishPromises.push(this.publishToRelay(relay.url, signedEvent));
+            if (relay.write) {
+                writeRelays.add(relay.url);
             }
         }
 
-        await Promise.allSettled(publishPromises);
+        // Need at least one write relay to save
+        if (writeRelays.size === 0) {
+            throw new Error('At least one relay must have write enabled to save preferences');
+        }
+
+        // Publish to all write relays
+        const publishPromises = [];
+        for (const url of writeRelays) {
+            publishPromises.push(this.publishToRelay(url, signedEvent));
+        }
+
+        const results = await Promise.allSettled(publishPromises);
+
+        // Check if at least one publish succeeded
+        const successes = results.filter(r => r.status === 'fulfilled').length;
+
+        console.log(`RelayPrefs: Published to ${successes}/${results.length} relays`);
+
+        if (successes === 0) {
+            const errors = results
+                .filter(r => r.status === 'rejected')
+                .map(r => r.reason?.message || 'Unknown error')
+                .join(', ');
+            throw new Error(`Failed to publish to any relay: ${errors}`);
+        }
 
         // Invalidate cache
         this.invalidateCache(Auth.pubkey);
 
-        console.log('RelayPrefs: Published new relay preferences');
         return signedEvent;
     },
 

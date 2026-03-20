@@ -328,6 +328,7 @@ const App = {
             this.searchFilters.date = filterDate?.value || '';
             this.searchFilters.size = filterSize?.value || '';
             filterPanel?.classList.add('hidden');
+            this.updateFilterButtonState();
             this.applyFilters();
         });
 
@@ -337,8 +338,16 @@ const App = {
             if (filterDate) filterDate.value = '';
             if (filterSize) filterSize.value = '';
             this.searchFilters = { type: '', date: '', size: '' };
+            this.updateFilterButtonState();
             this.applyFilters();
         });
+    },
+
+    updateFilterButtonState() {
+        const filterBtn = document.getElementById('search-filter-btn');
+        if (!filterBtn) return;
+        const hasFilters = this.searchFilters.type || this.searchFilters.date || this.searchFilters.size;
+        filterBtn.classList.toggle('active', hasFilters);
     },
 
     applyFilters() {
@@ -5041,13 +5050,7 @@ const App = {
     toggleRelayFlag(index, flag) {
         if (index >= 0 && index < this.editingRelays.length) {
             this.editingRelays[index][flag] = !this.editingRelays[index][flag];
-
-            // Ensure at least one flag is set
-            const relay = this.editingRelays[index];
-            if (!relay.read && !relay.write) {
-                relay.read = true; // Default to read if both toggled off
-            }
-
+            // Allow both to be off - relay will be disabled (not included in published event)
             this.renderRelayList();
         }
     },
