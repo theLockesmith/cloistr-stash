@@ -262,20 +262,29 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 		filePath = filepath.Join(filePath, "index.html")
 	}
 
-	// Set correct MIME type for certain files
+	// Set correct MIME type and cache headers for certain files
 	switch {
 	case strings.HasSuffix(filePath, ".svg"):
 		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "public, max-age=86400") // 1 day for images
+	case strings.HasSuffix(filePath, "sw.js"):
+		// Service worker must always be revalidated
+		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 	case strings.HasSuffix(filePath, ".js"):
 		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Cache-Control", "public, max-age=300, must-revalidate") // 5 min for JS
 	case strings.HasSuffix(filePath, ".css"):
 		w.Header().Set("Content-Type", "text/css")
+		w.Header().Set("Cache-Control", "public, max-age=300, must-revalidate") // 5 min for CSS
 	case strings.HasSuffix(filePath, ".json"):
 		w.Header().Set("Content-Type", "application/json")
 	case strings.HasSuffix(filePath, ".png"):
 		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=86400") // 1 day for images
 	case strings.HasSuffix(filePath, ".ico"):
 		w.Header().Set("Content-Type", "image/x-icon")
+		w.Header().Set("Cache-Control", "public, max-age=86400") // 1 day for images
 	}
 
 	http.ServeFile(w, r, filePath)
