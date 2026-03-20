@@ -5604,24 +5604,29 @@ const App = {
         let deleted = 0;
         let failed = 0;
 
-        // Delete files
+        // Throttle delay to avoid relay rate limits (5 events/sec for unknown pubkeys)
+        const throttleDelay = () => new Promise(resolve => setTimeout(resolve, 250));
+
+        // Delete files with throttling
         for (const sha256 of this.selectedFiles) {
             try {
                 await this.deleteFile(sha256, true); // silent mode
                 deleted++;
+                await throttleDelay();
             } catch (err) {
                 console.error(`Failed to delete file ${sha256}:`, err);
                 failed++;
             }
         }
 
-        // Delete folders
+        // Delete folders with throttling
         for (const folderId of this.selectedFolders) {
             try {
                 const folder = this.folders.find(f => f.id === folderId);
                 const signedEvent = await Auth.createFolderDeleteEvent(folderId);
                 await Auth.publishEvent(signedEvent);
                 deleted++;
+                await throttleDelay();
             } catch (err) {
                 console.error(`Failed to delete folder ${folderId}:`, err);
                 failed++;
