@@ -307,8 +307,21 @@ const NIP46 = {
         return sharedPoint.slice(1, 33);
     },
 
-    // NIP-04 encrypt
+    // NIP-04 encrypt (uses remote signer for self-encryption, client key for protocol messages)
     async nip04Encrypt(plaintext, theirPubkey) {
+        // For self-encryption (e.g., folder keys), use remote signer with user's actual key
+        // This ensures the encrypted data can be decrypted by the user on any device
+        if (this.connected && this.userPubkey && theirPubkey === this.userPubkey) {
+            try {
+                const result = await this.sendRequest('nip04_encrypt', [theirPubkey, plaintext]);
+                return result;
+            } catch (err) {
+                console.warn('NIP-46: Remote nip04_encrypt failed, falling back to local:', err.message);
+                // Fall through to local encryption as fallback
+            }
+        }
+
+        // Local encryption with client key (for NIP-46 protocol messages to remote signer)
         const sharedSecret = await this.computeSharedSecret(theirPubkey);
 
         // Import shared secret as AES key
@@ -339,8 +352,21 @@ const NIP46 = {
         return `${ciphertextB64}?iv=${ivB64}`;
     },
 
-    // NIP-04 decrypt
+    // NIP-04 decrypt via remote signer (uses user's actual key, not ephemeral client key)
     async nip04Decrypt(encrypted, theirPubkey) {
+        // Use remote signer for NIP-04 decryption when connected
+        // This is critical for decrypting folder keys which are encrypted TO the user's pubkey
+        if (this.connected && this.userPubkey) {
+            try {
+                const result = await this.sendRequest('nip04_decrypt', [theirPubkey, encrypted]);
+                return result;
+            } catch (err) {
+                console.warn('NIP-46: Remote nip04_decrypt failed, falling back to local:', err.message);
+                // Fall through to local decryption as fallback (only works for client-encrypted data)
+            }
+        }
+
+        // Fallback: local decryption with client key (only works for NIP-46 protocol messages)
         const sharedSecret = await this.computeSharedSecret(theirPubkey);
 
         // Parse format: base64(ciphertext)?iv=base64(iv)

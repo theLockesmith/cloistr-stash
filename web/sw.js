@@ -1,7 +1,7 @@
 // Service Worker for Cloistr Drive - Offline Support
 // Caches app shell and provides offline functionality
 
-const CACHE_VERSION = 'v18';
+const CACHE_VERSION = 'v19';
 const CACHE_NAME = `cloistr-drive-${CACHE_VERSION}`;
 
 // App shell files to cache
