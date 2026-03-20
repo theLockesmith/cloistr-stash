@@ -15,6 +15,7 @@ const App = {
     shareFile: null,      // File currently being shared
     selectedFiles: new Set(), // Selected file sha256 hashes for batch operations
     selectedFolders: new Set(), // Selected folder IDs for batch operations
+    selectedTrashFiles: new Set(), // Selected trash file sha256 hashes
     selectionMode: false, // Whether in multi-select mode
     TRASH_RETENTION_DAYS: 30, // Auto-purge after 30 days
     fileTags: {},  // Map of sha256 -> array of tags
@@ -2904,6 +2905,7 @@ const App = {
     },
 
     updateTrashSelectionUI() {
+        this.selectedTrashFiles = this.selectedTrashFiles || new Set();
         const count = this.selectedTrashFiles.size;
         const emptyTrashBtn = document.getElementById('empty-trash-btn');
         if (emptyTrashBtn) {
@@ -2925,6 +2927,7 @@ const App = {
         if (this.trashedFiles.length === 0) return;
 
         // If specific items are selected, only delete those
+        this.selectedTrashFiles = this.selectedTrashFiles || new Set();
         const toDelete = this.selectedTrashFiles.size > 0
             ? this.trashedFiles.filter(f => this.selectedTrashFiles.has(f.sha256))
             : this.trashedFiles;
