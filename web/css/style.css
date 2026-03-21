@@ -1953,15 +1953,17 @@ body {
     transform: translateY(-50%);
     background: none;
     border: none;
-    color: var(--text-secondary);
-    font-size: 1.25rem;
+    color: var(--danger);
+    font-size: 1.5rem;
+    font-weight: bold;
     cursor: pointer;
     padding: 0.25rem 0.5rem;
     line-height: 1;
 }
 
 .search-clear:hover {
-    color: var(--text-primary);
+    color: #ff6b6b;
+    transform: translateY(-50%) scale(1.1);
 }
 
 .search-filter-btn {
