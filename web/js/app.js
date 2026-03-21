@@ -2125,9 +2125,18 @@ const App = {
             ]);
 
             this.folders = foldersResponse.folders || [];
-            // Filter out deleted files (they go to trash view)
+            // Filter out deleted files (they go to trash view) and config events
             const allFiles = filesResponse.files || [];
-            this.files = allFiles.filter(f => !f.deleted_at && !f.deletedAt);
+            this.files = allFiles.filter(f => {
+                // Must not be deleted
+                if (f.deleted_at || f.deletedAt) return false;
+                // Must have a valid sha256 (config events like root-key may not)
+                if (!f.sha256 || f.sha256.length < 16) return false;
+                // Skip known config event identifiers
+                const id = f.id || f.file_id || f.fileId || f.d || '';
+                if (id === 'root-key') return false;
+                return true;
+            });
 
             console.log('loadFiles: Loaded', this.folders.length, 'folders,', this.files.length, 'files (', allFiles.length - this.files.length, 'in trash)');
 

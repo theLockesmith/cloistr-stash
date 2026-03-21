@@ -538,35 +538,11 @@ const UI = {
                 App.downloadFile(fileObj);
             });
 
-            item.querySelector('.delete-btn')?.addEventListener('click', (e) => {
+            // Menu button (opens context menu)
+            item.querySelector('.menu-btn')?.addEventListener('click', (e) => {
                 e.stopPropagation();
-                if (confirm('Delete this file?')) {
-                    App.deleteFile(sha256);
-                }
-            });
-
-            // History button
-            item.querySelector('.history-btn')?.addEventListener('click', (e) => {
-                e.stopPropagation();
-                App.showVersionHistory(fileObj);
-            });
-
-            // Public link button
-            item.querySelector('.link-btn')?.addEventListener('click', (e) => {
-                e.stopPropagation();
-                App.showPublicLinkModal(fileObj);
-            });
-
-            // Edit button (for text files)
-            item.querySelector('.edit-btn')?.addEventListener('click', (e) => {
-                e.stopPropagation();
-                App.openEditor(fileObj);
-            });
-
-            // Preview button
-            item.querySelector('.preview-btn')?.addEventListener('click', (e) => {
-                e.stopPropagation();
-                App.showPreview(fileObj);
+                const rect = e.target.getBoundingClientRect();
+                this.showFileContextMenu(rect.left, rect.bottom, fileObj, fileMime);
             });
 
             // Clicking filename shows file info (intuitive UX)
@@ -808,8 +784,7 @@ const UI = {
                 <div class="file-col file-size">${size}</div>
                 <div class="file-col file-date">${date}</div>
                 <div class="file-col file-actions" role="group" aria-label="File actions">
-                    <button class="action-btn download-btn" title="Download" aria-label="Download ${this.escapeHtml(fileName)}">⬇</button>
-                    <button class="action-btn delete delete-btn" title="Delete" aria-label="Move ${this.escapeHtml(fileName)} to trash">✕</button>
+                    <button class="action-btn menu-btn" title="More actions" aria-label="More actions for ${this.escapeHtml(fileName)}">⋮</button>
                 </div>
             </div>
         `;
@@ -833,8 +808,7 @@ const UI = {
                 <div class="grid-item-name">${this.escapeHtml(name)}</div>
                 ${isEncrypted ? '<span class="encrypted-badge" title="End-to-end encrypted with XChaCha20-Poly1305. Only you can decrypt this file.">E2E</span>' : ''}
                 <div class="grid-item-actions">
-                    <button class="action-btn download-btn" title="Download">⬇</button>
-                    <button class="action-btn delete delete-btn" title="Delete">✕</button>
+                    <button class="action-btn menu-btn" title="More actions">⋮</button>
                 </div>
             </div>
         `;
@@ -896,10 +870,28 @@ const UI = {
             `<div class="context-menu-item ${item.className || ''}">${item.label}</div>`
         ).join('');
 
-        // Position menu
-        menu.style.left = `${x}px`;
-        menu.style.top = `${y}px`;
+        // Position menu with viewport bounds checking
         menu.classList.remove('hidden');
+
+        // Get menu dimensions after making visible
+        const menuRect = menu.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+
+        // Adjust x if menu would overflow right edge
+        let adjustedX = x;
+        if (x + menuRect.width > viewportWidth) {
+            adjustedX = viewportWidth - menuRect.width - 10;
+        }
+
+        // Adjust y if menu would overflow bottom edge
+        let adjustedY = y;
+        if (y + menuRect.height > viewportHeight) {
+            adjustedY = viewportHeight - menuRect.height - 10;
+        }
+
+        menu.style.left = `${Math.max(10, adjustedX)}px`;
+        menu.style.top = `${Math.max(10, adjustedY)}px`;
 
         // Attach click handlers
         menu.querySelectorAll('.context-menu-item').forEach((el, i) => {
