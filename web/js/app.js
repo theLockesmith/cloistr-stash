@@ -161,7 +161,10 @@ const App = {
         const searchInput = document.getElementById('search-input');
         const searchClear = document.getElementById('search-clear');
 
+        const searchBox = document.querySelector('.search-box');
         searchInput.addEventListener('input', (e) => {
+            const hasContent = e.target.value.length > 0;
+            searchBox?.classList.toggle('has-content', hasContent);
             this.handleSearch(e.target.value);
         });
 
@@ -936,6 +939,7 @@ const App = {
         this.searchQuery = '';
         document.getElementById('search-input').value = '';
         document.getElementById('search-clear').classList.add('hidden');
+        document.querySelector('.search-box')?.classList.remove('has-content');
         this.renderCurrentView();
     },
 
@@ -3294,7 +3298,7 @@ const App = {
 
         // Populate modal
         document.getElementById('file-info-name').textContent = file.name;
-        document.getElementById('file-info-size').textContent = UI.formatFileSize(file.size);
+        document.getElementById('file-info-size').textContent = Upload.formatSize(file.size);
         document.getElementById('file-info-type').textContent = file.mime_type || file.mimeType || 'Unknown';
 
         const date = file.created_at
