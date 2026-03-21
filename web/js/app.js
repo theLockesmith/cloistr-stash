@@ -194,6 +194,9 @@ const App = {
         // Preview modal
         this.setupPreviewModal();
 
+        // File info modal
+        this.setupFileInfoModal();
+
         // Mobile menu
         this.setupMobileMenu();
 
@@ -3279,6 +3282,31 @@ const App = {
     // Preview file state
     previewFile: null,
     previewBlobUrl: null,
+    fileInfoFile: null,
+
+    // Show file info modal
+    showFileInfo(file) {
+        this.fileInfoFile = file;
+
+        // Populate modal
+        document.getElementById('file-info-name').textContent = file.name;
+        document.getElementById('file-info-size').textContent = UI.formatFileSize(file.size);
+        document.getElementById('file-info-type').textContent = file.mime_type || file.mimeType || 'Unknown';
+
+        const date = file.created_at
+            ? new Date(file.created_at * 1000).toLocaleString()
+            : 'Unknown';
+        document.getElementById('file-info-date').textContent = date;
+
+        const isEncrypted = file.encrypted !== false;
+        document.getElementById('file-info-encrypted').textContent = isEncrypted ? 'Yes (E2E)' : 'No';
+
+        const hash = file.sha256 || '-';
+        document.getElementById('file-info-hash').textContent = hash.slice(0, 16) + '...' + hash.slice(-8);
+        document.getElementById('file-info-hash').title = hash;
+
+        UI.showModal('file-info-modal');
+    },
 
     // Preview a file
     async showPreview(file) {
@@ -3453,6 +3481,40 @@ const App = {
             if (e.target.id === 'preview-download' && this.previewFile) {
                 this.downloadFile(this.previewFile);
                 this.closePreview();
+            }
+        });
+    },
+
+    // Setup file info modal events
+    setupFileInfoModal() {
+        document.getElementById('file-info-modal-close').addEventListener('click', () => {
+            UI.hideModal('file-info-modal');
+        });
+
+        document.getElementById('file-info-preview').addEventListener('click', () => {
+            if (this.fileInfoFile) {
+                UI.hideModal('file-info-modal');
+                this.showPreview(this.fileInfoFile);
+            }
+        });
+
+        document.getElementById('file-info-download').addEventListener('click', () => {
+            if (this.fileInfoFile) {
+                this.downloadFile(this.fileInfoFile);
+            }
+        });
+
+        document.getElementById('file-info-share').addEventListener('click', () => {
+            if (this.fileInfoFile) {
+                UI.hideModal('file-info-modal');
+                this.showShareModal(this.fileInfoFile);
+            }
+        });
+
+        document.getElementById('file-info-delete').addEventListener('click', () => {
+            if (this.fileInfoFile && confirm('Delete this file?')) {
+                UI.hideModal('file-info-modal');
+                this.deleteFile(this.fileInfoFile.sha256);
             }
         });
     },

@@ -918,6 +918,46 @@
             </div>
         </div>
 
+        <!-- File Info Modal -->
+        <div id="file-info-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2 id="file-info-name">File Info</h2>
+                    <button class="modal-close" id="file-info-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="file-info-grid">
+                        <div class="info-row">
+                            <span class="info-label">Size</span>
+                            <span class="info-value" id="file-info-size">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Type</span>
+                            <span class="info-value" id="file-info-type">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Modified</span>
+                            <span class="info-value" id="file-info-date">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Encrypted</span>
+                            <span class="info-value" id="file-info-encrypted">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">SHA256</span>
+                            <span class="info-value info-hash" id="file-info-hash">-</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer file-info-actions">
+                    <button class="btn" id="file-info-preview">Preview</button>
+                    <button class="btn" id="file-info-download">Download</button>
+                    <button class="btn" id="file-info-share">Share</button>
+                    <button class="btn btn-danger" id="file-info-delete">Delete</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Sync Settings Modal (Desktop only) -->
         <div id="sync-settings-modal" class="modal hidden">
             <div class="modal-content modal-small">
