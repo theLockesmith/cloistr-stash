@@ -808,13 +808,8 @@ const UI = {
                 <div class="file-col file-size">${size}</div>
                 <div class="file-col file-date">${date}</div>
                 <div class="file-col file-actions" role="group" aria-label="File actions">
-                    ${isPreviewable ? `<button class="action-btn preview-btn" title="Preview" aria-label="Preview ${this.escapeHtml(fileName)}">Preview</button>` : ''}
-                    ${isEditable ? `<button class="action-btn edit-btn" title="Edit" aria-label="Edit ${this.escapeHtml(fileName)}">Edit</button>` : ''}
-                    <button class="action-btn history-btn" title="Version History" aria-label="View version history">History</button>
-                    <button class="action-btn link-btn" title="Public Link" aria-label="Create public link">Link</button>
-                    <button class="action-btn share-btn" title="Share" aria-label="Share file">Share</button>
-                    <button class="action-btn download-btn" aria-label="Download ${this.escapeHtml(fileName)}">Download</button>
-                    <button class="action-btn delete delete-btn" aria-label="Move ${this.escapeHtml(fileName)} to trash">Delete</button>
+                    <button class="action-btn download-btn" title="Download" aria-label="Download ${this.escapeHtml(fileName)}">⬇</button>
+                    <button class="action-btn delete delete-btn" title="Delete" aria-label="Move ${this.escapeHtml(fileName)} to trash">✕</button>
                 </div>
             </div>
         `;
@@ -838,12 +833,7 @@ const UI = {
                 <div class="grid-item-name">${this.escapeHtml(name)}</div>
                 ${isEncrypted ? '<span class="encrypted-badge" title="End-to-end encrypted with XChaCha20-Poly1305. Only you can decrypt this file.">E2E</span>' : ''}
                 <div class="grid-item-actions">
-                    ${isPreviewable ? '<button class="action-btn preview-btn" title="Preview">&#128065;</button>' : ''}
-                    ${isEditable ? '<button class="action-btn edit-btn" title="Edit">&#9998;</button>' : ''}
-                    <button class="action-btn history-btn" title="History">&#128337;</button>
-                    <button class="action-btn link-btn" title="Link">&#128279;</button>
-                    <button class="action-btn share-btn" title="Share">&#8599;</button>
-                    <button class="action-btn download-btn" title="Download">↓</button>
+                    <button class="action-btn download-btn" title="Download">⬇</button>
                     <button class="action-btn delete delete-btn" title="Delete">✕</button>
                 </div>
             </div>

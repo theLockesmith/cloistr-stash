@@ -1989,7 +1989,8 @@ body {
     transition: width 0.2s, border-color 0.15s;
 }
 
-.search-input:focus {
+.search-input:focus,
+.search-box.filter-open .search-input {
     outline: none;
     border-color: var(--accent-primary);
     width: 280px;
@@ -2001,21 +2002,28 @@ body {
 
 .search-clear {
     position: absolute;
-    right: 0.5rem;
+    right: 0.25rem;
     top: 50%;
     transform: translateY(-50%);
-    background: none;
+    background: var(--danger);
     border: none;
-    color: var(--danger);
-    font-size: 1.5rem;
+    border-radius: 50%;
+    color: white;
+    font-size: 1rem;
     font-weight: bold;
     cursor: pointer;
-    padding: 0.25rem 0.5rem;
-    line-height: 1;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    line-height: 1.5rem;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .search-clear:hover {
-    color: #ff6b6b;
+    background: #ff6b6b;
     transform: translateY(-50%) scale(1.1);
 }
 

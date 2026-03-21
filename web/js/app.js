@@ -313,15 +313,19 @@ const App = {
         const filterApply = document.getElementById('filter-apply');
 
         // Toggle filter panel
+        const searchBox = document.querySelector('.search-box');
         filterBtn?.addEventListener('click', (e) => {
             e.stopPropagation();
+            const isOpening = filterPanel.classList.contains('hidden');
             filterPanel.classList.toggle('hidden');
+            searchBox?.classList.toggle('filter-open', isOpening);
         });
 
         // Close on outside click
         document.addEventListener('click', (e) => {
             if (!filterPanel?.contains(e.target) && e.target !== filterBtn) {
                 filterPanel?.classList.add('hidden');
+                searchBox?.classList.remove('filter-open');
             }
         });
 
@@ -3515,6 +3519,20 @@ const App = {
             if (this.fileInfoFile && confirm('Delete this file?')) {
                 UI.hideModal('file-info-modal');
                 this.deleteFile(this.fileInfoFile.sha256);
+            }
+        });
+
+        document.getElementById('file-info-link').addEventListener('click', () => {
+            if (this.fileInfoFile) {
+                UI.hideModal('file-info-modal');
+                this.showPublicLinkModal(this.fileInfoFile);
+            }
+        });
+
+        document.getElementById('file-info-history').addEventListener('click', () => {
+            if (this.fileInfoFile) {
+                UI.hideModal('file-info-modal');
+                this.showVersionHistory(this.fileInfoFile);
             }
         });
     },
