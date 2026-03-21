@@ -334,7 +334,8 @@ const Search = {
                     const documents = Crypto.decryptJSON(encrypted, this.indexKey);
                     resolve(documents);
                 } catch (err) {
-                    console.error('Search: Failed to decrypt term documents:', err);
+                    // Index was encrypted with different key - stale data, return empty
+                    console.warn('Search: Term index encrypted with different key, ignoring stale entry');
                     resolve([]);
                 }
             };
@@ -368,7 +369,8 @@ const Search = {
                     const meta = Crypto.decryptJSON(encrypted, this.indexKey);
                     resolve(meta);
                 } catch (err) {
-                    console.error('Search: Failed to decrypt document meta:', err);
+                    // Index was encrypted with different key - stale data, return null
+                    console.warn('Search: Doc meta encrypted with different key, ignoring stale entry');
                     resolve(null);
                 }
             };

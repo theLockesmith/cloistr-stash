@@ -406,6 +406,13 @@ const RelayPrefs = {
 
     // Publish to a specific relay
     async publishToRelay(url, event) {
+        // Use existing authenticated Relay connection for cloistr relay
+        if (typeof Relay !== 'undefined' && url === Relay.defaultUrl) {
+            console.log('RelayPrefs: Using authenticated Relay.publish for', url);
+            return Relay.publish(event);
+        }
+
+        // For other relays, open direct connection (may fail if auth required)
         return new Promise((resolve, reject) => {
             const ws = new WebSocket(url);
             const timeout = setTimeout(() => {

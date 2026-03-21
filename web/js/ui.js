@@ -569,6 +569,12 @@ const UI = {
                 App.showPreview(fileObj);
             });
 
+            // Clicking filename opens preview (intuitive UX)
+            item.querySelector('.file-name-text')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                App.showPreview(fileObj);
+            });
+
             // Context menu on right-click
             item.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
