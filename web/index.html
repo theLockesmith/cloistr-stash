@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Drive - Cloistr</title>
+    <title>Stash - Cloistr</title>
     <meta name="description" content="Nostr-native file storage with end-to-end encryption. Own your data.">
     <meta name="theme-color" content="#1a1a2e">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -29,7 +29,7 @@
             <div class="landing-hero">
                 <div class="landing-brand">
                     <img src="/cloistr-logo.svg" alt="Cloistr" class="landing-logo">
-                    <span class="landing-drive-suffix">Drive</span>
+                    <span class="landing-drive-suffix">Stash</span>
                 </div>
                 <p class="landing-tagline">Nostr-native file storage. Own your data.</p>
 
@@ -85,8 +85,8 @@
             <header class="header">
                 <div class="header-left">
                     <button id="mobile-menu-btn" class="btn btn-icon mobile-menu-btn" title="Menu" style="display: none;">&#9776;</button>
-                    <img src="/favicon.svg" alt="Drive" class="header-logo">
-                    <h1 class="logo">Drive</h1>
+                    <img src="/favicon.svg" alt="Stash" class="header-logo">
+                    <h1 class="logo">Stash</h1>
                 </div>
                 <div class="header-right">
                     <span id="user-pubkey" class="user-pubkey"></span>
@@ -110,7 +110,7 @@
                     <nav class="folder-tree" id="folder-tree" role="tree" aria-labelledby="sidebar-title">
                         <div class="folder-tree-item root" data-id="" role="treeitem" tabindex="0" aria-selected="true">
                             <span class="folder-tree-icon" aria-hidden="true">&#128193;</span>
-                            <span class="folder-tree-name">My Drive</span>
+                            <span class="folder-tree-name">My Stash</span>
                         </div>
                         <div class="folder-tree-children" id="folder-tree-root" role="group"></div>
                     </nav>
@@ -183,9 +183,29 @@
                         <button id="upload-btn" class="btn btn-primary">
                             <span class="icon">↑</span> Upload
                         </button>
-                        <button id="new-folder-btn" class="btn">
-                            <span class="icon">+</span> New Folder
-                        </button>
+                        <div class="new-dropdown">
+                            <button id="new-btn" class="btn btn-accent">
+                                <span class="icon">+</span> New <span class="dropdown-arrow">▾</span>
+                            </button>
+                            <div class="new-dropdown-content" id="new-dropdown-content">
+                                <button class="dropdown-item" data-type="folder">
+                                    <span class="dropdown-icon">📁</span> Folder
+                                </button>
+                                <div class="dropdown-divider"></div>
+                                <button class="dropdown-item" data-type="doc">
+                                    <span class="dropdown-icon">📄</span> Document
+                                </button>
+                                <button class="dropdown-item" data-type="sheet">
+                                    <span class="dropdown-icon">📊</span> Spreadsheet
+                                </button>
+                                <button class="dropdown-item" data-type="whiteboard">
+                                    <span class="dropdown-icon">🎨</span> Whiteboard
+                                </button>
+                                <button class="dropdown-item" data-type="slides">
+                                    <span class="dropdown-icon">📽️</span> Presentation
+                                </button>
+                            </div>
+                        </div>
                     </div>
                     <div class="toolbar-center">
                         <div class="view-tabs">
@@ -255,7 +275,7 @@
                 </div>
                 <div class="breadcrumb-bar" id="breadcrumb-bar">
                     <div class="breadcrumb" id="breadcrumb">
-                        <span class="breadcrumb-item active" data-id="">My Drive</span>
+                        <span class="breadcrumb-item active" data-id="">My Stash</span>
                     </div>
                 </div>
 
@@ -974,7 +994,7 @@
                             <input type="text" id="sync-folder-path" class="input" readonly placeholder="No folder selected">
                             <button class="btn" id="sync-folder-browse">Browse</button>
                         </div>
-                        <p class="modal-help">Files in this folder will automatically sync with your Drive.</p>
+                        <p class="modal-help">Files in this folder will automatically sync with your Stash.</p>
                     </div>
                     <div class="form-group">
                         <label class="checkbox-label">

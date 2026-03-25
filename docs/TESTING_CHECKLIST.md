@@ -2,6 +2,27 @@
 
 Comprehensive UI testing checklist for drive.cloistr.xyz
 
+**Last Updated:** 2026-03-21 (v37)
+
+## Recent Fixes (Re-test These)
+
+### Session: 2026-03-21
+- [X] X button in search: now white→red (dark) / black→red (light)
+- [ ] 3-dot menu (⋮) replaces download+delete buttons - opens full context menu
+- [ ] Context menu positioning - no longer renders off-screen
+- [ ] Download button alignment in file info modal - icon/text aligned
+- [ ] "..." file no longer appears (root-key filter added)
+- [X] Gap between Modified column and action buttons closed
+- [X] Filter button (⧩) visible and functional
+
+### Session: 2026-03-20
+- [X] Relay settings save correctly (auth-required fix)
+- [X] Filter button larger with tooltip
+- [X] File info modal when clicking filename
+- [X] Starred/Recent/Trash views now show correct content (was showing "No shared files")
+
+---
+
 ## Pre-Test Setup
 
 - [X] Clear browser cache and service worker (DevTools > Application > Storage > Clear site data)
@@ -91,15 +112,17 @@ Comprehensive UI testing checklist for drive.cloistr.xyz
 
 ## 3. File Operations
 
+**Note:** File list now uses 3-dot menu (⋮) instead of inline download/delete buttons. Click ⋮ to access all file actions via context menu. Clicking filename opens file info modal.
+
 ### Download
-- [ ] Click download button downloads file
+- [ ] Click ⋮ menu → Download downloads file
   - This does work, technically. If I reload the page, however, and try to access files previously uploaded, I get `Preview failed: Decryption failed: invalid key or corrupted data`
 - [X] Downloaded file matches original (verify content)
 - [X] Encrypted files decrypt correctly on download
 - [X] Large files download completely
 
 ### Delete
-- [X] Click delete button shows confirmation
+- [X] Click ⋮ menu → Delete shows confirmation (or right-click → Delete)
 - [X] Confirming moves file to trash
 - [X] Toast confirms deletion
 - [X] File disappears from list
@@ -108,17 +131,21 @@ Comprehensive UI testing checklist for drive.cloistr.xyz
   - `Starred`, `Recent`, and `Trash` links all say `No shared files`. Seems like a bug.
 
 ### Rename
-- [ ] Right-click shows context menu with Rename option
-  - We get a context menu, no `rename` in that menu
+- [ ] Right-click OR ⋮ menu shows context menu with Rename option
+  - **Updated 2026-03-21:** Context menu now includes Rename
 - [ ] Rename prompts for new name
-  - Can't test
 - [ ] New name appears in file list
-  - Can't test
 - [ ] Invalid names are rejected
-  - Can't test
+
+### File Info Modal
+- [ ] Clicking filename opens file info modal with metadata
+  - **Added 2026-03-20:** Shows Size, Type, Modified, Encrypted status, SHA256
+- [ ] Modal has action buttons: Preview, Download, Share, Public Link, History, Delete
+- [ ] Download button icon/text properly aligned
+  - **Fixed 2026-03-21:** Now uses inline-flex for alignment
 
 ### File Preview
-- [ ] Clicking image file shows preview (if implemented)
+- [ ] Clicking Preview button (or double-click) shows preview
   - Same as file downloads; this does work, but we get the same error when we refresh the page.
 - [ ] Clicking text file opens in editor
   - We can view text files, but editor errors: `Error: awarenessProtocol is not defined`
@@ -240,18 +267,18 @@ Comprehensive UI testing checklist for drive.cloistr.xyz
 - [X] Typing filters file list
   - Does this also search file text? I searched `test` and got the file `Cryptography Theory and Practice (4th Ed)(gnv64).pdf` and I can only assume that's why it would have populated.
 - [X] Matches found by filename
-- [X] Clear button resets search
-  - Clear button could use better theming/formatting. It's a tiny `x`, barely noticable.
+- [X] Clear button (✕) resets search
+  - **Updated 2026-03-21:** X now larger, white→red hover (dark) / black→red hover (light)
 - [X] No results shows appropriate message
 
 ### Search Filters
-- [ ] Click filter button shows filter panel
+- [ ] Click filter button (⧩) shows filter panel
 - [ ] File type filter works (Images, Videos, etc.)
 - [ ] Date filter works (Today, This Week, etc.)
 - [ ] Size filter works (Tiny, Small, etc.)
 - [ ] Multiple filters combine correctly
 - [ ] Reset clears all filters
-- I see no filter button
+- **Updated 2026-03-21:** Filter button now visible with ⧩ icon and tooltip
 
 ### Encrypted Search
 - [X] Search works for file contents (text files)
@@ -276,28 +303,22 @@ Comprehensive UI testing checklist for drive.cloistr.xyz
 - [X] Click star button on file stars it
 - [X] Starred files show filled star
 - [ ] Starred nav item shows starred files
-  - `Starred`, `Recent`, and `Trash` links all say `No shared files`. Seems like a bug.
+  - **Fixed 2026-03-20:** No longer shows "No shared files"
 - [ ] Unstarring removes from starred view
 
 ### Recent
 - [ ] Recent nav item shows recently accessed files
-- `Starred`, `Recent`, and `Trash` links all say `No shared files`. Seems like a bug.
+  - **Fixed 2026-03-20:** No longer shows "No shared files"
 - [ ] Opening/downloading file adds it to recent
-- `Starred`, `Recent`, and `Trash` links all say `No shared files`. Seems like a bug.
 - [ ] Recent list is ordered by access time
-- `Starred`, `Recent`, and `Trash` links all say `No shared files`. Seems like a bug.
 
 ### Trash
 - [ ] Trash nav item shows deleted files
-- `Starred`, `Recent`, and `Trash` links all say `No shared files`. Seems like a bug.
+  - **Fixed 2026-03-20:** No longer shows "No shared files"
 - [ ] Badge shows trash count
-- `Starred`, `Recent`, and `Trash` links all say `No shared files`. Seems like a bug.
 - [ ] Can restore files from trash
-- `Starred`, `Recent`, and `Trash` links all say `No shared files`. Seems like a bug.
 - [ ] Can permanently delete from trash
-- `Starred`, `Recent`, and `Trash` links all say `No shared files`. Seems like a bug.
 - [ ] 30-day auto-purge warning displayed
-- `Starred`, `Recent`, and `Trash` links all say `No shared files`. Seems like a bug.
 
 ### Activity Log
 - [X] Activity nav item opens modal
@@ -376,12 +397,11 @@ Comprehensive UI testing checklist for drive.cloistr.xyz
   - This fails with `Please enter a relay URL`. Sometimes the relay still shows in the `Your data is published to these relays:` section, but then after a save, it disappears. My only test was `wss://relay.damus.io`. I don't believe they support blossom, so maybe that's why? If that's the only reason, then perhaps a different warning/indication for that.
 - [ ] Can remove relay
   - Can't test without second relay
-- [ ] Can toggle read/write per relay
-  - The UI allows me to toggle them on/off (both cannot be off), but after a save they're both still toggled on.
-- [ ] Save persists changes
-  - See above
+- [X] Can toggle read/write per relay
+  - **Fixed 2026-03-20:** Toggle constraint removed, both can now be off (disables relay)
+- [X] Save persists changes
+  - **Fixed 2026-03-20:** Now uses authenticated relay connection
 - [ ] Changes take effect on next publish
-  - Can't test
 
 ### Theme
 - [X] Click theme toggle switches dark/light

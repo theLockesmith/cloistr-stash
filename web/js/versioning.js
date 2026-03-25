@@ -1,5 +1,5 @@
 // Versioning module - File version tracking, history, and restore
-// Implements zero-knowledge file versioning for Cloistr Drive
+// Implements zero-knowledge file versioning for Cloistr Stash
 
 const Versioning = {
     // Version storage in IndexedDB

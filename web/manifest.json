@@ -1,6 +1,6 @@
 {
-    "name": "Cloistr Drive",
-    "short_name": "Drive",
+    "name": "Cloistr Stash",
+    "short_name": "Stash",
     "description": "Nostr-native file storage with end-to-end encryption",
     "start_url": "/",
     "display": "standalone",

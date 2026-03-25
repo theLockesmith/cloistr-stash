@@ -1,5 +1,5 @@
 // Search module - Client-side encrypted search indexing
-// Implements zero-knowledge full-text search for Cloistr Drive
+// Implements zero-knowledge full-text search for Cloistr Stash
 
 const Search = {
     // IndexedDB for encrypted search index

@@ -1,8 +1,8 @@
-// Service Worker for Cloistr Drive - Offline Support
+// Service Worker for Cloistr Stash - Offline Support
 // Caches app shell and provides offline functionality
 
-const CACHE_VERSION = 'v37';
-const CACHE_NAME = `cloistr-drive-${CACHE_VERSION}`;
+const CACHE_VERSION = 'v38';
+const CACHE_NAME = `cloistr-stash-${CACHE_VERSION}`;
 
 // App shell files to cache
 const APP_SHELL = [
@@ -72,7 +72,7 @@ self.addEventListener('activate', (event) => {
             .then((cacheNames) => {
                 return Promise.all(
                     cacheNames
-                        .filter((name) => name.startsWith('cloistr-drive-') && name !== CACHE_NAME)
+                        .filter((name) => name.startsWith('cloistr-stash-') && name !== CACHE_NAME)
                         .map((name) => {
                             console.log('[SW] Deleting old cache:', name);
                             return caches.delete(name);
@@ -203,7 +203,7 @@ self.addEventListener('push', (event) => {
         };
 
         event.waitUntil(
-            self.registration.showNotification(data.title || 'Cloistr Drive', options)
+            self.registration.showNotification(data.title || 'Cloistr Stash', options)
         );
     } catch (err) {
         console.error('[SW] Push notification error:', err);

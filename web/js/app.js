@@ -505,7 +505,7 @@ const App = {
             this.switchView('trash');
         });
 
-        // My Drive (root folder)
+        // My Stash (root folder)
         document.querySelector('.folder-tree-item.root')?.addEventListener('click', () => {
             this.currentFolderId = '';
             this.folderPath = [];
@@ -1681,7 +1681,7 @@ const App = {
 
         // Request browser notification permission if not already granted
         if (Notification.permission === 'granted') {
-            new Notification('Cloistr Drive', {
+            new Notification('Cloistr Stash', {
                 body: this.getNotificationText(notification),
                 icon: '/favicon.svg',
             });
@@ -2170,8 +2170,8 @@ const App = {
         // Root folder link
         const rootLink = document.createElement('span');
         rootLink.className = 'breadcrumb-item';
-        rootLink.textContent = 'My Drive';
-        rootLink.addEventListener('click', () => this.navigateToFolder('', 'My Drive'));
+        rootLink.textContent = 'My Stash';
+        rootLink.addEventListener('click', () => this.navigateToFolder('', 'My Stash'));
         breadcrumbContainer.appendChild(rootLink);
 
         // Add path items

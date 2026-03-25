@@ -1,5 +1,5 @@
 // Sharing module - NIP-44 key sharing, public links, expiring links, revocation
-// Implements zero-knowledge file and folder sharing for Cloistr Drive
+// Implements zero-knowledge file and folder sharing for Cloistr Stash
 
 const Sharing = {
     // Share types

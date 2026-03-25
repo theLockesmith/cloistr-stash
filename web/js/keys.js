@@ -1,5 +1,5 @@
 // Key management module - HKDF derivation, folder keys, encrypted key storage
-// Implements the zero-knowledge key hierarchy for Cloistr Drive
+// Implements the zero-knowledge key hierarchy for Cloistr Stash
 
 const Keys = {
     // Key storage in IndexedDB

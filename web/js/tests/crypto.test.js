@@ -1,4 +1,4 @@
-// Comprehensive tests for Cloistr Drive crypto operations
+// Comprehensive tests for Cloistr Stash crypto operations
 // Run in browser console or with a test runner
 
 const CryptoTests = {
@@ -8,7 +8,7 @@ const CryptoTests = {
 
     async runAll() {
         console.log('========================================');
-        console.log('Cloistr Drive Crypto Test Suite');
+        console.log('Cloistr Stash Crypto Test Suite');
         console.log('========================================\n');
 
         this.passed = 0;

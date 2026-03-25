@@ -1,5 +1,5 @@
 // Collaboration module - Real-time collaborative editing with Yjs CRDT
-// Implements zero-knowledge collaboration for Cloistr Drive
+// Implements zero-knowledge collaboration for Cloistr Stash
 
 const Collaboration = {
     // Active collaboration sessions

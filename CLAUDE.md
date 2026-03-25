@@ -1,15 +1,15 @@
-# CLAUDE.md - cloistr-drive
+# CLAUDE.md - cloistr-stash
 
-**Zero-knowledge file manager - Google Drive replacement with E2E encryption**
+**Zero-knowledge file manager with E2E encryption**
 
-**Status:** Production | **Domain:** drive.cloistr.xyz
+**Status:** Production | **Domain:** stash.cloistr.xyz
 
 ## Required Reading
 
 | Document | Purpose |
 |----------|---------|
 | `~/claude/coldforge/cloistr/CLAUDE.md` | Cloistr project rules |
-| `~/claude/coldforge/cloistr/services/drive/CLAUDE.md` | Full architecture spec |
+| `~/claude/coldforge/cloistr/services/stash/CLAUDE.md` | Full architecture spec |
 | [docs/reference.md](docs/reference.md) | API, crypto, deployment |
 
 ## Autonomous Work Mode
@@ -35,8 +35,8 @@
 cp config.example.yml config.yml && go run ./cmd/server  # Run locally
 go test ./...                                             # Run tests
 npx playwright test                                       # E2E tests
-docker build -t cloistr-drive .                           # Docker
-atlas kube apply cloistr-drive --kube-context atlantis   # Deploy
+docker build -t cloistr-stash .                           # Docker
+atlas kube apply cloistr-stash --kube-context atlantis   # Deploy
 ```
 
 ## Project Structure
@@ -68,8 +68,8 @@ User's Nostr Key → Root Key (encrypted) → Folder Keys → File Keys → XCha
 
 | Component | Responsibility |
 |-----------|---------------|
-| Drive (client) | Encryption, key management, UI |
-| Drive (server) | Share links, expiration, ACL |
+| Stash (client) | Encryption, key management, UI |
+| Stash (server) | Share links, expiration, ACL |
 | Blossom | Encrypted blob storage |
 | Nostr relay | Folder/file metadata events |
 
@@ -131,4 +131,4 @@ User's Nostr Key → Root Key (encrypted) → Folder Keys → File Keys → XCha
 
 ---
 
-**Last Updated:** 2026-03-11
+**Last Updated:** 2026-03-25

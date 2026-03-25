@@ -1,4 +1,4 @@
-// Integration tests for Cloistr Drive encryption phases
+// Integration tests for Cloistr Stash encryption phases
 // Tests the full flow: upload, download, folders, sharing, versioning, search
 // Run in browser console with: runIntegrationTests()
 
@@ -9,7 +9,7 @@ const IntegrationTests = {
 
     async runAll() {
         console.log('========================================');
-        console.log('Cloistr Drive Integration Test Suite');
+        console.log('Cloistr Stash Integration Test Suite');
         console.log('All 4 Phases');
         console.log('========================================\n');
 

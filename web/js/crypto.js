@@ -1,5 +1,5 @@
 // Cryptographic operations module - XChaCha20-Poly1305 encryption with libsodium
-// This is the core zero-knowledge encryption layer for Cloistr Drive
+// This is the core zero-knowledge encryption layer for Cloistr Stash
 
 const Crypto = {
     // Sodium library reference (set after initialization)
