@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	git.coldforge.xyz/coldforge/cloistr-common v0.1.0
 	github.com/joho/godotenv v1.5.1
+	github.com/lib/pq v1.12.0
 	github.com/nbd-wtf/go-nostr v0.52.3
 	github.com/prometheus/client_golang v1.23.2
 	gopkg.in/yaml.v3 v3.0.1
