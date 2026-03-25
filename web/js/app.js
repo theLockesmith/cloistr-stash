@@ -2157,6 +2157,13 @@ const App = {
                 return true;
             });
 
+            // Also load collaborative documents (only show in root folder for now)
+            if (!this.currentFolderId) {
+                const collabDocs = await this.loadCollaborativeDocuments();
+                // Add collaborative docs to files array
+                this.files = [...this.files, ...collabDocs];
+            }
+
             console.log('loadFiles: Loaded', this.folders.length, 'folders,', this.files.length, 'files (', allFiles.length - this.files.length, 'in trash)');
 
             // Restore folder keys from encrypted_key field
@@ -2348,6 +2355,74 @@ const App = {
 
         if (urls[type]) {
             window.open(`${urls[type]}?docId=${docId}`, '_blank');
+        }
+    },
+
+    // Collaborative documents storage
+    collaborativeDocs: [],
+
+    /**
+     * Load collaborative documents (kind 30078 with yjs-snapshot tag)
+     */
+    async loadCollaborativeDocuments() {
+        const pubkey = Auth.isConnected ? Auth.pubkey : null;
+        if (!pubkey) return [];
+
+        try {
+            const events = await Relay.subscribe({
+                kinds: [30078],
+                authors: [pubkey],
+                '#t': ['yjs-snapshot'],
+            }, 15000);
+
+            // Dedupe by docId (d tag), keep latest
+            const docMap = new Map();
+            for (const event of events) {
+                const dTag = event.tags.find(t => t[0] === 'd');
+                if (!dTag) continue;
+                const docId = dTag[1];
+
+                const existing = docMap.get(docId);
+                if (!existing || event.created_at > existing.created_at) {
+                    docMap.set(docId, event);
+                }
+            }
+
+            // Convert to file-like objects for display
+            const docs = [];
+            for (const [docId, event] of docMap) {
+                try {
+                    const content = JSON.parse(event.content);
+                    // Detect type from docId prefix
+                    let type = 'doc';
+                    let icon = '📄';
+                    if (docId.startsWith('sheet-')) { type = 'sheet'; icon = '📊'; }
+                    else if (docId.startsWith('whiteboard-')) { type = 'whiteboard'; icon = '🎨'; }
+                    else if (docId.startsWith('slides-')) { type = 'slides'; icon = '📽️'; }
+
+                    docs.push({
+                        id: docId,
+                        docId: docId,
+                        name: content.title || docId,
+                        type: type,
+                        icon: icon,
+                        mimeType: 'application/x-cloistr-' + type,
+                        size: content.size || 0,
+                        createdAt: content.createdAt || (event.created_at * 1000),
+                        updatedAt: event.created_at * 1000,
+                        isCollaborativeDoc: true,
+                    });
+                } catch (e) {
+                    console.warn('Failed to parse collaborative doc:', docId, e);
+                }
+            }
+
+            this.collaborativeDocs = docs;
+            console.log('Loaded', docs.length, 'collaborative documents');
+            return docs;
+        } catch (err) {
+            console.error('Failed to load collaborative documents:', err);
+            return [];
         }
     },
 

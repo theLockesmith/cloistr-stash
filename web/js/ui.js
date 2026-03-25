@@ -465,7 +465,10 @@ const UI = {
 
     // Attach event listeners to file items
     attachFileEventListeners(container) {
-        container.querySelectorAll('.file-item:not(.folder-item), .grid-item:not(.folder-grid-item)').forEach(item => {
+        // First, attach listeners for collaborative documents
+        this.attachCollaborativeDocListeners(container);
+
+        container.querySelectorAll('.file-item:not(.folder-item):not(.collab-doc), .grid-item:not(.folder-grid-item):not(.collab-doc)').forEach(item => {
             const sha256 = item.dataset.sha256;
             const fileName = item.dataset.name;
             const fileSize = parseInt(item.dataset.size) || 0;
@@ -615,6 +618,57 @@ const UI = {
         });
     },
 
+    // Attach event listeners to collaborative document items
+    attachCollaborativeDocListeners(container) {
+        const collabDocUrls = {
+            doc: 'https://docs.cloistr.xyz',
+            sheet: 'https://sheets.cloistr.xyz',
+            whiteboard: 'https://whiteboard.cloistr.xyz',
+            slides: 'https://slides.cloistr.xyz',
+        };
+
+        container.querySelectorAll('.file-item.collab-doc, .grid-item.collab-doc').forEach(item => {
+            const docId = item.dataset.docId;
+            const collabType = item.dataset.collabType || 'doc';
+            const docName = item.dataset.name;
+            if (!docId) return;
+
+            // Open button
+            const openBtn = item.querySelector('.open-btn');
+            if (openBtn) {
+                openBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const url = collabDocUrls[collabType];
+                    if (url) {
+                        window.open(`${url}?docId=${docId}`, '_blank');
+                    }
+                });
+            }
+
+            // Click on item opens document
+            item.addEventListener('click', (e) => {
+                // Ignore clicks on buttons
+                if (e.target.closest('.action-btn') || e.target.closest('.file-checkbox')) return;
+
+                const url = collabDocUrls[collabType];
+                if (url) {
+                    window.open(`${url}?docId=${docId}`, '_blank');
+                }
+            });
+
+            // Keyboard navigation
+            item.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    const url = collabDocUrls[collabType];
+                    if (url) {
+                        window.open(`${url}?docId=${docId}`, '_blank');
+                    }
+                }
+            });
+        });
+    },
+
     // Attach event listeners to folder items
     attachFolderEventListeners(container) {
         container.querySelectorAll('.folder-item, .folder-grid-item').forEach(item => {
@@ -746,6 +800,11 @@ const UI = {
 
     // Render file as list item
     renderFileListItem(file) {
+        // Handle collaborative documents (from Nostr kind 30078)
+        if (file.isCollaborativeDoc) {
+            return this.renderCollaborativeDocListItem(file);
+        }
+
         const isEncrypted = file.encrypted || file.encryption;
         const mimeType = file.mime_type || '';
         const isImage = mimeType.startsWith('image/');
@@ -790,8 +849,40 @@ const UI = {
         `;
     },
 
+    // Render collaborative document as list item
+    renderCollaborativeDocListItem(doc) {
+        const icon = doc.icon || '📄';
+        const size = Upload.formatSize(doc.size || 0);
+        const date = doc.updatedAt ? new Date(doc.updatedAt).toLocaleDateString() : '-';
+        const fileName = doc.name || doc.docId;
+        const docType = doc.type || 'doc';
+
+        return `
+            <div class="file-item collab-doc" data-doc-id="${doc.docId}" data-collab-type="${docType}" data-name="${this.escapeHtml(fileName)}" role="listitem" tabindex="0" aria-label="${this.escapeHtml(fileName)}, collaborative ${docType}">
+                <div class="file-col file-select">
+                    <input type="checkbox" class="file-checkbox" data-doc-id="${doc.docId}" disabled aria-label="Select ${this.escapeHtml(fileName)}">
+                </div>
+                <div class="file-col file-name">
+                    <span class="file-icon" aria-hidden="true">${icon}</span>
+                    <span class="file-name-text">${this.escapeHtml(fileName)}</span>
+                    <span class="collab-badge" title="Collaborative document - click to open in editor">Collab</span>
+                </div>
+                <div class="file-col file-size">${size}</div>
+                <div class="file-col file-date">${date}</div>
+                <div class="file-col file-actions" role="group" aria-label="Document actions">
+                    <button class="action-btn open-btn" title="Open in editor" aria-label="Open ${this.escapeHtml(fileName)} in editor">↗</button>
+                </div>
+            </div>
+        `;
+    },
+
     // Render file as grid item
     renderFileGridItem(file) {
+        // Handle collaborative documents (from Nostr kind 30078)
+        if (file.isCollaborativeDoc) {
+            return this.renderCollaborativeDocGridItem(file);
+        }
+
         const isEncrypted = file.encrypted || file.encryption;
         const icon = isEncrypted ? '&#128274;' : Upload.getFileIcon(file.mime_type);
         const name = file.name || file.sha256.slice(0, 12) + '...';
@@ -809,6 +900,24 @@ const UI = {
                 ${isEncrypted ? '<span class="encrypted-badge" title="End-to-end encrypted with XChaCha20-Poly1305. Only you can decrypt this file.">E2E</span>' : ''}
                 <div class="grid-item-actions">
                     <button class="action-btn menu-btn" title="More actions">⋮</button>
+                </div>
+            </div>
+        `;
+    },
+
+    // Render collaborative document as grid item
+    renderCollaborativeDocGridItem(doc) {
+        const icon = doc.icon || '📄';
+        const name = doc.name || doc.docId;
+        const docType = doc.type || 'doc';
+
+        return `
+            <div class="grid-item collab-doc" data-doc-id="${doc.docId}" data-collab-type="${docType}" data-name="${this.escapeHtml(name)}">
+                <div class="grid-item-icon">${icon}</div>
+                <div class="grid-item-name">${this.escapeHtml(name)}</div>
+                <span class="collab-badge" title="Collaborative document">Collab</span>
+                <div class="grid-item-actions">
+                    <button class="action-btn open-btn" title="Open in editor">↗</button>
                 </div>
             </div>
         `;

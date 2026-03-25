@@ -19,6 +19,9 @@ const Relay = {
     // Events pending retry after auth (auth-required rejection)
     pendingAuthRetry: new Map(),
 
+    // Active subscriptions (for REQ/EVENT/EOSE handling)
+    pendingSubscriptions: new Map(),
+
     // Connect to relay
     async connect(url = null) {
         this.url = url || this.defaultUrl;
@@ -110,11 +113,25 @@ const Relay = {
                     break;
 
                 case 'EOSE':
-                    // End of stored events (for subscriptions)
+                    // End of stored events: ["EOSE", subscription_id]
+                    const eoseSubId = message[1];
+                    const eoseSub = this.pendingSubscriptions.get(eoseSubId);
+                    if (eoseSub) {
+                        eoseSub.resolve(eoseSub.events);
+                        this.pendingSubscriptions.delete(eoseSubId);
+                        // Close subscription
+                        this.send(['CLOSE', eoseSubId]);
+                    }
                     break;
 
                 case 'EVENT':
-                    // Event received (for subscriptions) - not used for publishing
+                    // Event received: ["EVENT", subscription_id, event]
+                    const eventSubId = message[1];
+                    const event = message[2];
+                    const eventSub = this.pendingSubscriptions.get(eventSubId);
+                    if (eventSub) {
+                        eventSub.events.push(event);
+                    }
                     break;
 
                 default:
@@ -233,6 +250,39 @@ const Relay = {
                 this.pendingPublishes.delete(signedEvent.id);
                 reject(err);
             }
+        });
+    },
+
+    // Subscribe to events matching filter, returns promise with events array
+    async subscribe(filter, timeout = 10000) {
+        // Ensure connected
+        if (!this.connected || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
+            await this.connect();
+        }
+
+        const subId = 'sub-' + Math.random().toString(36).slice(2, 10);
+
+        return new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                this.pendingSubscriptions.delete(subId);
+                this.send(['CLOSE', subId]);
+                reject(new Error('Subscription timeout'));
+            }, timeout);
+
+            this.pendingSubscriptions.set(subId, {
+                events: [],
+                resolve: (events) => {
+                    clearTimeout(timeoutId);
+                    resolve(events);
+                },
+                reject: (err) => {
+                    clearTimeout(timeoutId);
+                    reject(err);
+                },
+            });
+
+            // Send REQ message
+            this.send(['REQ', subId, filter]);
         });
     },
 
