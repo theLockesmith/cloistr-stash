@@ -14,6 +14,7 @@ import (
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/blossom"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/config"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/metadata"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/platform"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/quota"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/ratelimit"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/server"
@@ -156,8 +157,27 @@ func main() {
 		)
 	}
 
+	// Initialize platform client for ACL (if enabled)
+	var platformClient *platform.Client
+	if cfg.Platform.Enabled {
+		var err error
+		platformClient, err = platform.NewClient(platform.Config{
+			DatabaseURL: cfg.Platform.DatabaseURL,
+			ServiceID:   cfg.Platform.ServiceID,
+		}, logger)
+		if err != nil {
+			logger.Error("failed to initialize platform client", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("platform ACL enabled",
+			"service_id", cfg.Platform.ServiceID,
+		)
+	} else {
+		logger.Info("standalone mode - using whitelist for authorization")
+	}
+
 	// Create HTTP server
-	srv := server.New(cfg, blossomClient, metadataStore, whitelist, quotaManager, rateLimiter, webPath, logger)
+	srv := server.New(cfg, blossomClient, metadataStore, whitelist, platformClient, quotaManager, rateLimiter, webPath, logger)
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

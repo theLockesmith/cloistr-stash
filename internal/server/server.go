@@ -17,6 +17,7 @@ import (
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/config"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/metadata"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/metrics"
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/platform"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/quota"
 	"git.coldforge.xyz/coldforge/cloistr-drive/internal/ratelimit"
 	"github.com/nbd-wtf/go-nostr"
@@ -24,16 +25,17 @@ import (
 
 // Server represents the HTTP server
 type Server struct {
-	config      *config.Config
-	blossom     *blossom.Client
-	metadata    *metadata.Store
-	whitelist   *auth.Whitelist
-	authMiddle  *auth.AuthMiddleware
-	quota       *quota.Manager
-	rateLimiter *ratelimit.Limiter
-	mux         *http.ServeMux
-	webDir      string
-	logger      *slog.Logger
+	config         *config.Config
+	blossom        *blossom.Client
+	metadata       *metadata.Store
+	whitelist      *auth.Whitelist
+	platformClient *platform.Client
+	authMiddle     *auth.AuthMiddleware
+	quota          *quota.Manager
+	rateLimiter    *ratelimit.Limiter
+	mux            *http.ServeMux
+	webDir         string
+	logger         *slog.Logger
 
 	// Download counting for max-downloads links
 	downloadCounts    map[string]int
@@ -103,13 +105,22 @@ func truncateForLog(s string, maxLen int) string {
 }
 
 // New creates a new HTTP server
-func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metadata.Store, whitelist *auth.Whitelist, quotaManager *quota.Manager, rateLimiter *ratelimit.Limiter, webDir string, logger *slog.Logger) *Server {
+func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metadata.Store, whitelist *auth.Whitelist, platformClient *platform.Client, quotaManager *quota.Manager, rateLimiter *ratelimit.Limiter, webDir string, logger *slog.Logger) *Server {
+	// Create auth middleware with appropriate mode
+	var authMiddle *auth.AuthMiddleware
+	if platformClient != nil {
+		authMiddle = auth.NewAuthMiddlewareWithPlatform(whitelist, platformClient, logger)
+	} else {
+		authMiddle = auth.NewAuthMiddleware(whitelist, logger)
+	}
+
 	s := &Server{
 		config:         cfg,
 		blossom:        blossomClient,
 		metadata:       metadataStore,
 		whitelist:      whitelist,
-		authMiddle:     auth.NewAuthMiddleware(whitelist, logger),
+		platformClient: platformClient,
+		authMiddle:     authMiddle,
 		quota:          quotaManager,
 		rateLimiter:    rateLimiter,
 		mux:            http.NewServeMux(),

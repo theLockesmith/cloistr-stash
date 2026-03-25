@@ -17,6 +17,7 @@ type Config struct {
 	Auth      AuthConfig      `yaml:"auth"`
 	Quota     QuotaConfig     `yaml:"quota"`
 	RateLimit RateLimitConfig `yaml:"rate_limit"`
+	Platform  PlatformConfig  `yaml:"platform"`
 }
 
 // AuthConfig represents authentication and authorization configuration
@@ -57,6 +58,13 @@ type RateLimitConfig struct {
 	RequestsPerMinute int  `yaml:"requests_per_minute"` // General API requests per minute
 	BurstSize         int  `yaml:"burst_size"`          // Max burst size
 	UploadsPerMinute  int  `yaml:"uploads_per_minute"`  // Upload requests per minute
+}
+
+// PlatformConfig represents cloistr platform integration configuration
+type PlatformConfig struct {
+	Enabled     bool   `yaml:"enabled"`      // Enable platform ACL (false = standalone mode)
+	DatabaseURL string `yaml:"database_url"` // PostgreSQL connection string for platform DB
+	ServiceID   string `yaml:"service_id"`   // Service identifier (default: "drive")
 }
 
 // Load loads configuration from a YAML file with environment variable overrides
@@ -160,6 +168,21 @@ func Load(path string) (*Config, error) {
 		if err == nil {
 			cfg.RateLimit.UploadsPerMinute = val
 		}
+	}
+
+	// Platform configuration from environment
+	if platformEnabled := os.Getenv("DRIVE_PLATFORM_ENABLED"); platformEnabled == "true" || platformEnabled == "1" {
+		cfg.Platform.Enabled = true
+	}
+	if platformDB := os.Getenv("DRIVE_PLATFORM_DATABASE_URL"); platformDB != "" {
+		cfg.Platform.DatabaseURL = platformDB
+	}
+	if platformService := os.Getenv("DRIVE_PLATFORM_SERVICE_ID"); platformService != "" {
+		cfg.Platform.ServiceID = platformService
+	}
+	// Default service ID
+	if cfg.Platform.ServiceID == "" {
+		cfg.Platform.ServiceID = "drive"
 	}
 
 	return cfg, nil

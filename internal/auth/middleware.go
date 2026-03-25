@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"git.coldforge.xyz/coldforge/cloistr-drive/internal/platform"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -23,8 +24,9 @@ const (
 
 // AuthMiddleware provides authentication and authorization middleware
 type AuthMiddleware struct {
-	whitelist *Whitelist
-	logger    *slog.Logger
+	whitelist      *Whitelist
+	platformClient *platform.Client
+	logger         *slog.Logger
 }
 
 // NewAuthMiddleware creates a new auth middleware
@@ -32,6 +34,15 @@ func NewAuthMiddleware(whitelist *Whitelist, logger *slog.Logger) *AuthMiddlewar
 	return &AuthMiddleware{
 		whitelist: whitelist,
 		logger:    logger,
+	}
+}
+
+// NewAuthMiddlewareWithPlatform creates an auth middleware with platform ACL support
+func NewAuthMiddlewareWithPlatform(whitelist *Whitelist, platformClient *platform.Client, logger *slog.Logger) *AuthMiddleware {
+	return &AuthMiddleware{
+		whitelist:      whitelist,
+		platformClient: platformClient,
+		logger:         logger,
 	}
 }
 
@@ -108,7 +119,8 @@ func (m *AuthMiddleware) RequireAuth(next http.Handler) http.Handler {
 	})
 }
 
-// RequireWhitelist middleware requires authentication AND whitelist membership
+// RequireWhitelist middleware requires authentication AND authorization
+// Authorization is checked via platform ACL (if configured) or whitelist (fallback)
 func (m *AuthMiddleware) RequireWhitelist(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pubkey, err := m.ExtractPubkey(r)
@@ -123,17 +135,45 @@ func (m *AuthMiddleware) RequireWhitelist(next http.Handler) http.Handler {
 			return
 		}
 
-		// Check whitelist
-		if !m.whitelist.IsAllowed(pubkey) {
-			truncated := pubkey
-			if len(pubkey) > 16 {
-				truncated = pubkey[:16] + "..."
+		truncated := pubkey
+		if len(pubkey) > 16 {
+			truncated = pubkey[:16] + "..."
+		}
+
+		// Check authorization: platform ACL takes precedence, then whitelist
+		var authorized bool
+
+		if m.platformClient != nil {
+			// Platform mode: check user_service_access table
+			hasAccess, err := m.platformClient.HasAccess(r.Context(), pubkey)
+			if err != nil {
+				m.logger.Error("platform access check failed",
+					"error", err,
+					"pubkey", truncated,
+				)
+				http.Error(w, "Authorization check failed", http.StatusInternalServerError)
+				return
 			}
-			m.logger.Info("access denied - not on whitelist",
-				"pubkey", truncated,
-			)
-			http.Error(w, "Access denied - not authorized", http.StatusForbidden)
-			return
+			authorized = hasAccess
+
+			if !authorized {
+				m.logger.Info("access denied - no platform service access",
+					"pubkey", truncated,
+				)
+				http.Error(w, "Service access required", http.StatusPaymentRequired)
+				return
+			}
+		} else {
+			// Standalone mode: use whitelist
+			authorized = m.whitelist.IsAllowed(pubkey)
+
+			if !authorized {
+				m.logger.Info("access denied - not on whitelist",
+					"pubkey", truncated,
+				)
+				http.Error(w, "Access denied - not authorized", http.StatusForbidden)
+				return
+			}
 		}
 
 		// Add pubkey and authorized status to context
@@ -151,7 +191,16 @@ func (m *AuthMiddleware) OptionalAuth(next http.Handler) http.Handler {
 		ctx := r.Context()
 		if pubkey != "" {
 			ctx = context.WithValue(ctx, ContextKeyPubkey, pubkey)
-			ctx = context.WithValue(ctx, ContextKeyAuthorized, m.whitelist.IsAllowed(pubkey))
+
+			// Check authorization
+			var authorized bool
+			if m.platformClient != nil {
+				hasAccess, _ := m.platformClient.HasAccess(r.Context(), pubkey)
+				authorized = hasAccess
+			} else {
+				authorized = m.whitelist.IsAllowed(pubkey)
+			}
+			ctx = context.WithValue(ctx, ContextKeyAuthorized, authorized)
 		}
 
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -194,7 +243,14 @@ func (m *AuthMiddleware) HandleAuthStatus(w http.ResponseWriter, r *http.Request
 	if pubkey != "" {
 		result.Authenticated = true
 		result.Pubkey = pubkey
-		result.Authorized = m.whitelist.IsAllowed(pubkey)
+
+		// Check authorization via platform or whitelist
+		if m.platformClient != nil {
+			hasAccess, _ := m.platformClient.HasAccess(r.Context(), pubkey)
+			result.Authorized = hasAccess
+		} else {
+			result.Authorized = m.whitelist.IsAllowed(pubkey)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
