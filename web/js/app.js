@@ -127,9 +127,28 @@ const App = {
             UI.showModal('upload-modal');
         });
 
-        // File explorer - new folder button
-        document.getElementById('new-folder-btn').addEventListener('click', () => {
-            this.promptNewFolder();
+        // File explorer - "New" dropdown menu
+        const newBtn = document.getElementById('new-btn');
+        const newDropdown = document.getElementById('new-dropdown-content');
+
+        newBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            newDropdown.classList.toggle('show');
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', () => {
+            newDropdown.classList.remove('show');
+        });
+
+        // Handle dropdown item clicks
+        newDropdown.querySelectorAll('.dropdown-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const type = item.dataset.type;
+                newDropdown.classList.remove('show');
+                this.createNewItem(type);
+            });
         });
 
         // View toggle buttons
@@ -541,7 +560,7 @@ const App = {
         // Show/hide appropriate UI elements
         const breadcrumbBar = document.getElementById('breadcrumb-bar');
         const uploadBtn = document.getElementById('upload-btn');
-        const newFolderBtn = document.getElementById('new-folder-btn');
+        const newFolderBtn = document.querySelector('.new-dropdown');
         const showFilesUI = view === 'my-files';
 
         if (breadcrumbBar) breadcrumbBar.style.display = showFilesUI ? '' : 'none';
@@ -1126,7 +1145,7 @@ const App = {
 
         // Hide upload buttons
         document.getElementById('upload-btn').style.display = 'none';
-        document.getElementById('new-folder-btn').style.display = 'none';
+        document.querySelector('.new-dropdown').style.display = 'none';
 
         if (files.length === 0) {
             body.innerHTML = '';
@@ -1223,7 +1242,7 @@ const App = {
 
         // Hide upload buttons
         document.getElementById('upload-btn').style.display = 'none';
-        document.getElementById('new-folder-btn').style.display = 'none';
+        document.querySelector('.new-dropdown').style.display = 'none';
 
         if (files.length === 0) {
             body.innerHTML = '';
@@ -2309,6 +2328,29 @@ const App = {
         );
     },
 
+    /**
+     * Handle "New" dropdown item clicks - creates folders or opens collab apps
+     */
+    createNewItem(type) {
+        if (type === 'folder') {
+            this.promptNewFolder();
+            return;
+        }
+
+        // Generate document ID for collaborative apps
+        const docId = `${type}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+        const urls = {
+            doc: 'https://docs.cloistr.xyz',
+            sheet: 'https://sheets.cloistr.xyz',
+            whiteboard: 'https://whiteboard.cloistr.xyz',
+            slides: 'https://slides.cloistr.xyz'
+        };
+
+        if (urls[type]) {
+            window.open(`${urls[type]}?docId=${docId}`, '_blank');
+        }
+    },
+
     promptNewFolder() {
         // Show the new folder modal
         const input = document.getElementById('new-folder-name');
@@ -2830,7 +2872,7 @@ const App = {
 
         // Update toolbar for trash view
         document.getElementById('upload-btn').style.display = 'none';
-        document.getElementById('new-folder-btn').style.display = 'none';
+        document.querySelector('.new-dropdown').style.display = 'none';
 
         // Clear trash selection
         this.selectedTrashFiles = this.selectedTrashFiles || new Set();
