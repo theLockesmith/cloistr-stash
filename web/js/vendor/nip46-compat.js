@@ -47,6 +47,12 @@
                 this.relayUrls = currentSigner.getRelayUrls ? currentSigner.getRelayUrls() : [];
                 this.connected = true;
 
+                // Save session for restoration after page reload
+                if (currentSigner.saveSession) {
+                    currentSigner.saveSession();
+                    console.log('NIP46 compat: Session saved');
+                }
+
                 console.log('NIP46 compat: Connected as', this.userPubkey);
                 return this.userPubkey;
             } catch (err) {
