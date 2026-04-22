@@ -1147,14 +1147,30 @@ const UI = {
             html += `<div class="search-results-info">Found ${files.length} result${files.length !== 1 ? 's' : ''} for "${this.escapeHtml(searchQuery)}"</div>`;
         }
 
+        const emptyState = document.getElementById('empty-state');
+
         if (files.length === 0) {
-            if (searchQuery) {
-                body.innerHTML = html + '<div class="empty-state"><p>No matches found</p></div>';
-            } else {
-                body.innerHTML = '<div class="empty-state"><p>No shared files</p><p class="empty-state-subtext">Files shared with you will appear here</p></div>';
+            body.innerHTML = html; // Keep search info if present
+            if (emptyState) {
+                emptyState.classList.remove('hidden');
+                if (searchQuery) {
+                    emptyState.innerHTML = `
+                        <div class="empty-icon">&#128269;</div>
+                        <div class="empty-text">No matches found</div>
+                        <div class="empty-subtext">Try a different search term</div>
+                    `;
+                } else {
+                    emptyState.innerHTML = `
+                        <div class="empty-icon">&#128101;</div>
+                        <div class="empty-text">No shared files</div>
+                        <div class="empty-subtext">Files shared with you will appear here</div>
+                    `;
+                }
             }
             return;
         }
+
+        if (emptyState) emptyState.classList.add('hidden');
 
         if (this.viewMode === 'grid') {
             html += files.map(file => this.renderSharedFileGridItem(file)).join('');

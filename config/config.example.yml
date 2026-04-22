@@ -1,12 +1,12 @@
-# cloistr-drive configuration
+# cloistr-stash configuration
 
 server:
   # HTTP server bind address
   host: "0.0.0.0"
   # HTTP server port
   port: 8080
-  # Public URL for the Drive UI
-  public_url: "https://drive.cloistr.xyz"
+  # Public URL for the Stash UI
+  public_url: "https://stash.cloistr.xyz"
 
 # Blossom backend server (file storage)
 blossom:

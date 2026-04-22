@@ -93,6 +93,7 @@ User's Nostr Key → Root Key (encrypted) → Folder Keys → File Keys → XCha
 | Accessibility (ARIA) | Done |
 | E2E tests (Playwright) | Done |
 | Relay preferences | Done |
+| Rebrand: Drive → Stash | Done |
 
 ## Roadmap
 
@@ -131,4 +132,22 @@ User's Nostr Key → Root Key (encrypted) → Folder Keys → File Keys → XCha
 
 ---
 
-**Last Updated:** 2026-03-25
+**Last Updated:** 2026-03-30
+
+## Backward Compatibility Notes
+
+The following identifiers are intentionally kept as `cloistr-drive-*` for backward compatibility with existing user data:
+
+| Type | Value | Reason |
+|------|-------|--------|
+| IndexedDB | `cloistr-drive-keys` | User key storage |
+| IndexedDB | `cloistr-drive-versions` | Version history |
+| IndexedDB | `cloistr-drive-search` | Search index |
+| HKDF Context | `cloistr-drive-root-v1` | Root key derivation |
+| HKDF Context | `cloistr-drive-folder-v1` | Folder key derivation |
+| HKDF Context | `cloistr-drive-file-v1` | File key derivation |
+| HKDF Context | `cloistr-drive-share-v1` | Share key derivation |
+| HKDF Context | `cloistr-drive-search-v1` | Search key derivation |
+| HKDF Context | `cloistr-drive-collab-v1` | Collaboration key derivation |
+
+**Changing these would break decryption of existing user files.**

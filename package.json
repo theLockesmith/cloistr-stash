@@ -1,15 +1,22 @@
 {
-  "name": "cloistr-drive",
+  "name": "cloistr-stash",
   "version": "1.0.0",
   "description": "Zero-knowledge file manager with end-to-end encryption",
   "scripts": {
     "test": "npx playwright test",
     "test:headed": "npx playwright test --headed",
-    "test:ui": "npx playwright test --ui"
+    "test:ui": "npx playwright test --ui",
+    "test:puppeteer": "node scripts/run-browser-tests.js",
+    "test:puppeteer:prod": "node scripts/run-browser-tests.js --url https://stash.cloistr.xyz",
+    "test:browser": "npx vitest run --config vitest.browser.config.ts",
+    "test:browser:watch": "npx vitest --config vitest.browser.config.ts",
+    "test:all": "npm run test && npm run test:puppeteer"
   },
   "devDependencies": {
     "@playwright/test": "^1.42.0",
-    "puppeteer": "^24.37.5"
+    "@vitest/browser": "^3.0.0",
+    "puppeteer": "^24.37.5",
+    "vitest": "^3.0.0"
   },
   "dependencies": {
     "libsodium-wrappers": "^0.7.13"

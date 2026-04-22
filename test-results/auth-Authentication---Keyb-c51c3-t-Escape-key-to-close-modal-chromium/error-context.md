@@ -1,0 +1,50 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e2]: You are offline. Some features may be unavailable.
+  - generic [ref=e3]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img "Cloistr" [ref=e7]
+        - generic [ref=e8]: Stash
+      - paragraph [ref=e9]: Nostr-native file storage. Own your data.
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - generic [ref=e12]: 🔐
+          - heading "Self-Sovereign" [level=3] [ref=e13]
+          - paragraph [ref=e14]: Files signed with your Nostr identity. No accounts, no passwords.
+        - generic [ref=e15]:
+          - generic [ref=e16]: 📁
+          - heading "Organized" [level=3] [ref=e17]
+          - paragraph [ref=e18]: Folders, drag-and-drop, and familiar file management.
+        - generic [ref=e19]:
+          - generic [ref=e20]: 🔗
+          - heading "Decentralized" [level=3] [ref=e21]
+          - paragraph [ref=e22]: Your files, stored on Blossom servers you choose.
+      - generic [ref=e23]:
+        - button "Connect with Extension" [ref=e24] [cursor=pointer]
+        - button "Connect with Remote Signer" [active] [ref=e25] [cursor=pointer]
+        - paragraph [ref=e26]:
+          - text: Need a Nostr identity?
+          - link "Get one at signer.cloistr.xyz" [ref=e27] [cursor=pointer]:
+            - /url: https://signer.cloistr.xyz
+    - generic [ref=e29]:
+      - generic [ref=e30]:
+        - heading "Connect with Remote Signer" [level=2] [ref=e31]
+        - button "×" [ref=e32] [cursor=pointer]
+      - generic [ref=e33]:
+        - paragraph [ref=e34]: "Enter your bunker connection string:"
+        - textbox "bunker://..." [ref=e35]
+        - paragraph [ref=e36]:
+          - text: Get a bunker URL from
+          - link "signer.cloistr.xyz" [ref=e37] [cursor=pointer]:
+            - /url: https://signer.cloistr.xyz
+          - text: or other remote signers like
+          - link "nsec.app" [ref=e38] [cursor=pointer]:
+            - /url: https://nsec.app
+      - generic [ref=e39]:
+        - button "Cancel" [ref=e40] [cursor=pointer]
+        - button "Connect" [ref=e41] [cursor=pointer]
+    - text: \1F3B5
+```

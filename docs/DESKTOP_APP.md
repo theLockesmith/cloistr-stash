@@ -1,8 +1,8 @@
-# Cloistr Drive Desktop App
+# Cloistr Stash Desktop App
 
 ## Overview
 
-Native desktop application for Cloistr Drive built with **Tauri** (Rust + WebView). Provides native file system integration, background sync, and system tray access.
+Native desktop application for Cloistr Stash built with **Tauri** (Rust + WebView). Provides native file system integration, background sync, and system tray access.
 
 ## Why Tauri?
 
@@ -25,7 +25,7 @@ Native desktop application for Cloistr Drive built with **Tauri** (Rust + WebVie
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │                 Frontend (WebView)                      │ │
 │  │                                                         │ │
-│  │   Existing cloistr-drive web UI                        │ │
+│  │   Existing cloistr-stash web UI                        │ │
 │  │   (HTML/CSS/JS, crypto.js, keys.js, etc.)              │ │
 │  │                                                         │ │
 │  │   + Desktop-specific features:                         │ │
@@ -53,7 +53,7 @@ Native desktop application for Cloistr Drive built with **Tauri** (Rust + WebVie
 ## Project Structure
 
 ```
-cloistr-drive-desktop/
+cloistr-stash-desktop/
 ├── src-tauri/
 │   ├── Cargo.toml
 │   ├── tauri.conf.json       # Tauri configuration
@@ -189,9 +189,9 @@ fn set_keyring_session(session: String) -> Result<(), String>
 ## Configuration
 
 Stored in platform-specific config directory:
-- Linux: `~/.config/cloistr-drive/`
+- Linux: `~/.config/cloistr-stash/`
 - macOS: `~/Library/Application Support/com.cloistr.drive/`
-- Windows: `%APPDATA%\cloistr-drive\`
+- Windows: `%APPDATA%\cloistr-stash\`
 
 ```json
 {
@@ -215,7 +215,7 @@ Stored in platform-specific config directory:
 cargo install tauri-cli
 
 # Install dependencies
-cd cloistr-drive-desktop
+cd cloistr-stash-desktop
 npm install
 
 # Run in development

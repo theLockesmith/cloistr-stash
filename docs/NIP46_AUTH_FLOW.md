@@ -1,6 +1,6 @@
 # NIP-46 Remote Signer Authentication Flow
 
-This document describes how cloistr-drive handles authentication when using NIP-46 remote signers (like Amber or nsec.app).
+This document describes how cloistr-stash handles authentication when using NIP-46 remote signers (like Amber or nsec.app).
 
 ## Overview
 

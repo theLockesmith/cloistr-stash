@@ -1,0 +1,76 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]: You are offline. Some features may be unavailable.
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - banner [ref=e5]:
+        - generic [ref=e6]:
+          - button "☰" [ref=e7] [cursor=pointer]
+          - img "Stash" [ref=e8]
+          - heading "Stash" [level=1] [ref=e9]
+        - generic [ref=e10]:
+          - button "🌙" [ref=e11] [cursor=pointer]
+          - button "🔑" [ref=e12] [cursor=pointer]
+          - button "⚡" [ref=e13] [cursor=pointer]
+          - button "Disconnect" [ref=e14] [cursor=pointer]
+      - generic [ref=e15]:
+        - navigation "File navigation" [ref=e16]:
+          - generic [ref=e17]:
+            - generic [ref=e18]: Folders
+            - button "Toggle sidebar" [expanded] [ref=e19] [cursor=pointer]: ☰
+          - tree "Folders" [ref=e20]:
+            - treeitem "My Stash" [selected] [ref=e21] [cursor=pointer]:
+              - generic [ref=e22]: 📁
+              - generic [ref=e23]: My Stash
+            - group
+          - navigation "Quick access" [ref=e24]:
+            - button "Starred files" [ref=e25] [cursor=pointer]:
+              - generic [ref=e26]: ★
+              - generic [ref=e27]: Starred
+            - button "Recent files" [ref=e28] [cursor=pointer]:
+              - generic [ref=e29]: 🕑
+              - generic [ref=e30]: Recent
+            - button "Trash" [ref=e31] [cursor=pointer]:
+              - generic [ref=e32]: 🗑
+              - generic [ref=e33]: Trash
+            - button "Activity" [ref=e34] [cursor=pointer]:
+              - generic [ref=e35]: 📋
+              - generic [ref=e36]: Activity
+            - button "Notifications" [ref=e37] [cursor=pointer]:
+              - generic [ref=e38]: 🔔
+              - generic [ref=e39]: Notifications
+            - button "Relay Settings" [ref=e40] [cursor=pointer]:
+              - generic [ref=e41]: ⚡
+              - generic [ref=e42]: Relay Settings
+          - generic [ref=e44]:
+            - generic [ref=e45]: Storage
+            - generic [ref=e46]: "-"
+        - main [ref=e48]:
+          - generic [ref=e49]:
+            - generic [ref=e50]:
+              - button "↑ Upload" [ref=e51] [cursor=pointer]
+              - button "+ New" [ref=e53] [cursor=pointer]
+            - generic [ref=e55]:
+              - textbox "Search files..." [ref=e56]
+              - button "⧩" [ref=e57] [cursor=pointer]
+            - generic [ref=e58]:
+              - combobox "Sort files" [ref=e60] [cursor=pointer]:
+                - option "Name (A-Z)"
+                - option "Name (Z-A)"
+                - option "Date (Newest)" [selected]
+                - option "Date (Oldest)"
+                - option "Size (Largest)"
+                - option "Size (Smallest)"
+                - option "Type"
+              - button "▦" [ref=e61] [cursor=pointer]
+              - button "≡" [ref=e62] [cursor=pointer]
+          - generic [ref=e65] [cursor=pointer]: My Stash
+          - region "File browser" [ref=e66]:
+            - list "Files and folders"
+            - status [ref=e67]:
+              - paragraph [ref=e68]: No files yet
+              - paragraph [ref=e69]: Drag files here or click Upload to get started
+    - text: \1F3B5
+```

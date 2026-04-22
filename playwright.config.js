@@ -2,8 +2,20 @@
 const { defineConfig, devices } = require('@playwright/test');
 
 /**
+ * Playwright Test Configuration
  * @see https://playwright.dev/docs/test-configuration
+ *
+ * Port allocation for local testing (9400-9499 range for Cloistr projects):
+ * - 9480: cloistr-stash (this project)
+ * - 9481: cloistr-space (reserved)
+ * - 9482-9489: reserved for other cloistr services
+ *
+ * Production testing: Use playwright-prod.config.js or set TEST_BASE_URL env var
  */
+
+const TEST_PORT = process.env.TEST_PORT || 9480;
+const baseURL = process.env.TEST_BASE_URL || `http://localhost:${TEST_PORT}`;
+
 module.exports = defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
@@ -12,7 +24,7 @@ module.exports = defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:8080',
+    baseURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -37,8 +49,8 @@ module.exports = defineConfig({
   ],
 
   webServer: {
-    command: 'go run ./cmd/server',
-    url: 'http://localhost:8080',
+    command: `DRIVE_PORT=${TEST_PORT} go run ./cmd/server`,
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
   },

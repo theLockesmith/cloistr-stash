@@ -1,12 +1,12 @@
-# Cloistr Drive API Documentation
+# Cloistr Stash API Documentation
 
 ## Overview
 
-Cloistr Drive provides a RESTful API for file management with Nostr-based authentication. The API supports file uploads, downloads, folder management, sharing, and public links.
+Cloistr Stash provides a RESTful API for file management with Nostr-based authentication. The API supports file uploads, downloads, folder management, sharing, and public links.
 
 ## Base URL
 
-- **Production:** `https://drive.cloistr.xyz`
+- **Production:** `https://stash.cloistr.xyz`
 - **Development:** `http://localhost:8080`
 
 ## Authentication
@@ -398,7 +398,7 @@ Access a public link. Returns an HTML page with client-side decryption.
 
 **URL Format:**
 ```
-https://drive.cloistr.xyz/public/{sha256}#<base64url-encoded-key>
+https://stash.cloistr.xyz/public/{sha256}#<base64url-encoded-key>
 ```
 
 The decryption key is in the URL fragment and never sent to the server.

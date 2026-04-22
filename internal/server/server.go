@@ -12,14 +12,14 @@ import (
 	"strings"
 	"sync"
 
-	"git.coldforge.xyz/coldforge/cloistr-drive/internal/auth"
-	"git.coldforge.xyz/coldforge/cloistr-drive/internal/blossom"
-	"git.coldforge.xyz/coldforge/cloistr-drive/internal/config"
-	"git.coldforge.xyz/coldforge/cloistr-drive/internal/metadata"
-	"git.coldforge.xyz/coldforge/cloistr-drive/internal/metrics"
-	"git.coldforge.xyz/coldforge/cloistr-drive/internal/platform"
-	"git.coldforge.xyz/coldforge/cloistr-drive/internal/quota"
-	"git.coldforge.xyz/coldforge/cloistr-drive/internal/ratelimit"
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/auth"
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/blossom"
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/config"
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/metadata"
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/metrics"
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/platform"
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/quota"
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/ratelimit"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -1153,7 +1153,7 @@ func (s *Server) handlePublicLink(w http.ResponseWriter, r *http.Request) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cloistr Drive - Shared File</title>
+    <title>Cloistr Stash - Shared File</title>
     <style>
         body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
         .container { text-align: center; padding: 2rem; max-width: 600px; }

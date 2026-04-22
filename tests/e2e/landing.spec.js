@@ -8,7 +8,7 @@ test.describe('Landing Page', () => {
 
   test('should display landing page with logo', async ({ page }) => {
     await expect(page.locator('.landing-logo')).toBeVisible();
-    await expect(page.locator('.landing-title')).toHaveText('Cloistr Drive');
+    await expect(page.locator('.landing-title')).toHaveText('Cloistr Stash');
   });
 
   test('should show connect buttons', async ({ page }) => {

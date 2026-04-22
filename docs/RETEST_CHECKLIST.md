@@ -1,4 +1,4 @@
-# Cloistr Drive - Retest Checklist
+# Cloistr Stash - Retest Checklist
 
 Items fixed in commit `ae44753` that need verification after deployment.
 

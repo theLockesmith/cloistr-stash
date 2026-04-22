@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	"git.coldforge.xyz/coldforge/cloistr-drive/internal/auth"
-	"git.coldforge.xyz/coldforge/cloistr-drive/internal/config"
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/auth"
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/config"
 )
 
 func setupTestServer(t *testing.T) *Server {

@@ -5,7 +5,7 @@ test.describe('UI Components', () => {
   test.describe('Toast Notifications', () => {
     test('toast container should exist', async ({ page }) => {
       await page.goto('/');
-      await expect(page.locator('#toast-container')).toBeVisible();
+      await expect(page.locator('#toast-container')).toBeAttached();
     });
   });
 

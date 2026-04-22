@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"git.coldforge.xyz/coldforge/cloistr-drive/internal/platform"
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/platform"
 	"github.com/nbd-wtf/go-nostr"
 )
 

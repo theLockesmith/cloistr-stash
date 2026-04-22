@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"git.coldforge.xyz/coldforge/cloistr-drive/internal/config"
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/config"
 )
 
 // UsageCalculator interface for calculating storage usage

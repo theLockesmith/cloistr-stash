@@ -1,14 +1,14 @@
-# Cloistr Drive User Guide
+# Cloistr Stash User Guide
 
-## What is Cloistr Drive?
+## What is Cloistr Stash?
 
-Cloistr Drive is a zero-knowledge file manager - a Google Drive replacement where **we cannot read your files**. All encryption happens in your browser before files are uploaded. Your Nostr identity is your login.
+Cloistr Stash is a zero-knowledge file manager - a Google Drive replacement where **we cannot read your files**. All encryption happens in your browser before files are uploaded. Your Nostr identity is your login.
 
 ## Getting Started
 
 ### Prerequisites
 
-You need a Nostr identity to use Cloistr Drive. There are two ways to authenticate:
+You need a Nostr identity to use Cloistr Stash. There are two ways to authenticate:
 
 1. **NIP-07 Browser Extension** (recommended)
    - Install a Nostr signer extension like [Alby](https://getalby.com), [nos2x](https://github.com/fiatjaf/nos2x), or [Nostr Connect](https://github.com/nicklaros/nostr-connect)
@@ -20,7 +20,7 @@ You need a Nostr identity to use Cloistr Drive. There are two ways to authentica
 
 ### Connecting Your Account
 
-1. Visit [drive.cloistr.xyz](https://drive.cloistr.xyz)
+1. Visit [stash.cloistr.xyz](https://stash.cloistr.xyz)
 2. Click **Connect with Extension** (NIP-07) or **Connect with Bunker** (NIP-46)
 3. Approve the connection request in your signer
 4. You're now logged in with your Nostr identity
@@ -38,7 +38,7 @@ You need a Nostr identity to use Cloistr Drive. There are two ways to authentica
 
 **Method 2: Drag and Drop**
 1. Drag files from your desktop or file explorer
-2. Drop them onto the Drive window (you'll see a blue overlay)
+2. Drop them onto the Stash window (you'll see a blue overlay)
 3. Files will upload automatically
 
 ### Downloading Files
@@ -173,7 +173,7 @@ Deleted files waiting to be permanently removed (30 days).
 
 ## Preview and Media
 
-Cloistr Drive supports previewing many file types directly in the browser:
+Cloistr Stash supports previewing many file types directly in the browser:
 
 ### Images
 - Click to view full size
@@ -199,7 +199,7 @@ Syntax highlighting for: JavaScript, Python, Go, Rust, HTML, CSS, JSON, YAML, an
 
 ## File Versions
 
-Cloistr Drive automatically tracks file versions:
+Cloistr Stash automatically tracks file versions:
 
 1. Right-click on a file
 2. Select **Version History**
@@ -285,7 +285,7 @@ Click **Activity** in the sidebar to view:
 
 ## Offline Support
 
-Cloistr Drive works offline for:
+Cloistr Stash works offline for:
 - Viewing cached files
 - Queuing uploads (synced when online)
 - Managing starred and recent lists
@@ -325,7 +325,7 @@ A banner appears when you're offline, and queued actions sync automatically when
 ## Support
 
 For help or to report issues:
-- GitHub Issues: [github.com/coldforge/cloistr-drive/issues](https://github.com/coldforge/cloistr-drive/issues)
+- GitHub Issues: [github.com/coldforge/cloistr-stash/issues](https://github.com/coldforge/cloistr-stash/issues)
 - Nostr: Follow @cloistr on Nostr for updates
 
 ---

@@ -1,8 +1,8 @@
-# Cloistr Drive Mobile App
+# Cloistr Stash Mobile App
 
 ## Overview
 
-Native mobile application for Cloistr Drive built with **Flutter**. Provides secure file access, camera upload, and seamless sync across iOS and Android.
+Native mobile application for Cloistr Stash built with **Flutter**. Provides secure file access, camera upload, and seamless sync across iOS and Android.
 
 ## Why Flutter?
 
@@ -61,7 +61,7 @@ Native mobile application for Cloistr Drive built with **Flutter**. Provides sec
 ## Project Structure
 
 ```
-cloistr-drive-mobile/
+cloistr-stash-mobile/
 ├── android/
 │   ├── app/
 │   │   └── src/main/
@@ -418,7 +418,7 @@ class ShareViewController: UIViewController {
 
 ```
 ┌─────────────────────────────────┐
-│ ☰  Cloistr Drive         🔍 ⋮  │
+│ ☰  Cloistr Stash         🔍 ⋮  │
 ├─────────────────────────────────┤
 │ 📁 Documents              >     │
 │ 📁 Photos                 >     │
@@ -471,7 +471,7 @@ class ShareViewController: UIViewController {
 # https://docs.flutter.dev/get-started/install
 
 # Clone and setup
-cd cloistr-drive-mobile
+cd cloistr-stash-mobile
 flutter pub get
 
 # Run on device

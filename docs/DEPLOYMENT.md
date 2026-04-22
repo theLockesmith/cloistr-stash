@@ -1,8 +1,8 @@
-# Cloistr Drive Deployment Guide
+# Cloistr Stash Deployment Guide
 
 ## Overview
 
-Cloistr Drive is a Go server that serves a static web UI and connects to:
+Cloistr Stash is a Go server that serves a static web UI and connects to:
 - **Blossom server**: For encrypted blob storage
 - **Nostr relay**: For file metadata and sharing events
 
@@ -21,8 +21,8 @@ Cloistr Drive is a Go server that serves a static web UI and connects to:
 
 ```bash
 # Clone the repository
-git clone https://git.coldforge.xyz/coldforge/cloistr-drive.git
-cd cloistr-drive
+git clone https://git.coldforge.xyz/coldforge/cloistr-stash.git
+cd cloistr-stash
 
 # Create configuration
 cp config.example.yml config.yml
@@ -38,14 +38,14 @@ go run ./cmd/server
 
 ```bash
 # Build the image
-docker build -t cloistr-drive .
+docker build -t cloistr-stash .
 
 # Run with environment variables
 docker run -p 8080:8080 \
   -e DRIVE_BLOSSOM_URL=http://blossom:8085 \
   -e DRIVE_RELAY_URL=wss://relay.example.com \
   -e DRIVE_WHITELIST=pubkey1,pubkey2 \
-  cloistr-drive
+  cloistr-stash
 ```
 
 ---
@@ -126,19 +126,19 @@ abc123def456...  # User 1
 
 ### 1. Systemd Service
 
-Create `/etc/systemd/system/cloistr-drive.service`:
+Create `/etc/systemd/system/cloistr-stash.service`:
 
 ```ini
 [Unit]
-Description=Cloistr Drive Server
+Description=Cloistr Stash Server
 After=network.target
 
 [Service]
 Type=simple
 User=drive
 Group=drive
-WorkingDirectory=/opt/cloistr-drive
-ExecStart=/opt/cloistr-drive/server -config /etc/drive/config.yml -web /opt/cloistr-drive/web
+WorkingDirectory=/opt/cloistr-stash
+ExecStart=/opt/cloistr-stash/server -config /etc/drive/config.yml -web /opt/cloistr-stash/web
 Restart=always
 RestartSec=5
 
@@ -152,8 +152,8 @@ WantedBy=multi-user.target
 
 ```bash
 # Enable and start
-sudo systemctl enable cloistr-drive
-sudo systemctl start cloistr-drive
+sudo systemctl enable cloistr-stash
+sudo systemctl start cloistr-stash
 ```
 
 ### 2. Docker Compose
@@ -163,7 +163,7 @@ version: '3.8'
 
 services:
   drive:
-    image: ghcr.io/coldforge/cloistr-drive:latest
+    image: ghcr.io/coldforge/cloistr-stash:latest
     ports:
       - "8080:8080"
     environment:
@@ -206,21 +206,21 @@ Example deployment manifest:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: cloistr-drive
+  name: cloistr-stash
   namespace: cloistr
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: cloistr-drive
+      app: cloistr-stash
   template:
     metadata:
       labels:
-        app: cloistr-drive
+        app: cloistr-stash
     spec:
       containers:
         - name: drive
-          image: ghcr.io/coldforge/cloistr-drive:latest
+          image: ghcr.io/coldforge/cloistr-stash:latest
           ports:
             - containerPort: 8080
           env:
@@ -253,11 +253,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: cloistr-drive
+  name: cloistr-stash
   namespace: cloistr
 spec:
   selector:
-    app: cloistr-drive
+    app: cloistr-stash
   ports:
     - port: 80
       targetPort: 8080
@@ -342,7 +342,7 @@ http:
 
 ### Prometheus Metrics
 
-Cloistr Drive exposes metrics at `/metrics`:
+Cloistr Stash exposes metrics at `/metrics`:
 
 ```prometheus
 # File operations
@@ -485,8 +485,8 @@ docker logs relay
 ### Rolling Update (Kubernetes)
 
 ```bash
-kubectl set image deployment/cloistr-drive \
-  drive=ghcr.io/coldforge/cloistr-drive:v1.2.0
+kubectl set image deployment/cloistr-stash \
+  drive=ghcr.io/coldforge/cloistr-stash:v1.2.0
 ```
 
 ### Docker Compose
@@ -503,18 +503,18 @@ docker-compose up -d
 go build -o server ./cmd/server
 
 # Stop old server
-systemctl stop cloistr-drive
+systemctl stop cloistr-stash
 
 # Replace binary
-cp server /opt/cloistr-drive/server
+cp server /opt/cloistr-stash/server
 
 # Start new server
-systemctl start cloistr-drive
+systemctl start cloistr-stash
 ```
 
 ---
 
 ## Support
 
-- GitHub Issues: [github.com/coldforge/cloistr-drive/issues](https://github.com/coldforge/cloistr-drive/issues)
+- GitHub Issues: [github.com/coldforge/cloistr-stash/issues](https://github.com/coldforge/cloistr-stash/issues)
 - Documentation: [docs/](.)

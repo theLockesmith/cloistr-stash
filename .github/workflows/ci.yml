@@ -108,13 +108,13 @@ jobs:
 
       - name: Build binary
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o cloistr-drive ./cmd/server
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o cloistr-stash ./cmd/server
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cloistr-drive-linux-amd64
-          path: cloistr-drive
+          name: cloistr-stash-linux-amd64
+          path: cloistr-stash
 
   docker:
     name: Build Docker Image

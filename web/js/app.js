@@ -598,7 +598,18 @@ const App = {
                 return;
             }
 
-            // Don't handle if not authenticated
+            // Handle Escape key for modals regardless of auth state
+            if (e.key === 'Escape') {
+                const hasSelection = this.selectedFiles.size > 0;
+                if (hasSelection) {
+                    this.clearSelection();
+                } else {
+                    UI.hideAllModals();
+                }
+                return;
+            }
+
+            // Don't handle other shortcuts if not authenticated
             if (this.authState !== 'authenticated') return;
 
             const hasSelection = this.selectedFiles.size > 0;
@@ -646,14 +657,6 @@ const App = {
                     }
                     break;
 
-                case 'Escape':
-                    // Escape: Clear selection or close modal
-                    if (hasSelection) {
-                        this.clearSelection();
-                    } else {
-                        UI.hideAllModals();
-                    }
-                    break;
 
                 case 'Delete':
                 case 'Backspace':
@@ -5116,7 +5119,7 @@ const App = {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `cloistr-drive-backup-${Date.now()}.json`;
+            a.download = `cloistr-stash-backup-${Date.now()}.json`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);

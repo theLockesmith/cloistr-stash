@@ -1,6 +1,6 @@
-# Cloistr Drive - Manual Testing Checklist
+# Cloistr Stash - Manual Testing Checklist
 
-Comprehensive UI testing checklist for drive.cloistr.xyz
+Comprehensive UI testing checklist for stash.cloistr.xyz
 
 **Last Updated:** 2026-03-21 (v37)
 
@@ -51,7 +51,7 @@ Comprehensive UI testing checklist for drive.cloistr.xyz
 - [X] Successful connection redirects to file explorer
 - [X] Session persists after page refresh
   - We did get our first `NIP-46: Failed to restore session: Error: Session restore timed out
-    timeoutPromise https://drive.cloistr.xyz/js/nip46.js:1410` in days. Appears to be a damus issue though, which we'll likely remove soon.
+    timeoutPromise https://stash.cloistr.xyz/js/nip46.js:1410` in days. Appears to be a damus issue though, which we'll likely remove soon.
 
 ### Session Management
 - [X] Disconnect button logs out and returns to landing page

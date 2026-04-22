@@ -1,4 +1,4 @@
-# cloistr-drive Reference
+# cloistr-stash Reference
 
 **Comprehensive reference documentation for the zero-knowledge file manager.**
 
@@ -87,7 +87,7 @@ For quick start and essential info, see [CLAUDE.md](../CLAUDE.md).
 |----------|--------|
 | Root key | Random 256-bit, NIP-04 encrypted |
 | Folder keys | Random OR HKDF from parent |
-| File keys | HKDF(folder_key, file_id, "cloistr-drive-file-v1") |
+| File keys | HKDF(folder_key, file_id, "cloistr-stash-file-v1") |
 
 ### Key Storage
 
@@ -163,13 +163,13 @@ Remote signers (Amber, nsec.app) require special handling:
 ### ArgoCD GitOps
 
 - **Namespace:** cloistr
-- **Tunnel:** drive.cloistr.xyz via cloistr-tunnel
+- **Tunnel:** stash.cloistr.xyz via cloistr-tunnel
 - **Config:** cloistr-config repository
 
 ### Atlas
 
 ```bash
-atlas kube apply cloistr-drive --kube-context atlantis
+atlas kube apply cloistr-stash --kube-context atlantis
 ```
 
 ---

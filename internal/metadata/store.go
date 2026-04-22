@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"git.coldforge.xyz/coldforge/cloistr-common/relayprefs"
+	"git.aegis-hq.xyz/coldforge/cloistr-common/relayprefs"
 	"github.com/nbd-wtf/go-nostr"
 )
 
