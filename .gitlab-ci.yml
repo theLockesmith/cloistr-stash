@@ -4,6 +4,8 @@ stages:
 
 variables:
   GO_VERSION: "1.25"
+  GOPRIVATE: "git.aegis-hq.xyz"
+  GOINSECURE: "git.aegis-hq.xyz"
 
 .go-cache: &go-cache
   cache:
