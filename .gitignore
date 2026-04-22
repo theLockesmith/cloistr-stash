@@ -46,3 +46,14 @@ uploads/
 .claude
 config.yml
 node_modules/
+
+# Playwright test artifacts
+test-results/
+playwright-report/
+playwright-report-prod/
+
+# Generated docs (one-off reports, not committed)
+coverage.html
+API_DOCUMENTATION.md
+API_TEST_SUMMARY.md
+FOLDER_OPERATIONS_TEST_SUMMARY.md
