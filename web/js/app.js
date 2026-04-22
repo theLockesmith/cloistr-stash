@@ -2058,6 +2058,13 @@ const App = {
 
             UI.showLoginProgress('Loading your files...');
             this.authState = 'authenticated';
+
+            // Notify desktop app of authentication (for sync integration)
+            if (window.desktopIntegration?.isTauri) {
+                await window.desktopIntegration.setApiAuth(authHeader);
+                console.log('Desktop: Auth bridge connected');
+            }
+
             await this.loadFiles();
             await this.loadFolderTree();
             UI.hideLoginProgress();
@@ -2092,6 +2099,13 @@ const App = {
 
         Auth.disconnect();
         this.authState = 'unauthenticated';
+
+        // Notify desktop app of disconnection
+        if (window.desktopIntegration?.isTauri) {
+            window.desktopIntegration.clearApiAuth();
+            console.log('Desktop: Auth bridge disconnected');
+        }
+
         this.files = [];
         this.folders = [];
         this.sharedFiles = [];
