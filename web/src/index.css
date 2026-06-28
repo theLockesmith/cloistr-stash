@@ -1,0 +1,42 @@
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: #0b0b0f;
+  color: #e8e8ef;
+}
+
+.stash-app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.stash-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.stash-placeholder {
+  margin: auto;
+  text-align: center;
+  padding: 2rem;
+}
+
+.stash-muted {
+  opacity: 0.6;
+}
