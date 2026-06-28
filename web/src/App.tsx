@@ -3,6 +3,7 @@ import { useNostrAuth } from '@cloistr/collab-common/auth'
 import { Header, Footer, LoginPrompt } from '@cloistr/ui/components'
 import { updateAuth, type Signer } from './lib/authBridge'
 import { useStash } from './state/useStash'
+import { FileBrowser } from './components/FileBrowser'
 
 /**
  * Stash application shell.
@@ -17,7 +18,7 @@ export default function App() {
   const { authState, signer } = useNostrAuth()
   const isConnected = !!authState?.isConnected
   const pubkey = authState?.pubkey ?? null
-  const { loadFiles, loadFolderTree, files, folders, loading, error } = useStash()
+  const { loadFiles, loadFolderTree } = useStash()
 
   // Bridge the shared signer into the data layer, then load on connect.
   useEffect(() => {
@@ -40,22 +41,7 @@ export default function App() {
       <Header activeServiceId="files" />
       <main className="stash-main">
         {isConnected ? (
-          <section className="stash-placeholder">
-            <h1>Stash</h1>
-            <p>
-              Signed in as <code>{pubkey?.slice(0, 16)}…</code>
-            </p>
-            {loading ? (
-              <p className="stash-muted">Loading…</p>
-            ) : error ? (
-              <p className="stash-muted">{error}</p>
-            ) : (
-              <p className="stash-muted">
-                {folders.length} folder{folders.length === 1 ? '' : 's'}, {files.length} file
-                {files.length === 1 ? '' : 's'} in this view. File browser UI ports next (4b).
-              </p>
-            )}
-          </section>
+          <FileBrowser />
         ) : (
           <LoginPrompt
             title="Cloistr Stash"

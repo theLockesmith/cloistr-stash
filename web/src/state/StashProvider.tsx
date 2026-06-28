@@ -33,6 +33,8 @@ export interface StashContextValue {
   selectedFiles: ReadonlySet<string>
   selectedFolders: ReadonlySet<string>
   selectionMode: boolean
+  /** SHA-256s of starred files (populated in 4c). */
+  starredFiles: ReadonlySet<string>
   // Status
   loading: boolean
   error: string | null
@@ -96,6 +98,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [selectedFiles, setSelectedFiles] = useState<ReadonlySet<string>>(new Set())
   const [selectedFolders, setSelectedFolders] = useState<ReadonlySet<string>>(new Set())
   const [selectionMode, setSelectionMode] = useState(false)
+  const [starredFiles] = useState<ReadonlySet<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -224,6 +227,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       selectedFiles,
       selectedFolders,
       selectionMode,
+      starredFiles,
       loading,
       error,
       loadFiles,
@@ -249,6 +253,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       selectedFiles,
       selectedFolders,
       selectionMode,
+      starredFiles,
       loading,
       error,
       loadFiles,

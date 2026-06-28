@@ -40,3 +40,141 @@ body {
 .stash-muted {
   opacity: 0.6;
 }
+
+/* ---- File browser (4b) ---- */
+.file-browser {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.fb-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.fb-view-btn {
+  background: #16161d;
+  color: #e8e8ef;
+  border: 1px solid #2a2a36;
+  border-radius: 6px;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+}
+
+.fb-view-btn.active {
+  border-color: #6b6bff;
+  background: #1d1d2a;
+}
+
+.fb-status {
+  padding: 2rem;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.fb-error {
+  color: #ff8080;
+}
+
+.fb-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.fb-row {
+  display: grid;
+  grid-template-columns: auto 1fr 7rem 7rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid #1c1c26;
+}
+
+.fb-row.selected {
+  background: #1b1b2b;
+}
+
+.fb-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.fb-folder-open {
+  cursor: pointer;
+}
+
+.fb-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fb-star {
+  color: #d9b441;
+}
+
+.fb-e2e {
+  font-size: 0.65rem;
+  border: 1px solid #3a7a3a;
+  color: #7ad17a;
+  border-radius: 4px;
+  padding: 0 0.25rem;
+}
+
+.fb-size,
+.fb-date {
+  opacity: 0.6;
+  font-size: 0.85rem;
+  text-align: right;
+}
+
+.fb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.75rem;
+}
+
+.fb-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1rem 0.5rem;
+  background: #14141c;
+  border: 1px solid #20202c;
+  border-radius: 8px;
+  color: inherit;
+  cursor: default;
+}
+
+.fb-card.fb-folder {
+  cursor: pointer;
+}
+
+.fb-card-icon {
+  font-size: 2rem;
+}
+
+.fb-card-name {
+  font-size: 0.85rem;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.fb-card-size {
+  font-size: 0.72rem;
+  opacity: 0.55;
+}
