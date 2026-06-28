@@ -34,6 +34,14 @@ export type FolderMetadata = Record<string, unknown>
 export type ShareInfo = Record<string, unknown>
 export type QuotaInfo = Record<string, unknown>
 
+// List endpoints return an object wrapping the array (server shape).
+export interface FileListResponse {
+  files: FileMetadata[]
+}
+export interface FolderListResponse {
+  folders: FolderMetadata[]
+}
+
 export const API = {
   baseURL: '',
 
@@ -63,7 +71,7 @@ export const API = {
     return response.json()
   },
 
-  async listFiles(pubkey?: string): Promise<FileMetadata[]> {
+  async listFiles(pubkey?: string): Promise<FileListResponse> {
     const url = pubkey ? `${this.baseURL}/api/files?pubkey=${pubkey}` : `${this.baseURL}/api/files`
     const response = await fetch(url)
     if (!response.ok) throw new Error(`Failed to list files: ${response.status}`)
@@ -134,7 +142,7 @@ export const API = {
     }
   },
 
-  async listFolders(pubkey: string, parentId: string | null = null): Promise<FolderMetadata[]> {
+  async listFolders(pubkey: string, parentId: string | null = null): Promise<FolderListResponse> {
     let url = `${this.baseURL}/api/folders?pubkey=${pubkey}`
     if (parentId !== null) url += `&parent=${parentId}`
     const response = await fetch(url)
@@ -180,7 +188,7 @@ export const API = {
     return response.json()
   },
 
-  async listFilesInFolder(pubkey: string, folderId = ''): Promise<FileMetadata[]> {
+  async listFilesInFolder(pubkey: string, folderId = ''): Promise<FileListResponse> {
     const url = `${this.baseURL}/api/files?pubkey=${pubkey}&folder=${folderId}`
     const response = await fetch(url)
     if (!response.ok) throw new Error(`Failed to list files: ${response.status}`)
