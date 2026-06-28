@@ -18,6 +18,7 @@ import {
 import { API } from '../lib/api'
 import { Keys } from '../lib/keys'
 import { authPort } from '../lib/authBridge'
+import { delay, deleteFolders, RELAY_THROTTLE_MS, softDeleteFile } from '../lib/operations'
 import type { FolderPathItem, StashFile, StashFolder, StashView } from './types'
 
 interface RecentEntry {
@@ -62,6 +63,9 @@ export interface StashContextValue {
   toggleFolderSelection: (folderId: string) => void
   clearSelection: () => void
   setSelectionMode: (on: boolean) => void
+  deleteFile: (file: StashFile) => Promise<void>
+  deleteFolder: (folderId: string) => Promise<void>
+  deleteSelected: () => Promise<void>
 }
 
 export const StashContext = createContext<StashContextValue | null>(null)
@@ -324,6 +328,74 @@ export function StashProvider({ children }: { children: ReactNode }) {
     setSelectedFolders(new Set())
   }, [])
 
+  const reloadCurrentView = useCallback(async () => {
+    if (view === 'my-files') await loadFilesFor(folderIdRef.current)
+    else if (view === 'starred' || view === 'recent' || view === 'trash') await loadSpecialView(view)
+  }, [view, loadFilesFor, loadSpecialView])
+
+  const deleteFile = useCallback(
+    async (file: StashFile) => {
+      setLoading(true)
+      setError(null)
+      try {
+        await softDeleteFile(file)
+        await reloadCurrentView()
+      } catch (err) {
+        console.error('deleteFile failed', err)
+        setError('Failed to delete file')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [reloadCurrentView],
+  )
+
+  const deleteFolder = useCallback(
+    async (folderId: string) => {
+      setLoading(true)
+      setError(null)
+      try {
+        await deleteFolders([folderId])
+        await Promise.all([reloadCurrentView(), loadFolderTree()])
+      } catch (err) {
+        console.error('deleteFolder failed', err)
+        setError('Failed to delete folder')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [reloadCurrentView, loadFolderTree],
+  )
+
+  // Port of app.js bulkDelete: soft-delete each selected file (throttled to
+  // respect relay rate limits), then one batched kind:5 event for folders.
+  const deleteSelected = useCallback(async () => {
+    const shas = [...selectedFiles]
+    const folderIds = [...selectedFolders]
+    if (shas.length === 0 && folderIds.length === 0) return
+
+    setLoading(true)
+    setError(null)
+    try {
+      const pool = [...files, ...specialFiles]
+      for (const sha of shas) {
+        const file = pool.find((f) => f.sha256 === sha)
+        if (file) {
+          await softDeleteFile(file)
+          await delay(RELAY_THROTTLE_MS)
+        }
+      }
+      await deleteFolders(folderIds)
+      clearSelection()
+      await Promise.all([reloadCurrentView(), loadFolderTree()])
+    } catch (err) {
+      console.error('deleteSelected failed', err)
+      setError('Failed to delete selection')
+    } finally {
+      setLoading(false)
+    }
+  }, [selectedFiles, selectedFolders, files, specialFiles, clearSelection, reloadCurrentView, loadFolderTree])
+
   const value = useMemo<StashContextValue>(
     () => ({
       files,
@@ -353,6 +425,9 @@ export function StashProvider({ children }: { children: ReactNode }) {
       toggleFolderSelection,
       clearSelection,
       setSelectionMode,
+      deleteFile,
+      deleteFolder,
+      deleteSelected,
     }),
     [
       files,
@@ -380,6 +455,9 @@ export function StashProvider({ children }: { children: ReactNode }) {
       toggleFileSelection,
       toggleFolderSelection,
       clearSelection,
+      deleteFile,
+      deleteFolder,
+      deleteSelected,
     ],
   )
 
