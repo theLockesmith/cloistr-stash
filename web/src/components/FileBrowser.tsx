@@ -1,11 +1,10 @@
 // File/folder browser surface (4b/4c/4d): list + grid views, per-row actions
-// menu, file-info modal, batch selection toolbar.
+// menu (info/rename/move/delete), file-info modal, batch selection toolbar.
 //
 // my-files shows the current folder's folders + files; starred/recent/trash
 // show the special-view file set (no folders). Ported from ui.js
-// renderFile/FolderListItem + grid variants + app.js showFileInfo / delete
-// flows. Driven by the useStash store. Rename/move + drag-drop remain (4d
-// follow-up); previews remain (later).
+// renderFile/FolderListItem + grid variants and app.js showFileInfo / rename /
+// move / delete flows, driven by the useStash store. Drag-drop + previews remain.
 
 import { useState } from 'react'
 import { ConfirmModal } from '@cloistr/ui/components'
@@ -14,6 +13,8 @@ import type { StashFile, StashFolder } from '../state/types'
 import { formatDate, formatFileSize, getFileIcon } from './format'
 import { FileInfoModal } from './FileInfoModal'
 import { SelectionToolbar } from './SelectionToolbar'
+import { RenameModal } from './RenameModal'
+import { MoveModal } from './MoveModal'
 
 type ViewMode = 'list' | 'grid'
 
@@ -30,6 +31,13 @@ interface PendingDelete {
   name: string
   file?: StashFile
   folderId?: string
+}
+
+interface RenameTarget {
+  kind: 'file' | 'folder'
+  name: string
+  file?: StashFile
+  folder?: StashFolder
 }
 
 export function FileBrowser() {
@@ -50,10 +58,15 @@ export function FileBrowser() {
     recordFileAccess,
     deleteFile,
     deleteFolder,
+    renameFile,
+    renameFolder,
+    moveFile,
   } = useStash()
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [infoFile, setInfoFile] = useState<StashFile | null>(null)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
+  const [moveTarget, setMoveTarget] = useState<StashFile | null>(null)
 
   if (loading) return <div className="fb-status">Loading…</div>
   if (error) return <div className="fb-status fb-error">{error}</div>
@@ -83,6 +96,20 @@ export function FileBrowser() {
     if (!pd) return
     if (pd.kind === 'file' && pd.file) void deleteFile(pd.file)
     else if (pd.kind === 'folder' && pd.folderId) void deleteFolder(pd.folderId)
+  }
+
+  const saveRename = (newName: string) => {
+    const rt = renameTarget
+    setRenameTarget(null)
+    if (!rt) return
+    if (rt.kind === 'file' && rt.file) void renameFile(rt.file, newName)
+    else if (rt.kind === 'folder' && rt.folder) void renameFolder(rt.folder, newName)
+  }
+
+  const doMove = (targetFolderId: string) => {
+    const file = moveTarget
+    setMoveTarget(null)
+    if (file) void moveFile(file, targetFolderId)
   }
 
   return (
@@ -119,6 +146,7 @@ export function FileBrowser() {
               selected={selectedFolders.has(folder.id)}
               onOpen={() => navigateToFolder(folder.id, folder.name)}
               onToggleSelect={() => toggleFolderSelection(folder.id)}
+              onRename={() => setRenameTarget({ kind: 'folder', folder, name: folder.name })}
               onDelete={() => setPendingDelete({ kind: 'folder', folderId: folder.id, name: folder.name })}
             />
           ))}
@@ -131,6 +159,8 @@ export function FileBrowser() {
               onToggleSelect={() => toggleFileSelection(file.sha256)}
               onToggleStar={() => toggleStar(file.sha256)}
               onInfo={() => openInfo(file)}
+              onRename={() => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) })}
+              onMove={() => setMoveTarget(file)}
               onDelete={() => setPendingDelete({ kind: 'file', file, name: fileDisplayName(file) })}
             />
           ))}
@@ -152,6 +182,16 @@ export function FileBrowser() {
 
       <FileInfoModal file={infoFile} onClose={() => setInfoFile(null)} />
 
+      <RenameModal
+        open={!!renameTarget}
+        initialName={renameTarget?.name ?? ''}
+        title={renameTarget?.kind === 'folder' ? 'Rename folder' : 'Rename file'}
+        onClose={() => setRenameTarget(null)}
+        onSave={saveRename}
+      />
+
+      <MoveModal open={!!moveTarget} onClose={() => setMoveTarget(null)} onMove={doMove} />
+
       <ConfirmModal
         isOpen={!!pendingDelete}
         onClose={() => setPendingDelete(null)}
@@ -169,7 +209,13 @@ export function FileBrowser() {
 }
 
 /** Lightweight per-row actions menu (⋮) with a click-away overlay. */
-function RowMenu({ items, label }: { items: { label: string; onClick: () => void; danger?: boolean }[]; label: string }) {
+function RowMenu({
+  items,
+  label,
+}: {
+  items: { label: string; onClick: () => void; danger?: boolean }[]
+  label: string
+}) {
   const [open, setOpen] = useState(false)
   return (
     <span className="fb-menu">
@@ -213,12 +259,14 @@ function FolderRow({
   selected,
   onOpen,
   onToggleSelect,
+  onRename,
   onDelete,
 }: {
   folder: StashFolder
   selected: boolean
   onOpen: () => void
   onToggleSelect: () => void
+  onRename: () => void
   onDelete: () => void
 }) {
   return (
@@ -238,7 +286,13 @@ function FolderRow({
       </button>
       <span className="fb-size">—</span>
       <span className="fb-date">—</span>
-      <RowMenu label={`Actions for ${folder.name}`} items={[{ label: 'Delete', onClick: onDelete, danger: true }]} />
+      <RowMenu
+        label={`Actions for ${folder.name}`}
+        items={[
+          { label: 'Rename', onClick: onRename },
+          { label: 'Delete', onClick: onDelete, danger: true },
+        ]}
+      />
     </div>
   )
 }
@@ -250,6 +304,8 @@ function FileRow({
   onToggleSelect,
   onToggleStar,
   onInfo,
+  onRename,
+  onMove,
   onDelete,
 }: {
   file: StashFile
@@ -258,6 +314,8 @@ function FileRow({
   onToggleSelect: () => void
   onToggleStar: () => void
   onInfo: () => void
+  onRename: () => void
+  onMove: () => void
   onDelete: () => void
 }) {
   const enc = isEncrypted(file)
@@ -303,6 +361,8 @@ function FileRow({
         label={`Actions for ${name}`}
         items={[
           { label: 'Info', onClick: onInfo },
+          { label: 'Rename', onClick: onRename },
+          { label: 'Move to…', onClick: onMove },
           { label: 'Delete', onClick: onDelete, danger: true },
         ]}
       />

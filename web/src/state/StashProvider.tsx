@@ -18,7 +18,15 @@ import {
 import { API } from '../lib/api'
 import { Keys } from '../lib/keys'
 import { authPort } from '../lib/authBridge'
-import { delay, deleteFolders, RELAY_THROTTLE_MS, softDeleteFile } from '../lib/operations'
+import {
+  delay,
+  deleteFolders,
+  moveFile as opMoveFile,
+  renameFile as opRenameFile,
+  renameFolder as opRenameFolder,
+  RELAY_THROTTLE_MS,
+  softDeleteFile,
+} from '../lib/operations'
 import type { FolderPathItem, StashFile, StashFolder, StashView } from './types'
 
 interface RecentEntry {
@@ -66,6 +74,9 @@ export interface StashContextValue {
   deleteFile: (file: StashFile) => Promise<void>
   deleteFolder: (folderId: string) => Promise<void>
   deleteSelected: () => Promise<void>
+  renameFile: (file: StashFile, newName: string) => Promise<void>
+  renameFolder: (folder: StashFolder, newName: string) => Promise<void>
+  moveFile: (file: StashFile, targetFolderId: string) => Promise<void>
 }
 
 export const StashContext = createContext<StashContextValue | null>(null)
@@ -396,6 +407,48 @@ export function StashProvider({ children }: { children: ReactNode }) {
     }
   }, [selectedFiles, selectedFolders, files, specialFiles, clearSelection, reloadCurrentView, loadFolderTree])
 
+  const renameFile = useCallback(
+    async (file: StashFile, newName: string) => {
+      setError(null)
+      try {
+        await opRenameFile(file, newName)
+        await reloadCurrentView()
+      } catch (err) {
+        console.error('renameFile failed', err)
+        setError('Failed to rename file')
+      }
+    },
+    [reloadCurrentView],
+  )
+
+  const renameFolder = useCallback(
+    async (folder: StashFolder, newName: string) => {
+      setError(null)
+      try {
+        await opRenameFolder(folder, newName)
+        await Promise.all([reloadCurrentView(), loadFolderTree()])
+      } catch (err) {
+        console.error('renameFolder failed', err)
+        setError('Failed to rename folder')
+      }
+    },
+    [reloadCurrentView, loadFolderTree],
+  )
+
+  const moveFile = useCallback(
+    async (file: StashFile, targetFolderId: string) => {
+      setError(null)
+      try {
+        await opMoveFile(file, targetFolderId)
+        await reloadCurrentView()
+      } catch (err) {
+        console.error('moveFile failed', err)
+        setError('Failed to move file')
+      }
+    },
+    [reloadCurrentView],
+  )
+
   const value = useMemo<StashContextValue>(
     () => ({
       files,
@@ -428,6 +481,9 @@ export function StashProvider({ children }: { children: ReactNode }) {
       deleteFile,
       deleteFolder,
       deleteSelected,
+      renameFile,
+      renameFolder,
+      moveFile,
     }),
     [
       files,
@@ -458,6 +514,9 @@ export function StashProvider({ children }: { children: ReactNode }) {
       deleteFile,
       deleteFolder,
       deleteSelected,
+      renameFile,
+      renameFolder,
+      moveFile,
     ],
   )
 

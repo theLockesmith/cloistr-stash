@@ -325,6 +325,53 @@ body {
   word-break: break-word;
 }
 
+/* Rename / move modals */
+.modal-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0f0f16;
+  color: #e8e8ef;
+  border: 1px solid #2a2a36;
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.selection-btn.primary {
+  background: #2d2d6b;
+  border-color: #3a3a8a;
+  color: #dcdcff;
+}
+
+.move-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.move-target {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: #e8e8ef;
+  padding: 0.55rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.move-target:hover {
+  background: #1d1d2a;
+}
+
 .fb-row.selected {
   background: #1b1b2b;
 }
