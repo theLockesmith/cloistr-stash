@@ -1,10 +1,11 @@
 // Stash state model + store.
 //
 // Replaces the legacy `const App = {}` global (app.js) with a React context.
-// Holds the file-browser state and the load/navigate/select actions, backed by
-// the ported data layer (api.ts, keys.ts) and the auth bridge. Special-view
-// loading (starred/recent/trash) lands in 4c; this provides the slots + the
-// core my-files load + navigation + selection.
+// Holds the file-browser state and the load/navigate/select/view actions,
+// backed by the ported data layer (api.ts, keys.ts) and the auth bridge.
+//
+// localStorage keys 'cloistr-starred' / 'cloistr-recent' are preserved verbatim
+// for continuity with existing users' data.
 
 import {
   createContext,
@@ -19,11 +20,21 @@ import { Keys } from '../lib/keys'
 import { authPort } from '../lib/authBridge'
 import type { FolderPathItem, StashFile, StashFolder, StashView } from './types'
 
+interface RecentEntry {
+  sha256: string
+  accessedAt: number
+}
+
+const STARRED_KEY = 'cloistr-starred'
+const RECENT_KEY = 'cloistr-recent'
+
 export interface StashContextValue {
   // Data
   files: StashFile[]
   folders: StashFolder[]
   folderTreeData: StashFolder[]
+  /** Files shown for the active special view (starred/recent/trash). */
+  specialFiles: StashFile[]
   // Navigation
   currentFolderId: string
   folderPath: FolderPathItem[]
@@ -33,7 +44,6 @@ export interface StashContextValue {
   selectedFiles: ReadonlySet<string>
   selectedFolders: ReadonlySet<string>
   selectionMode: boolean
-  /** SHA-256s of starred files (populated in 4c). */
   starredFiles: ReadonlySet<string>
   // Status
   loading: boolean
@@ -44,8 +54,10 @@ export interface StashContextValue {
   navigateToFolder: (folderId: string, folderName: string) => Promise<void>
   navigateToRoot: () => Promise<void>
   navigateToFolderAbsolute: (folderId: string) => Promise<void>
-  setView: (view: StashView) => void
+  setView: (view: StashView) => Promise<void>
   setSearchQuery: (q: string) => void
+  toggleStar: (sha256: string) => void
+  recordFileAccess: (sha256: string) => void
   toggleFileSelection: (sha256: string) => void
   toggleFolderSelection: (folderId: string) => void
   clearSelection: () => void
@@ -87,24 +99,47 @@ function isVisibleFile(f: StashFile): boolean {
   return true
 }
 
+function loadStarred(): Set<string> {
+  try {
+    const stored = localStorage.getItem(STARRED_KEY)
+    if (stored) return new Set(JSON.parse(stored) as string[])
+  } catch (err) {
+    console.warn('Failed to load starred state:', err)
+  }
+  return new Set()
+}
+
+function loadRecent(): RecentEntry[] {
+  try {
+    const stored = localStorage.getItem(RECENT_KEY)
+    if (stored) return JSON.parse(stored) as RecentEntry[]
+  } catch (err) {
+    console.warn('Failed to load recent state:', err)
+  }
+  return []
+}
+
 export function StashProvider({ children }: { children: ReactNode }) {
   const [files, setFiles] = useState<StashFile[]>([])
   const [folders, setFolders] = useState<StashFolder[]>([])
   const [folderTreeData, setFolderTreeData] = useState<StashFolder[]>([])
+  const [specialFiles, setSpecialFiles] = useState<StashFile[]>([])
   const [currentFolderId, setCurrentFolderId] = useState('')
   const [folderPath, setFolderPath] = useState<FolderPathItem[]>([])
-  const [view, setView] = useState<StashView>('my-files')
+  const [view, setViewState] = useState<StashView>('my-files')
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedFiles, setSelectedFiles] = useState<ReadonlySet<string>>(new Set())
   const [selectedFolders, setSelectedFolders] = useState<ReadonlySet<string>>(new Set())
   const [selectionMode, setSelectionMode] = useState(false)
-  const [starredFiles] = useState<ReadonlySet<string>>(new Set())
+  const [starredFiles, setStarredFiles] = useState<ReadonlySet<string>>(() => loadStarred())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Ref mirror so load actions read the latest folder without stale closures.
   const folderIdRef = useRef('')
   const treeRef = useRef<StashFolder[]>([])
+  const recentRef = useRef<RecentEntry[]>(loadRecent())
+  const starredRef = useRef<ReadonlySet<string>>(starredFiles)
+  starredRef.current = starredFiles
 
   const loadFilesFor = useCallback(async (folderId: string) => {
     const pubkey = authPort.pubkey
@@ -135,6 +170,54 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
   const loadFiles = useCallback(() => loadFilesFor(folderIdRef.current), [loadFilesFor])
 
+  // Load the file set backing a special view (starred / recent / trash) from the
+  // full file list. Ported from app.js loadStarredFiles/loadRecentFiles/loadTrashFiles.
+  const loadSpecialView = useCallback(async (which: StashView) => {
+    const pubkey = authPort.pubkey
+    if (!authPort.isConnected || !pubkey) return
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await API.listFiles(pubkey)
+      const allFiles = (response.files || []) as StashFile[]
+
+      let result: StashFile[] = []
+      if (which === 'trash') {
+        result = allFiles
+          .filter((f) => f.deleted_at || f.deletedAt)
+          .sort((a, b) => Number(b.deleted_at || b.deletedAt || 0) - Number(a.deleted_at || a.deletedAt || 0))
+      } else if (which === 'starred') {
+        const starred = starredRef.current
+        result = allFiles.filter((f) => starred.has(f.sha256) && !f.deleted_at && !f.deletedAt)
+      } else if (which === 'recent') {
+        const recent = recentRef.current
+        const order = new Map(recent.map((r) => [r.sha256, r.accessedAt]))
+        result = allFiles
+          .filter((f) => order.has(f.sha256) && !f.deleted_at && !f.deletedAt)
+          .sort((a, b) => (order.get(b.sha256) || 0) - (order.get(a.sha256) || 0))
+          .slice(0, 50)
+      }
+      setSpecialFiles(result)
+    } catch (err) {
+      console.error(`load ${which}: Failed -`, err)
+      setError(`Failed to load ${which}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const setView = useCallback(
+    async (next: StashView) => {
+      setViewState(next)
+      if (next === 'my-files') {
+        await loadFilesFor(folderIdRef.current)
+      } else if (next === 'starred' || next === 'recent' || next === 'trash') {
+        await loadSpecialView(next)
+      }
+    },
+    [loadFilesFor, loadSpecialView],
+  )
+
   const loadFolderTree = useCallback(async () => {
     const pubkey = authPort.pubkey
     if (!authPort.isConnected || !pubkey) return
@@ -149,7 +232,6 @@ export function StashProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Walk parent_id up the folder tree to build an absolute breadcrumb path.
   const getPathToFolder = useCallback((folderId: string): FolderPathItem[] => {
     if (!folderId) return []
     const path: FolderPathItem[] = []
@@ -166,6 +248,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
   const navigateToFolder = useCallback(
     async (folderId: string, folderName: string) => {
+      setViewState('my-files')
       if (folderId === '') {
         folderIdRef.current = ''
         setCurrentFolderId('')
@@ -184,6 +267,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
   const navigateToFolderAbsolute = useCallback(
     async (folderId: string) => {
+      setViewState('my-files')
       folderIdRef.current = folderId
       setCurrentFolderId(folderId)
       setFolderPath(folderId === '' ? [] : getPathToFolder(folderId))
@@ -191,6 +275,31 @@ export function StashProvider({ children }: { children: ReactNode }) {
     },
     [getPathToFolder, loadFilesFor],
   )
+
+  const toggleStar = useCallback((sha256: string) => {
+    setStarredFiles((prev) => {
+      const next = new Set(prev)
+      if (next.has(sha256)) next.delete(sha256)
+      else next.add(sha256)
+      try {
+        localStorage.setItem(STARRED_KEY, JSON.stringify([...next]))
+      } catch (err) {
+        console.warn('Failed to save starred state:', err)
+      }
+      return next
+    })
+  }, [])
+
+  const recordFileAccess = useCallback((sha256: string) => {
+    const filtered = recentRef.current.filter((r) => r.sha256 !== sha256)
+    filtered.unshift({ sha256, accessedAt: Math.floor(Date.now() / 1000) })
+    recentRef.current = filtered.slice(0, 100)
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(recentRef.current))
+    } catch (err) {
+      console.warn('Failed to save recent state:', err)
+    }
+  }, [])
 
   const toggleFileSelection = useCallback((sha256: string) => {
     setSelectedFiles((prev) => {
@@ -220,6 +329,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       files,
       folders,
       folderTreeData,
+      specialFiles,
       currentFolderId,
       folderPath,
       view,
@@ -237,6 +347,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
       navigateToFolderAbsolute,
       setView,
       setSearchQuery,
+      toggleStar,
+      recordFileAccess,
       toggleFileSelection,
       toggleFolderSelection,
       clearSelection,
@@ -246,6 +358,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       files,
       folders,
       folderTreeData,
+      specialFiles,
       currentFolderId,
       folderPath,
       view,
@@ -261,6 +374,9 @@ export function StashProvider({ children }: { children: ReactNode }) {
       navigateToFolder,
       navigateToRoot,
       navigateToFolderAbsolute,
+      setView,
+      toggleStar,
+      recordFileAccess,
       toggleFileSelection,
       toggleFolderSelection,
       clearSelection,

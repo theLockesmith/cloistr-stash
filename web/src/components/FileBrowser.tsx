@@ -1,10 +1,9 @@
-// File/folder browser surface (4b): list + grid views of the current folder.
+// File/folder browser surface (4b/4c): list + grid views of the active view.
 //
-// Ports the rendering of ui.js renderFileListItem / renderFolderListItem and
-// their grid variants into React, driven by the useStash store. Folder rows
-// navigate; rows carry selection checkboxes. Previews, context menus, drag-drop
-// and batch ops land in later sub-tasks (4d); the star button reflects store
-// state (starred actions arrive in 4c).
+// my-files shows the current folder's folders + files; starred/recent/trash
+// show the special-view file set (no folders). Ported from ui.js
+// renderFile/FolderListItem + grid variants, driven by the useStash store.
+// Previews, context menus, drag-drop and batch ops land in 4d.
 
 import { useState } from 'react'
 import { useStash } from '../state/useStash'
@@ -23,24 +22,38 @@ function isEncrypted(file: StashFile): boolean {
 
 export function FileBrowser() {
   const {
+    view,
     folders,
     files,
+    specialFiles,
     loading,
     error,
     selectedFiles,
     selectedFolders,
-    selectionMode,
     starredFiles,
     navigateToFolder,
     toggleFileSelection,
     toggleFolderSelection,
+    toggleStar,
   } = useStash()
   const [viewMode, setViewMode] = useState<ViewMode>('list')
 
   if (loading) return <div className="fb-status">Loading…</div>
   if (error) return <div className="fb-status fb-error">{error}</div>
 
-  const empty = folders.length === 0 && files.length === 0
+  const isMyFiles = view === 'my-files'
+  const shownFolders = isMyFiles ? folders : []
+  const shownFiles = isMyFiles ? files : specialFiles
+  const empty = shownFolders.length === 0 && shownFiles.length === 0
+
+  const emptyMessage =
+    view === 'trash'
+      ? 'Trash is empty.'
+      : view === 'starred'
+        ? 'No starred files.'
+        : view === 'recent'
+          ? 'No recent files.'
+          : 'This folder is empty.'
 
   return (
     <div className="file-browser">
@@ -64,39 +77,39 @@ export function FileBrowser() {
       </div>
 
       {empty ? (
-        <div className="fb-status fb-empty">This folder is empty.</div>
+        <div className="fb-status fb-empty">{emptyMessage}</div>
       ) : viewMode === 'list' ? (
         <div className="fb-list" role="list">
-          {folders.map((folder) => (
+          {shownFolders.map((folder) => (
             <FolderRow
               key={folder.id}
               folder={folder}
               selected={selectedFolders.has(folder.id)}
-              selectionMode={selectionMode}
               onOpen={() => navigateToFolder(folder.id, folder.name)}
               onToggleSelect={() => toggleFolderSelection(folder.id)}
             />
           ))}
-          {files.map((file) => (
+          {shownFiles.map((file) => (
             <FileRow
               key={file.sha256}
               file={file}
               selected={selectedFiles.has(file.sha256)}
               starred={starredFiles.has(file.sha256)}
               onToggleSelect={() => toggleFileSelection(file.sha256)}
+              onToggleStar={() => toggleStar(file.sha256)}
             />
           ))}
         </div>
       ) : (
         <div className="fb-grid" role="list">
-          {folders.map((folder) => (
+          {shownFolders.map((folder) => (
             <FolderCard
               key={folder.id}
               folder={folder}
               onOpen={() => navigateToFolder(folder.id, folder.name)}
             />
           ))}
-          {files.map((file) => (
+          {shownFiles.map((file) => (
             <FileCard key={file.sha256} file={file} />
           ))}
         </div>
@@ -113,7 +126,6 @@ function FolderRow({
 }: {
   folder: StashFolder
   selected: boolean
-  selectionMode: boolean
   onOpen: () => void
   onToggleSelect: () => void
 }) {
@@ -143,11 +155,13 @@ function FileRow({
   selected,
   starred,
   onToggleSelect,
+  onToggleStar,
 }: {
   file: StashFile
   selected: boolean
   starred: boolean
   onToggleSelect: () => void
+  onToggleStar: () => void
 }) {
   const enc = isEncrypted(file)
   const name = fileDisplayName(file)
@@ -165,9 +179,15 @@ function FileRow({
         aria-label={`Select ${name}`}
       />
       <span className="fb-name">
-        <span className="fb-star" aria-hidden="true">
+        <button
+          type="button"
+          className={`fb-star ${starred ? 'on' : ''}`}
+          aria-pressed={starred}
+          aria-label={starred ? 'Remove from starred' : 'Add to starred'}
+          onClick={onToggleStar}
+        >
           {starred ? '★' : '☆'}
-        </span>
+        </button>
         <span className="fb-icon" aria-hidden="true">
           {getFileIcon(file.mime_type, enc)}
         </span>

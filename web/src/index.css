@@ -41,12 +41,132 @@ body {
   opacity: 0.6;
 }
 
+/* ---- Workspace layout (4c) ---- */
+.stash-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.stash-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  border-right: 1px solid #1c1c26;
+  padding: 0.75rem;
+  overflow-y: auto;
+}
+
+.sidebar-views {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 1rem;
+}
+
+.sidebar-view {
+  text-align: left;
+  background: none;
+  border: none;
+  color: #e8e8ef;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.sidebar-view:hover {
+  background: #16161d;
+}
+
+.sidebar-view.active {
+  background: #1d1d2a;
+  color: #b9b9ff;
+}
+
+.folder-tree-list {
+  list-style: none;
+  margin: 0;
+  padding-left: 0.5rem;
+}
+
+.folder-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.folder-tree-row.active .folder-tree-name {
+  color: #b9b9ff;
+}
+
+.folder-tree-toggle,
+.folder-tree-name {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0.2rem 0.3rem;
+  text-align: left;
+}
+
+.folder-tree-toggle-spacer {
+  display: inline-block;
+  width: 1.1rem;
+}
+
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  padding: 0.75rem 1rem 0;
+}
+
+.breadcrumb-item {
+  background: none;
+  border: none;
+  color: #b9b9ff;
+  cursor: pointer;
+  font: inherit;
+  padding: 0.1rem 0.2rem;
+}
+
+.breadcrumb-sep {
+  opacity: 0.4;
+  padding: 0 0.1rem;
+}
+
+.breadcrumb-current {
+  opacity: 0.8;
+  font-weight: 600;
+}
+
 /* ---- File browser (4b) ---- */
 .file-browser {
   width: 100%;
   max-width: 1100px;
   margin: 0 auto;
   padding: 1rem;
+}
+
+.fb-star {
+  background: none;
+  border: none;
+  color: #6a6a78;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0;
+}
+
+.fb-star.on {
+  color: #d9b441;
 }
 
 .fb-toolbar {

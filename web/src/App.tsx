@@ -4,6 +4,8 @@ import { Header, Footer, LoginPrompt } from '@cloistr/ui/components'
 import { updateAuth, type Signer } from './lib/authBridge'
 import { useStash } from './state/useStash'
 import { FileBrowser } from './components/FileBrowser'
+import { Sidebar } from './components/Sidebar'
+import { Breadcrumbs } from './components/Breadcrumbs'
 
 /**
  * Stash application shell.
@@ -41,7 +43,13 @@ export default function App() {
       <Header activeServiceId="files" />
       <main className="stash-main">
         {isConnected ? (
-          <FileBrowser />
+          <div className="stash-workspace">
+            <Sidebar />
+            <div className="stash-content">
+              <Breadcrumbs />
+              <FileBrowser />
+            </div>
+          </div>
         ) : (
           <LoginPrompt
             title="Cloistr Stash"
