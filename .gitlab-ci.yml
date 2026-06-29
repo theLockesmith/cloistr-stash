@@ -46,6 +46,9 @@ lint:
 
 build:
   stage: build
+  only:
+    - master
+    - main
   image:
     name: gcr.io/kaniko-project/executor:debug
     entrypoint: [""]
