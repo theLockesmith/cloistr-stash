@@ -148,6 +148,35 @@ body {
   font-size: 0.85rem;
 }
 
+/* Shared (incoming shares) view */
+.shared-list {
+  list-style: none;
+  margin: 0;
+  padding: 1rem;
+  max-width: 1100px;
+}
+
+.shared-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid #1c1c26;
+}
+
+.shared-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.shared-from {
+  opacity: 0.55;
+  font-size: 0.8rem;
+}
+
 .upload-btn {
   background: #2d2d6b;
   color: #dcdcff;

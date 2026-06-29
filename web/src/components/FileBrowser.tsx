@@ -62,6 +62,8 @@ export function FileBrowser() {
     renameFolder,
     moveFile,
     loadFiles,
+    sharedItems,
+    acceptShare,
   } = useStash()
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [infoFile, setInfoFile] = useState<StashFile | null>(null)
@@ -180,6 +182,49 @@ export function FileBrowser() {
 
   if (loading) return <div className="fb-status">Loading…{modals}</div>
   if (error) return <div className="fb-status fb-error">{error}{modals}</div>
+
+  // --- Shared (incoming shares) view ---
+  if (view === 'shared') {
+    return (
+      <div className="file-browser">
+        {sharedItems.length === 0 ? (
+          <div className="fb-status fb-empty">No shares received.</div>
+        ) : (
+          <ul className="shared-list">
+            {sharedItems.map((share) => {
+              const content = (share.content ?? {}) as {
+                fileName?: string
+                folderName?: string
+                type?: string
+              }
+              const name = content.fileName || content.folderName || `Shared ${content.type || 'item'}`
+              return (
+                <li key={share.id} className="shared-row">
+                  <span className="shared-meta">
+                    <span className="fb-icon" aria-hidden="true">
+                      {content.folderName ? '📁' : '🔒'}
+                    </span>
+                    {name}
+                    <span className="shared-from">from {share.owner_pubkey.slice(0, 12)}…</span>
+                    {!share.decrypted && <span className="fb-e2e">undecryptable</span>}
+                  </span>
+                  <button
+                    type="button"
+                    className="selection-btn primary"
+                    disabled={!share.decrypted}
+                    onClick={() => void acceptShare(share)}
+                  >
+                    Accept
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+        {modals}
+      </div>
+    )
+  }
 
   const isMyFiles = view === 'my-files'
   const shownFolders = isMyFiles ? folders : []

@@ -8,6 +8,7 @@ import type { StashFolder, StashView } from '../state/types'
 
 const VIEWS: { id: StashView; label: string; icon: string }[] = [
   { id: 'my-files', label: 'My Files', icon: '📁' },
+  { id: 'shared', label: 'Shared', icon: '🔗' },
   { id: 'starred', label: 'Starred', icon: '★' },
   { id: 'recent', label: 'Recent', icon: '🕘' },
   { id: 'trash', label: 'Trash', icon: '🗑️' },

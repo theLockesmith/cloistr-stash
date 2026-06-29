@@ -29,6 +29,7 @@ import {
 } from '../lib/operations'
 import { uploadFiles as libUploadFiles, type UploadItem } from '../lib/upload'
 import { Search, type SearchResult } from '../lib/search'
+import { Sharing, type DecryptedIncomingShare } from '../lib/sharing'
 import type { FolderPathItem, StashFile, StashFolder, StashView } from './types'
 
 interface RecentEntry {
@@ -85,6 +86,8 @@ export interface StashContextValue {
   searchResults: SearchResult[] | null
   runSearch: (query: string) => Promise<void>
   clearSearch: () => void
+  sharedItems: DecryptedIncomingShare[]
+  acceptShare: (share: DecryptedIncomingShare) => Promise<void>
 }
 
 export const StashContext = createContext<StashContextValue | null>(null)
@@ -157,6 +160,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [starredFiles, setStarredFiles] = useState<ReadonlySet<string>>(() => loadStarred())
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
+  const [sharedItems, setSharedItems] = useState<DecryptedIncomingShare[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -231,6 +235,20 @@ export function StashProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const loadShared = useCallback(async () => {
+    if (!authPort.isConnected) return
+    setLoading(true)
+    setError(null)
+    try {
+      setSharedItems(await Sharing.listIncomingShares())
+    } catch (err) {
+      console.error('loadShared failed', err)
+      setError('Failed to load shares')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   const setView = useCallback(
     async (next: StashView) => {
       setViewState(next)
@@ -238,9 +256,11 @@ export function StashProvider({ children }: { children: ReactNode }) {
         await loadFilesFor(folderIdRef.current)
       } else if (next === 'starred' || next === 'recent' || next === 'trash') {
         await loadSpecialView(next)
+      } else if (next === 'shared') {
+        await loadShared()
       }
     },
-    [loadFilesFor, loadSpecialView],
+    [loadFilesFor, loadSpecialView, loadShared],
   )
 
   const loadFolderTree = useCallback(async () => {
@@ -508,6 +528,20 @@ export function StashProvider({ children }: { children: ReactNode }) {
     setSearchResults(null)
   }, [])
 
+  const acceptShare = useCallback(
+    async (share: DecryptedIncomingShare) => {
+      setError(null)
+      try {
+        await Sharing.acceptShare(share)
+        await Promise.all([loadFolderTree(), loadShared()])
+      } catch (err) {
+        console.error('acceptShare failed', err)
+        setError('Failed to accept share')
+      }
+    },
+    [loadFolderTree, loadShared],
+  )
+
   const value = useMemo<StashContextValue>(
     () => ({
       files,
@@ -549,6 +583,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
       searchResults,
       runSearch,
       clearSearch,
+      sharedItems,
+      acceptShare,
     }),
     [
       files,
@@ -588,6 +624,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
       searchResults,
       runSearch,
       clearSearch,
+      sharedItems,
+      acceptShare,
     ],
   )
 
