@@ -7,6 +7,7 @@ import { FileBrowser } from './components/FileBrowser'
 import { Sidebar } from './components/Sidebar'
 import { Breadcrumbs } from './components/Breadcrumbs'
 import { KeyboardShortcuts } from './components/KeyboardShortcuts'
+import { UploadButton, UploadProgress } from './components/UploadBar'
 
 /**
  * Stash application shell.
@@ -21,7 +22,7 @@ export default function App() {
   const { authState, signer } = useNostrAuth()
   const isConnected = !!authState?.isConnected
   const pubkey = authState?.pubkey ?? null
-  const { loadFiles, loadFolderTree } = useStash()
+  const { loadFiles, loadFolderTree, uploadFiles, view } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   // Bridge the shared signer into the data layer, then load on connect.
@@ -55,7 +56,18 @@ export default function App() {
                 onClick={() => setSidebarOpen(false)}
               />
             )}
-            <div className="stash-content">
+            <div
+              className="stash-content"
+              onDragOver={(e) => {
+                if (view === 'my-files') e.preventDefault()
+              }}
+              onDrop={(e) => {
+                if (view !== 'my-files') return
+                e.preventDefault()
+                const dropped = Array.from(e.dataTransfer.files)
+                if (dropped.length > 0) void uploadFiles(dropped)
+              }}
+            >
               <div className="content-header">
                 <button
                   type="button"
@@ -67,9 +79,12 @@ export default function App() {
                   ☰
                 </button>
                 <Breadcrumbs />
+                <span className="content-header-spacer" />
+                <UploadButton />
               </div>
               <FileBrowser />
             </div>
+            <UploadProgress />
             <KeyboardShortcuts />
           </div>
         ) : (

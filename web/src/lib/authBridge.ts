@@ -76,6 +76,25 @@ const authPort = {
   async publishEvent(event: unknown): Promise<void> {
     await Relay.publish(event as SignedEvent)
   },
+
+  // Blossom upload auth (kind 24242), encoded as the `Nostr <base64>` header.
+  // Ported from legacy Auth.createUploadAuth + encodeAuthHeader.
+  async createUploadAuth(fileHash: string, fileSize?: number): Promise<string> {
+    const ts = Math.floor(Date.now() / 1000)
+    const tags: string[][] = [
+      ['t', 'upload'],
+      ['x', fileHash],
+      ['expiration', (ts + 300).toString()],
+    ]
+    if (fileSize) tags.push(['size', fileSize.toString()])
+    const signed = await requireSigner().signEvent({
+      kind: 24242,
+      created_at: ts,
+      tags,
+      content: `Upload ${fileHash}`,
+    })
+    return `Nostr ${btoa(JSON.stringify(signed))}`
+  },
 }
 
 export type AuthPortImpl = typeof authPort

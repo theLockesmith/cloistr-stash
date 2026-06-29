@@ -69,6 +69,74 @@ body {
   gap: 0.5rem;
 }
 
+.content-header-spacer {
+  flex: 1;
+}
+
+.upload-btn {
+  background: #2d2d6b;
+  color: #dcdcff;
+  border: 1px solid #3a3a8a;
+  border-radius: 6px;
+  padding: 0.35rem 0.8rem;
+  margin: 0.75rem 1rem 0 0;
+  cursor: pointer;
+}
+
+.upload-progress {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 50;
+  width: 300px;
+  max-height: 50vh;
+  overflow-y: auto;
+  background: #15151e;
+  border: 1px solid #2a2a36;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  padding: 0.6rem 0.75rem;
+}
+
+.upload-progress-title {
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+
+.upload-progress-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.upload-progress-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  font-size: 0.85rem;
+}
+
+.upload-progress-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-progress-status {
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.upload-progress-item.status-success .upload-progress-status {
+  color: #7ad17a;
+}
+
+.upload-progress-item.status-error .upload-progress-status,
+.upload-progress-item.status-duplicate .upload-progress-status {
+  color: #ff9a9a;
+}
+
 /* Hamburger hidden on desktop; sidebar always visible there. */
 .sidebar-toggle {
   display: none;

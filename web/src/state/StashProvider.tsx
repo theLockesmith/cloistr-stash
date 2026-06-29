@@ -27,6 +27,7 @@ import {
   RELAY_THROTTLE_MS,
   softDeleteFile,
 } from '../lib/operations'
+import { uploadFiles as libUploadFiles, type UploadItem } from '../lib/upload'
 import type { FolderPathItem, StashFile, StashFolder, StashView } from './types'
 
 interface RecentEntry {
@@ -78,6 +79,8 @@ export interface StashContextValue {
   renameFile: (file: StashFile, newName: string) => Promise<void>
   renameFolder: (folder: StashFolder, newName: string) => Promise<void>
   moveFile: (file: StashFile, targetFolderId: string) => Promise<void>
+  uploadItems: UploadItem[]
+  uploadFiles: (files: File[]) => Promise<void>
 }
 
 export const StashContext = createContext<StashContextValue | null>(null)
@@ -148,6 +151,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [selectedFolders, setSelectedFolders] = useState<ReadonlySet<string>>(new Set())
   const [selectionMode, setSelectionMode] = useState(false)
   const [starredFiles, setStarredFiles] = useState<ReadonlySet<string>>(() => loadStarred())
+  const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -460,6 +464,26 @@ export function StashProvider({ children }: { children: ReactNode }) {
     [reloadCurrentView],
   )
 
+  const uploadFiles = useCallback(
+    async (fileList: File[]) => {
+      const list = Array.from(fileList)
+      if (list.length === 0) return
+      setUploadItems([])
+      const upsert = (it: UploadItem) =>
+        setUploadItems((prev) => {
+          const idx = prev.findIndex((p) => p.id === it.id)
+          if (idx === -1) return [...prev, it]
+          const next = prev.slice()
+          next[idx] = it
+          return next
+        })
+      const existing = view === 'my-files' ? files : specialFiles
+      await libUploadFiles(list, { folderId: folderIdRef.current || null, existing, onItem: upsert })
+      await Promise.all([reloadCurrentView(), loadFolderTree()])
+    },
+    [view, files, specialFiles, reloadCurrentView, loadFolderTree],
+  )
+
   const value = useMemo<StashContextValue>(
     () => ({
       files,
@@ -496,6 +520,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
       renameFile,
       renameFolder,
       moveFile,
+      uploadItems,
+      uploadFiles,
     }),
     [
       files,
@@ -530,6 +556,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
       renameFile,
       renameFolder,
       moveFile,
+      uploadItems,
+      uploadFiles,
     ],
   )
 
