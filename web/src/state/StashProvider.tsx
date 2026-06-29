@@ -69,6 +69,7 @@ export interface StashContextValue {
   recordFileAccess: (sha256: string) => void
   toggleFileSelection: (sha256: string) => void
   toggleFolderSelection: (folderId: string) => void
+  selectAll: () => void
   clearSelection: () => void
   setSelectionMode: (on: boolean) => void
   deleteFile: (file: StashFile) => Promise<void>
@@ -339,6 +340,16 @@ export function StashProvider({ children }: { children: ReactNode }) {
     setSelectedFolders(new Set())
   }, [])
 
+  const selectAll = useCallback(() => {
+    if (view === 'my-files') {
+      setSelectedFiles(new Set(files.map((f) => f.sha256)))
+      setSelectedFolders(new Set(folders.map((f) => f.id)))
+    } else {
+      setSelectedFiles(new Set(specialFiles.map((f) => f.sha256)))
+      setSelectedFolders(new Set())
+    }
+  }, [view, files, folders, specialFiles])
+
   const reloadCurrentView = useCallback(async () => {
     if (view === 'my-files') await loadFilesFor(folderIdRef.current)
     else if (view === 'starred' || view === 'recent' || view === 'trash') await loadSpecialView(view)
@@ -476,6 +487,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       recordFileAccess,
       toggleFileSelection,
       toggleFolderSelection,
+      selectAll,
       clearSelection,
       setSelectionMode,
       deleteFile,
@@ -510,6 +522,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       recordFileAccess,
       toggleFileSelection,
       toggleFolderSelection,
+      selectAll,
       clearSelection,
       deleteFile,
       deleteFolder,

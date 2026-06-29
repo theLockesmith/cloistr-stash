@@ -63,6 +63,76 @@ body {
   overflow-y: auto;
 }
 
+.content-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Hamburger hidden on desktop; sidebar always visible there. */
+.sidebar-toggle {
+  display: none;
+  background: none;
+  border: 1px solid #2a2a36;
+  border-radius: 6px;
+  color: #e8e8ef;
+  font-size: 1.1rem;
+  padding: 0.2rem 0.55rem;
+  margin: 0.75rem 0 0 1rem;
+  cursor: pointer;
+}
+
+.sidebar-scrim {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .sidebar-toggle {
+    display: inline-block;
+  }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 40;
+    background: #0b0b0f;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+  .stash-workspace.sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+  .stash-workspace.sidebar-open .sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    background: rgba(0, 0, 0, 0.5);
+    border: none;
+  }
+}
+
+/* Keyboard shortcuts help */
+.shortcuts-list {
+  margin: 0;
+}
+
+.shortcut-row {
+  display: grid;
+  grid-template-columns: 12rem 1fr;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+}
+
+.shortcut-row kbd {
+  background: #1b1b24;
+  border: 1px solid #2a2a36;
+  border-radius: 4px;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.8rem;
+}
+
 .sidebar-views {
   display: flex;
   flex-direction: column;
