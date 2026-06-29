@@ -73,6 +73,81 @@ body {
   flex: 1;
 }
 
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+}
+
+.search-input {
+  background: #0f0f16;
+  color: #e8e8ef;
+  border: 1px solid #2a2a36;
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem;
+  width: 16rem;
+  max-width: 40vw;
+}
+
+.search-clear {
+  background: none;
+  border: none;
+  color: #9a9aa8;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+/* Share modal */
+.share-section {
+  margin-bottom: 1rem;
+}
+
+.share-label {
+  display: block;
+  font-size: 0.85rem;
+  opacity: 0.7;
+  margin-bottom: 0.35rem;
+}
+
+.share-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.share-row .modal-input {
+  margin-bottom: 0;
+}
+
+.share-link {
+  margin-top: 0.5rem;
+}
+
+.share-status {
+  opacity: 0.8;
+  font-size: 0.85rem;
+}
+
+/* Version history modal */
+.version-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.version-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #1c1c26;
+}
+
+.version-meta {
+  font-size: 0.85rem;
+}
+
 .upload-btn {
   background: #2d2d6b;
   color: #dcdcff;

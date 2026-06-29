@@ -1,10 +1,7 @@
-// File/folder browser surface (4b/4c/4d): list + grid views, per-row actions
-// menu (info/rename/move/delete), file-info modal, batch selection toolbar.
-//
-// my-files shows the current folder's folders + files; starred/recent/trash
-// show the special-view file set (no folders). Ported from ui.js
-// renderFile/FolderListItem + grid variants and app.js showFileInfo / rename /
-// move / delete flows, driven by the useStash store. Drag-drop + previews remain.
+// File/folder browser surface (4b/4c/4d + #5 UI): list/grid views, per-row
+// actions menu (info/share/versions/rename/move/delete), file-info/share/
+// version-history/rename/move modals, batch selection toolbar, and the
+// encrypted-search results view.
 
 import { useState } from 'react'
 import { ConfirmModal } from '@cloistr/ui/components'
@@ -15,6 +12,8 @@ import { FileInfoModal } from './FileInfoModal'
 import { SelectionToolbar } from './SelectionToolbar'
 import { RenameModal } from './RenameModal'
 import { MoveModal } from './MoveModal'
+import { ShareModal } from './ShareModal'
+import { VersionHistoryModal } from './VersionHistoryModal'
 
 type ViewMode = 'list' | 'grid'
 
@@ -48,6 +47,7 @@ export function FileBrowser() {
     specialFiles,
     loading,
     error,
+    searchResults,
     selectedFiles,
     selectedFolders,
     starredFiles,
@@ -61,15 +61,125 @@ export function FileBrowser() {
     renameFile,
     renameFolder,
     moveFile,
+    loadFiles,
   } = useStash()
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [infoFile, setInfoFile] = useState<StashFile | null>(null)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
   const [moveTarget, setMoveTarget] = useState<StashFile | null>(null)
+  const [shareTarget, setShareTarget] = useState<StashFile | null>(null)
+  const [versionTarget, setVersionTarget] = useState<StashFile | null>(null)
 
-  if (loading) return <div className="fb-status">Loading…</div>
-  if (error) return <div className="fb-status fb-error">{error}</div>
+  const openInfo = (file: StashFile) => {
+    recordFileAccess(file.sha256)
+    setInfoFile(file)
+  }
+
+  // Modals are always mounted so they render regardless of the early returns below.
+  const modals = (
+    <>
+      <FileInfoModal file={infoFile} onClose={() => setInfoFile(null)} />
+      <ShareModal file={shareTarget} onClose={() => setShareTarget(null)} />
+      <VersionHistoryModal
+        file={versionTarget}
+        onClose={() => setVersionTarget(null)}
+        onRestored={() => void loadFiles()}
+      />
+      <RenameModal
+        open={!!renameTarget}
+        initialName={renameTarget?.name ?? ''}
+        title={renameTarget?.kind === 'folder' ? 'Rename folder' : 'Rename file'}
+        onClose={() => setRenameTarget(null)}
+        onSave={(newName) => {
+          const rt = renameTarget
+          setRenameTarget(null)
+          if (rt?.kind === 'file' && rt.file) void renameFile(rt.file, newName)
+          else if (rt?.kind === 'folder' && rt.folder) void renameFolder(rt.folder, newName)
+        }}
+      />
+      <MoveModal
+        open={!!moveTarget}
+        onClose={() => setMoveTarget(null)}
+        onMove={(targetFolderId) => {
+          const f = moveTarget
+          setMoveTarget(null)
+          if (f) void moveFile(f, targetFolderId)
+        }}
+      />
+      <ConfirmModal
+        isOpen={!!pendingDelete}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={() => {
+          const pd = pendingDelete
+          setPendingDelete(null)
+          if (pd?.kind === 'file' && pd.file) void deleteFile(pd.file)
+          else if (pd?.kind === 'folder' && pd.folderId) void deleteFolder(pd.folderId)
+        }}
+        title={pendingDelete?.kind === 'folder' ? 'Delete folder' : 'Delete file'}
+        message={
+          pendingDelete?.kind === 'folder'
+            ? `Delete folder "${pendingDelete?.name}"?`
+            : `Move "${pendingDelete?.name}" to Trash?`
+        }
+        confirmText="Delete"
+      />
+    </>
+  )
+
+  const fileMenuItems = (file: StashFile) => [
+    { label: 'Info', onClick: () => openInfo(file) },
+    { label: 'Share', onClick: () => setShareTarget(file) },
+    { label: 'Versions', onClick: () => setVersionTarget(file) },
+    { label: 'Rename', onClick: () => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) }) },
+    { label: 'Move to…', onClick: () => setMoveTarget(file) },
+    {
+      label: 'Delete',
+      onClick: () => setPendingDelete({ kind: 'file', file, name: fileDisplayName(file) }),
+      danger: true,
+    },
+  ]
+
+  // --- Search results view ---
+  if (searchResults !== null) {
+    return (
+      <div className="file-browser">
+        {searchResults.length === 0 ? (
+          <div className="fb-status fb-empty">No matches.</div>
+        ) : (
+          <div className="fb-list" role="list">
+            {searchResults.map((r) => {
+              const asFile: StashFile = {
+                sha256: r.sha256,
+                name: r.name,
+                mime_type: r.mimeType,
+                id: r.fileId,
+                encrypted: true,
+              }
+              return (
+                <div key={r.fileId} className="fb-row fb-file" role="listitem">
+                  <span className="fb-checkbox" />
+                  <button type="button" className="fb-name" onClick={() => openInfo(asFile)}>
+                    <span className="fb-icon" aria-hidden="true">
+                      {getFileIcon(r.mimeType, true)}
+                    </span>
+                    <span className="fb-name-text">{r.name}</span>
+                  </button>
+                  <span className="fb-size">{formatFileSize(r.size)}</span>
+                  <span className="fb-date">score {r.score.toFixed(1)}</span>
+                  <RowMenu label={`Actions for ${r.name}`} items={fileMenuItems(asFile)} />
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {modals}
+      </div>
+    )
+  }
+
+  if (loading) return <div className="fb-status">Loading…{modals}</div>
+  if (error) return <div className="fb-status fb-error">{error}{modals}</div>
 
   const isMyFiles = view === 'my-files'
   const shownFolders = isMyFiles ? folders : []
@@ -84,33 +194,6 @@ export function FileBrowser() {
         : view === 'recent'
           ? 'No recent files.'
           : 'This folder is empty.'
-
-  const openInfo = (file: StashFile) => {
-    recordFileAccess(file.sha256)
-    setInfoFile(file)
-  }
-
-  const confirmDelete = () => {
-    const pd = pendingDelete
-    setPendingDelete(null)
-    if (!pd) return
-    if (pd.kind === 'file' && pd.file) void deleteFile(pd.file)
-    else if (pd.kind === 'folder' && pd.folderId) void deleteFolder(pd.folderId)
-  }
-
-  const saveRename = (newName: string) => {
-    const rt = renameTarget
-    setRenameTarget(null)
-    if (!rt) return
-    if (rt.kind === 'file' && rt.file) void renameFile(rt.file, newName)
-    else if (rt.kind === 'folder' && rt.folder) void renameFolder(rt.folder, newName)
-  }
-
-  const doMove = (targetFolderId: string) => {
-    const file = moveTarget
-    setMoveTarget(null)
-    if (file) void moveFile(file, targetFolderId)
-  }
 
   return (
     <div className="file-browser">
@@ -159,9 +242,7 @@ export function FileBrowser() {
               onToggleSelect={() => toggleFileSelection(file.sha256)}
               onToggleStar={() => toggleStar(file.sha256)}
               onInfo={() => openInfo(file)}
-              onRename={() => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) })}
-              onMove={() => setMoveTarget(file)}
-              onDelete={() => setPendingDelete({ kind: 'file', file, name: fileDisplayName(file) })}
+              menuItems={fileMenuItems(file)}
             />
           ))}
         </div>
@@ -180,42 +261,19 @@ export function FileBrowser() {
         </div>
       )}
 
-      <FileInfoModal file={infoFile} onClose={() => setInfoFile(null)} />
-
-      <RenameModal
-        open={!!renameTarget}
-        initialName={renameTarget?.name ?? ''}
-        title={renameTarget?.kind === 'folder' ? 'Rename folder' : 'Rename file'}
-        onClose={() => setRenameTarget(null)}
-        onSave={saveRename}
-      />
-
-      <MoveModal open={!!moveTarget} onClose={() => setMoveTarget(null)} onMove={doMove} />
-
-      <ConfirmModal
-        isOpen={!!pendingDelete}
-        onClose={() => setPendingDelete(null)}
-        onConfirm={confirmDelete}
-        title={pendingDelete?.kind === 'folder' ? 'Delete folder' : 'Delete file'}
-        message={
-          pendingDelete?.kind === 'folder'
-            ? `Delete folder "${pendingDelete?.name}"?`
-            : `Move "${pendingDelete?.name}" to Trash?`
-        }
-        confirmText="Delete"
-      />
+      {modals}
     </div>
   )
 }
 
-/** Lightweight per-row actions menu (⋮) with a click-away overlay. */
-function RowMenu({
-  items,
-  label,
-}: {
-  items: { label: string; onClick: () => void; danger?: boolean }[]
+interface MenuItem {
   label: string
-}) {
+  onClick: () => void
+  danger?: boolean
+}
+
+/** Lightweight per-row actions menu (⋮) with a click-away overlay. */
+function RowMenu({ items, label }: { items: MenuItem[]; label: string }) {
   const [open, setOpen] = useState(false)
   return (
     <span className="fb-menu">
@@ -304,9 +362,7 @@ function FileRow({
   onToggleSelect,
   onToggleStar,
   onInfo,
-  onRename,
-  onMove,
-  onDelete,
+  menuItems,
 }: {
   file: StashFile
   selected: boolean
@@ -314,9 +370,7 @@ function FileRow({
   onToggleSelect: () => void
   onToggleStar: () => void
   onInfo: () => void
-  onRename: () => void
-  onMove: () => void
-  onDelete: () => void
+  menuItems: MenuItem[]
 }) {
   const enc = isEncrypted(file)
   const name = fileDisplayName(file)
@@ -357,15 +411,7 @@ function FileRow({
       </span>
       <span className="fb-size">{formatFileSize(file.size)}</span>
       <span className="fb-date">{formatDate(file.created_at as number | undefined)}</span>
-      <RowMenu
-        label={`Actions for ${name}`}
-        items={[
-          { label: 'Info', onClick: onInfo },
-          { label: 'Rename', onClick: onRename },
-          { label: 'Move to…', onClick: onMove },
-          { label: 'Delete', onClick: onDelete, danger: true },
-        ]}
-      />
+      <RowMenu label={`Actions for ${name}`} items={menuItems} />
     </div>
   )
 }

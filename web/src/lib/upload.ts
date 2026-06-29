@@ -12,6 +12,7 @@ import { Keys } from './keys'
 import { API } from './api'
 import { Events } from './events'
 import { authPort } from './authBridge'
+import { Search } from './search'
 import type { StashFile } from '../state/types'
 
 export type UploadStatus =
@@ -126,6 +127,23 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
           folderId: folderId ?? undefined,
         })
         await authPort.publishEvent(metadataEvent)
+      }
+
+      // Index the plaintext for encrypted search (best-effort) before wiping.
+      try {
+        await Search.indexFile(
+          {
+            file_id: item.fileId,
+            sha256,
+            name: item.file.name,
+            size: item.file.size,
+            mime_type: item.file.type,
+            encrypted: true,
+          },
+          fileData,
+        )
+      } catch (err) {
+        console.warn('Upload: failed to index file for search', err)
       }
 
       Crypto.wipeKey(fileKey)

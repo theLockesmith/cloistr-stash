@@ -8,6 +8,11 @@ import { Sidebar } from './components/Sidebar'
 import { Breadcrumbs } from './components/Breadcrumbs'
 import { KeyboardShortcuts } from './components/KeyboardShortcuts'
 import { UploadButton, UploadProgress } from './components/UploadBar'
+import { SearchBar } from './components/SearchBar'
+import { Search } from './lib/search'
+import { Sharing } from './lib/sharing'
+import { Versioning } from './lib/versioning'
+import { Collaboration } from './lib/collaboration'
 
 /**
  * Stash application shell.
@@ -32,8 +37,18 @@ export default function App() {
       await updateAuth((signer as Signer | null) ?? null, { isConnected, pubkey })
       if (cancelled) return
       if (isConnected && pubkey) {
+        // Initialize the encrypted feature stores (idempotent; Keys is ready
+        // after updateAuth). Non-fatal if any fails.
+        try {
+          await Promise.all([Search.init(pubkey), Sharing.init(), Versioning.init(), Collaboration.init()])
+        } catch (err) {
+          console.warn('Feature module init failed:', err)
+        }
+        if (cancelled) return
         await loadFolderTree()
         await loadFiles()
+      } else if (!isConnected) {
+        Search.clearKey()
       }
     })()
     return () => {
@@ -80,6 +95,7 @@ export default function App() {
                 </button>
                 <Breadcrumbs />
                 <span className="content-header-spacer" />
+                <SearchBar />
                 <UploadButton />
               </div>
               <FileBrowser />

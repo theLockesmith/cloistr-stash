@@ -28,6 +28,7 @@ import {
   softDeleteFile,
 } from '../lib/operations'
 import { uploadFiles as libUploadFiles, type UploadItem } from '../lib/upload'
+import { Search, type SearchResult } from '../lib/search'
 import type { FolderPathItem, StashFile, StashFolder, StashView } from './types'
 
 interface RecentEntry {
@@ -81,6 +82,9 @@ export interface StashContextValue {
   moveFile: (file: StashFile, targetFolderId: string) => Promise<void>
   uploadItems: UploadItem[]
   uploadFiles: (files: File[]) => Promise<void>
+  searchResults: SearchResult[] | null
+  runSearch: (query: string) => Promise<void>
+  clearSearch: () => void
 }
 
 export const StashContext = createContext<StashContextValue | null>(null)
@@ -152,6 +156,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [selectionMode, setSelectionMode] = useState(false)
   const [starredFiles, setStarredFiles] = useState<ReadonlySet<string>>(() => loadStarred())
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -484,6 +489,25 @@ export function StashProvider({ children }: { children: ReactNode }) {
     [view, files, specialFiles, reloadCurrentView, loadFolderTree],
   )
 
+  const runSearch = useCallback(async (query: string) => {
+    setSearchQuery(query)
+    if (!query.trim()) {
+      setSearchResults(null)
+      return
+    }
+    try {
+      setSearchResults(await Search.search(query))
+    } catch (err) {
+      console.error('search failed', err)
+      setSearchResults([])
+    }
+  }, [])
+
+  const clearSearch = useCallback(() => {
+    setSearchQuery('')
+    setSearchResults(null)
+  }, [])
+
   const value = useMemo<StashContextValue>(
     () => ({
       files,
@@ -522,6 +546,9 @@ export function StashProvider({ children }: { children: ReactNode }) {
       moveFile,
       uploadItems,
       uploadFiles,
+      searchResults,
+      runSearch,
+      clearSearch,
     }),
     [
       files,
@@ -558,6 +585,9 @@ export function StashProvider({ children }: { children: ReactNode }) {
       moveFile,
       uploadItems,
       uploadFiles,
+      searchResults,
+      runSearch,
+      clearSearch,
     ],
   )
 
