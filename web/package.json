@@ -15,7 +15,8 @@
     "@cloistr/ui": "file:../../cloistr-ui",
     "libsodium-wrappers": "^0.7.13",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "yjs": "^13.6.20"
   },
   "devDependencies": {
     "@types/libsodium-wrappers": "^0.7.14",
