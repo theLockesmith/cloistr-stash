@@ -13,3 +13,11 @@ dist/
 .idea/
 .vscode/
 .claude
+
+# Web build: never copy host node_modules/dist into the image (Stage 1 runs
+# npm ci + vite build itself). legacy/ is the old vanilla app, not built.
+web/node_modules/
+web/dist/
+web/legacy/
+test-results/
+playwright-report/

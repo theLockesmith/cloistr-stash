@@ -50,13 +50,20 @@ internal/
   metadata/           Nostr relay integration
   metrics/            Prometheus metrics
   server/             HTTP handlers
-web/                  Frontend (vanilla JS)
-  js/
-    crypto.js         XChaCha20-Poly1305 + chunked
-    keys.js           HKDF key derivation
-    sharing.js        NIP-44 sharing, public links
-    collaboration.js  Yjs CRDT + WebRTC
-    search.js         Encrypted search index
+web/                  Frontend — MIGRATING vanilla JS -> React/Vite + @cloistr/ui
+  index.html          Vite entry (React)
+  vite.config.ts      React plugin + dedupe(react/react-dom/collab-common) + dev proxy->:8080
+  src/                NEW React/TS source
+    main.tsx          SharedAuthProvider + ToastProvider (from @cloistr/ui)
+    App.tsx           Header/Footer/LoginPrompt chrome; useNostrAuth (collab-common)
+  dist/               Vite build output — Go serves this (`server --web web/dist`)
+  legacy/             OLD vanilla app (index.html, js/, css/, vendor/) — port source
+    js/
+      crypto.js       XChaCha20-Poly1305 + chunked   (port verbatim: keep cloistr-drive-* HKDF)
+      keys.js         HKDF key derivation             (port verbatim)
+      sharing.js      NIP-44 sharing, public links
+      collaboration.js Yjs CRDT + WebRTC
+      search.js       Encrypted search index
 tests/e2e/            Playwright tests
 ```
 
@@ -97,10 +104,25 @@ User's Nostr Key → Root Key (encrypted) → Folder Keys → File Keys → XCha
 
 ## Roadmap
 
-| Item | Priority |
-|------|----------|
-| Desktop App (Tauri) | P1 |
-| Mobile Apps | P2 |
+| Item | Priority | Where |
+|------|----------|-------|
+| Desktop App (Tauri) | P1 | `~/Development/cloistr-stash-desktop` |
+| Mobile Apps | P2 | `~/Development/cloistr-stash-mobile` |
+
+## Companion Repositories
+
+These apps live in **separate sibling repos**, not in this tree. Don't overlook them when planning client work.
+
+| Repo | Stack | How it reuses stash | Status |
+|------|-------|---------------------|--------|
+| `~/Development/cloistr-stash-desktop` | Tauri 2.0 (Rust backend) | **Symlinks this repo's `web/`** into the Tauri shell; bridges via `web/js/desktop.js` ↔ `window.desktopIntegration`. Web-wrapper pattern (like Discord/VS Code). | **On Hold** — paused pending web auth stabilization. Scaffold complete (crypto, API client, file watcher, sync queue, tray, keychain). |
+| `~/Development/cloistr-stash-mobile` | **Flutter / Dart** (Riverpod, `sodium_libs`, Hive) | Independent rewrite — re-implements crypto natively, does **not** share JS. | Scaffold only. |
+
+> **Stash has been migrated onto the suite-wide React + `@cloistr/ui` stack** (branch `migrate/stash-react-cloistr-ui`). `web/` is now a Vite + React 18 + TS app using `@cloistr/ui` (shared `Header`/`Footer`/`LoginPrompt`/`SharedAuthProvider`) over `@cloistr/collab-common` (NIP-46/NIP-07 auth, CRDT, sharing). `@cloistr/*` resolve from the aegis npm registry (`web/.npmrc`). The legacy vanilla app is preserved under `web/legacy/` as the verbatim port reference; the crypto/key/event layer was ported byte-for-byte (backward-compat anchors `cloistr-drive-*` intact, regression-tested). The Go server serves the Vite build: `server --web web/dist` (Dockerfile is multi-stage: node build → go build → runtime).
+>
+> **Desktop caveat (resolve before resuming desktop):** the desktop app symlinks this repo's `web/` and loads `web/js/desktop.js` ↔ `window.desktopIntegration`. This migration moved `desktop.js` to `web/legacy/js/`, and the React app does not load it — so desktop integration is currently broken. To resume: point the Tauri shell at the built `web/dist` (or run the Vite dev server) and port the `desktopIntegration` bridge into the React app (re-add `setApiAuth`/`clearApiAuth` calls on auth events). The Rust `set_api_auth`/`clear_api_auth` commands still exist.
+>
+> **E2E caveat:** `tests/e2e/` Playwright specs target the old vanilla DOM selectors and are stale against the React UI; they are not in CI. They need rewriting for the new component structure.
 
 ## API Endpoints
 
@@ -132,7 +154,7 @@ User's Nostr Key → Root Key (encrypted) → Folder Keys → File Keys → XCha
 
 ---
 
-**Last Updated:** 2026-03-30
+**Last Updated:** 2026-06-27
 
 ## Backward Compatibility Notes
 

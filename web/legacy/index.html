@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stash - Cloistr</title>
+    <meta name="description" content="Nostr-native file storage with end-to-end encryption. Own your data.">
+    <meta name="theme-color" content="#1a1a2e">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="stylesheet" href="/css/style.css">
+    <!-- PDF.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- Highlight.js for code syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <!-- Marked.js for markdown rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+</head>
+<body>
+    <!-- Offline Banner -->
+    <div id="offline-banner" class="offline-banner">You are offline. Some features may be unavailable.</div>
+
+    <div id="app">
+        <!-- Landing Page (shown when not authenticated) -->
+        <div id="landing-page" class="landing">
+            <div class="landing-hero landing-container">
+                <div class="landing-brand">
+                    <img src="/cloistr-logo.svg" alt="Cloistr" class="landing-logo">
+                    <span class="landing-title landing-drive-suffix">Cloistr Stash</span>
+                </div>
+                <p class="landing-tagline">Nostr-native file storage. Own your data.</p>
+
+                <div class="landing-features">
+                    <div class="feature">
+                        <div class="feature-icon">🔐</div>
+                        <h3>Self-Sovereign</h3>
+                        <p>Files signed with your Nostr identity. No accounts, no passwords.</p>
+                    </div>
+                    <div class="feature">
+                        <div class="feature-icon">📁</div>
+                        <h3>Organized</h3>
+                        <p>Folders, drag-and-drop, and familiar file management.</p>
+                    </div>
+                    <div class="feature">
+                        <div class="feature-icon">🔗</div>
+                        <h3>Decentralized</h3>
+                        <p>Your files, stored on Blossom servers you choose.</p>
+                    </div>
+                </div>
+
+                <div class="landing-auth">
+                    <button id="connect-nip07" class="btn btn-primary btn-large">
+                        Connect with Extension
+                    </button>
+                    <button id="connect-nip46" class="btn btn-secondary btn-large">
+                        Connect with Remote Signer
+                    </button>
+                    <p class="auth-help">
+                        Need a Nostr identity?
+                        <a href="https://signer.cloistr.xyz" target="_blank" rel="noopener">Get one at signer.cloistr.xyz</a>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Access Denied (shown when authenticated but not whitelisted) -->
+        <div id="access-denied" class="access-denied hidden">
+            <div class="access-denied-content">
+                <div class="access-denied-icon">🚫</div>
+                <h2>Access Denied</h2>
+                <p>Your Nostr identity is not authorized to use this service.</p>
+                <p class="pubkey-display" id="denied-pubkey"></p>
+                <p class="access-denied-help">
+                    Want access? Contact the administrator via Nostr.
+                </p>
+                <button id="disconnect-btn" class="btn btn-secondary">Disconnect</button>
+            </div>
+        </div>
+
+        <!-- File Explorer (shown when authenticated and whitelisted) -->
+        <div id="file-explorer" class="explorer hidden">
+            <header class="header">
+                <div class="header-left">
+                    <button id="mobile-menu-btn" class="btn btn-icon mobile-menu-btn" title="Menu" style="display: none;">&#9776;</button>
+                    <img src="/favicon.svg" alt="Stash" class="header-logo">
+                    <h1 class="logo">Stash</h1>
+                </div>
+                <div class="header-right">
+                    <span id="user-pubkey" class="user-pubkey"></span>
+                    <button id="theme-toggle" class="btn btn-icon" title="Toggle theme">&#127769;</button>
+                    <button id="backup-btn" class="btn btn-icon" title="Key Backup">&#128273;</button>
+                    <button id="relay-settings-btn" class="btn btn-icon" title="Relay Settings">&#9889;</button>
+                    <button id="logout-btn" class="btn">Disconnect</button>
+                </div>
+            </header>
+
+            <div class="explorer-content">
+                <!-- Mobile sidebar overlay -->
+                <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+                <!-- Folder Tree Sidebar -->
+                <aside class="sidebar" id="sidebar" role="navigation" aria-label="File navigation">
+                    <div class="sidebar-header">
+                        <span class="sidebar-title" id="sidebar-title">Folders</span>
+                        <button id="sidebar-toggle" class="btn btn-icon sidebar-toggle" title="Toggle sidebar" aria-label="Toggle sidebar" aria-expanded="true">&#9776;</button>
+                    </div>
+                    <nav class="folder-tree" id="folder-tree" role="tree" aria-labelledby="sidebar-title">
+                        <div class="folder-tree-item root" data-id="" role="treeitem" tabindex="0" aria-selected="true">
+                            <span class="folder-tree-icon" aria-hidden="true">&#128193;</span>
+                            <span class="folder-tree-name">My Stash</span>
+                        </div>
+                        <div class="folder-tree-children" id="folder-tree-root" role="group"></div>
+                    </nav>
+                    <nav class="sidebar-section" role="navigation" aria-label="Quick access">
+                        <div class="sidebar-nav-item" id="nav-starred" title="Starred files" role="button" tabindex="0" aria-label="Starred files">
+                            <span class="sidebar-nav-icon" aria-hidden="true">&#9733;</span>
+                            <span class="sidebar-nav-name">Starred</span>
+                        </div>
+                        <div class="sidebar-nav-item" id="nav-recent" title="Recently accessed" role="button" tabindex="0" aria-label="Recent files">
+                            <span class="sidebar-nav-icon" aria-hidden="true">&#128337;</span>
+                            <span class="sidebar-nav-name">Recent</span>
+                        </div>
+                        <div class="sidebar-nav-item" id="nav-trash" title="Deleted files" role="button" tabindex="0" aria-label="Trash">
+                            <span class="sidebar-nav-icon" aria-hidden="true">&#128465;</span>
+                            <span class="sidebar-nav-name">Trash</span>
+                            <span class="sidebar-nav-badge" id="trash-count" aria-live="polite"></span>
+                        </div>
+                        <div class="sidebar-nav-item" id="nav-activity" title="Activity log" role="button" tabindex="0" aria-label="Activity">
+                            <span class="sidebar-nav-icon" aria-hidden="true">&#128203;</span>
+                            <span class="sidebar-nav-name">Activity</span>
+                        </div>
+                        <div class="sidebar-nav-item" id="nav-notifications" title="Share notifications" role="button" tabindex="0" aria-label="Notifications">
+                            <span class="sidebar-nav-icon" aria-hidden="true">&#128276;</span>
+                            <span class="sidebar-nav-name">Notifications</span>
+                            <span class="sidebar-nav-badge notification-badge" id="notification-count"></span>
+                        </div>
+                        <div class="sidebar-nav-item" id="nav-relay-settings" title="Relay settings" role="button" tabindex="0" aria-label="Relay Settings">
+                            <span class="sidebar-nav-icon" aria-hidden="true">&#9889;</span>
+                            <span class="sidebar-nav-name">Relay Settings</span>
+                        </div>
+                    </nav>
+                    <!-- Desktop Sync Status (hidden in browser, shown in Tauri) -->
+                    <div id="sync-status-section" class="sync-status-section hidden">
+                        <div class="sync-header">
+                            <span class="sync-title">Sync</span>
+                            <button id="sync-settings-btn" class="btn btn-icon btn-small" title="Sync settings">&#9881;</button>
+                        </div>
+                        <div class="sync-info">
+                            <span id="sync-status" class="sync-status-text synced">Synced</span>
+                        </div>
+                        <div class="sync-progress-bar hidden">
+                            <div id="sync-progress" class="sync-progress-fill"></div>
+                        </div>
+                        <div class="sync-actions">
+                            <button id="sync-now-btn" class="btn btn-small" title="Sync now">Sync Now</button>
+                            <button id="sync-pause-btn" class="btn btn-small" title="Pause sync">Pause</button>
+                        </div>
+                        <div class="sync-folder-info">
+                            <button id="sync-folder-btn" class="btn btn-small btn-full" title="Change sync folder">
+                                <span class="icon">&#128193;</span> Change Folder
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="storage-usage" id="storage-usage">
+                        <div class="storage-info">
+                            <span class="storage-label">Storage</span>
+                            <span class="storage-value" id="storage-value">-</span>
+                        </div>
+                        <div class="storage-bar">
+                            <div class="storage-bar-fill" id="storage-bar-fill"></div>
+                        </div>
+                        <div class="storage-details" id="storage-details"></div>
+                    </div>
+                </aside>
+
+                <main class="main">
+                <div class="toolbar">
+                    <div class="toolbar-left">
+                        <button id="upload-btn" class="btn btn-primary">
+                            <span class="icon">↑</span> Upload
+                        </button>
+                        <div class="new-dropdown">
+                            <button id="new-btn" class="btn btn-accent">
+                                <span class="icon">+</span> New <span class="dropdown-arrow">▾</span>
+                            </button>
+                            <div class="new-dropdown-content" id="new-dropdown-content">
+                                <button class="dropdown-item" data-type="folder">
+                                    <span class="dropdown-icon">📁</span> Folder
+                                </button>
+                                <div class="dropdown-divider"></div>
+                                <button class="dropdown-item" data-type="doc">
+                                    <span class="dropdown-icon">📄</span> Document
+                                </button>
+                                <button class="dropdown-item" data-type="sheet">
+                                    <span class="dropdown-icon">📊</span> Spreadsheet
+                                </button>
+                                <button class="dropdown-item" data-type="whiteboard">
+                                    <span class="dropdown-icon">🎨</span> Whiteboard
+                                </button>
+                                <button class="dropdown-item" data-type="slides">
+                                    <span class="dropdown-icon">📽️</span> Presentation
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="toolbar-center">
+                        <div class="view-tabs">
+                            <button id="tab-my-files" class="tab-btn active">My Files</button>
+                            <button id="tab-shared" class="tab-btn">Shared with Me</button>
+                        </div>
+                        <div class="search-box">
+                            <input type="text" id="search-input" class="search-input" placeholder="Search files..." autocomplete="off">
+                            <button id="search-filter-btn" class="search-filter-btn" title="Filter by type, date, or size">⧩</button>
+                            <button id="search-clear" class="search-clear hidden">✕</button>
+                            <div id="search-filters" class="search-filters hidden">
+                            <div class="filter-group">
+                                <label>File Type</label>
+                                <select id="filter-type">
+                                    <option value="">All Types</option>
+                                    <option value="image">Images</option>
+                                    <option value="video">Videos</option>
+                                    <option value="audio">Audio</option>
+                                    <option value="document">Documents</option>
+                                    <option value="code">Code</option>
+                                    <option value="archive">Archives</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Date</label>
+                                <select id="filter-date">
+                                    <option value="">Any Time</option>
+                                    <option value="today">Today</option>
+                                    <option value="week">This Week</option>
+                                    <option value="month">This Month</option>
+                                    <option value="year">This Year</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Size</label>
+                                <select id="filter-size">
+                                    <option value="">Any Size</option>
+                                    <option value="tiny">Tiny (&lt;100KB)</option>
+                                    <option value="small">Small (&lt;1MB)</option>
+                                    <option value="medium">Medium (1-10MB)</option>
+                                    <option value="large">Large (10-100MB)</option>
+                                    <option value="huge">Huge (&gt;100MB)</option>
+                                </select>
+                            </div>
+                            <div class="filter-actions">
+                                <button class="btn" id="filter-reset">Reset</button>
+                                <button class="btn btn-primary" id="filter-apply">Apply</button>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+                    <div class="toolbar-right">
+                        <div class="sort-dropdown">
+                            <select id="sort-select" class="sort-select" aria-label="Sort files">
+                                <option value="name-asc">Name (A-Z)</option>
+                                <option value="name-desc">Name (Z-A)</option>
+                                <option value="date-desc" selected>Date (Newest)</option>
+                                <option value="date-asc">Date (Oldest)</option>
+                                <option value="size-desc">Size (Largest)</option>
+                                <option value="size-asc">Size (Smallest)</option>
+                                <option value="type">Type</option>
+                            </select>
+                        </div>
+                        <button id="view-grid" class="btn btn-icon" title="Grid view">▦</button>
+                        <button id="view-list" class="btn btn-icon active" title="List view">≡</button>
+                    </div>
+                </div>
+                <div class="breadcrumb-bar" id="breadcrumb-bar">
+                    <div class="breadcrumb" id="breadcrumb">
+                        <span class="breadcrumb-item active" data-id="">My Stash</span>
+                    </div>
+                </div>
+
+                <!-- Batch Action Toolbar -->
+                <div id="batch-toolbar" class="batch-toolbar hidden">
+                    <div class="batch-info">
+                        <input type="checkbox" id="batch-select-all-checkbox" title="Select all">
+                        <span id="selected-count">0 selected</span>
+                    </div>
+                    <div class="batch-actions">
+                        <button class="btn btn-small" id="batch-download-btn">Download</button>
+                        <button class="btn btn-small btn-danger" id="batch-delete-btn">Delete</button>
+                        <button class="btn btn-small" id="batch-cancel-btn">Cancel</button>
+                    </div>
+                </div>
+
+                <!-- Global drop overlay -->
+                <div id="drop-overlay" class="drop-overlay hidden">
+                    <div class="drop-overlay-content">
+                        <div class="drop-overlay-icon">&#128230;</div>
+                        <div class="drop-overlay-text">Drop files here to upload</div>
+                        <div class="drop-overlay-subtext">Files will be encrypted and uploaded</div>
+                    </div>
+                </div>
+
+                <div id="file-list" class="file-list" role="region" aria-label="File browser">
+                    <div class="file-list-header" role="row">
+                        <div class="file-col file-select">
+                            <input type="checkbox" id="select-all-checkbox" class="select-all-checkbox" title="Select all" aria-label="Select all files and folders">
+                        </div>
+                        <div class="file-col file-name">Name</div>
+                        <div class="file-col file-size">Size</div>
+                        <div class="file-col file-date">Modified</div>
+                        <div class="file-col file-actions"></div>
+                    </div>
+                    <div id="file-list-body" class="file-list-body" role="list" aria-label="Files and folders" tabindex="0">
+                    </div>
+                    <div class="empty-state" id="empty-state" role="status">
+                        <p>No files yet</p>
+                        <p class="empty-state-subtext">Drag files here or click Upload to get started</p>
+                    </div>
+                </div>
+                </main>
+            </div>
+        </div>
+
+        <!-- NIP-46 Connection Modal -->
+        <div id="nip46-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Connect with Remote Signer</h2>
+                    <button class="modal-close" id="nip46-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-description">Enter your bunker connection string:</p>
+                    <input type="text" id="bunker-url" class="input" placeholder="bunker://..." autocomplete="off">
+                    <p class="modal-help">
+                        Get a bunker URL from <a href="https://signer.cloistr.xyz" target="_blank" rel="noopener">signer.cloistr.xyz</a>
+                        or other remote signers like <a href="https://nsec.app" target="_blank" rel="noopener">nsec.app</a>
+                    </p>
+                    <div id="nip46-status" class="nip46-status hidden">
+                        <div class="spinner"></div>
+                        <span>Connecting to remote signer...</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="nip46-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="nip46-connect">Connect</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Modal -->
+        <div id="upload-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Upload Files</h2>
+                    <button class="modal-close" id="upload-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <input type="file" id="file-input" multiple hidden>
+                    <div id="upload-drop-zone" class="upload-drop-zone">
+                        <p>Drag files here or click to select</p>
+                    </div>
+                    <div id="upload-list" class="upload-list"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="upload-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="upload-start" disabled>Upload</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Share Modal -->
+        <div id="share-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Share File</h2>
+                    <button class="modal-close" id="share-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="share-file-name" id="share-file-name"></p>
+                    <div class="form-group">
+                        <label for="share-recipient">Recipient npub or hex pubkey:</label>
+                        <input type="text" id="share-recipient" class="input" placeholder="npub1... or hex pubkey" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="share-message">Message (optional):</label>
+                        <input type="text" id="share-message" class="input" placeholder="Shared with you!" autocomplete="off">
+                    </div>
+                    <div id="share-status" class="share-status hidden"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="share-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="share-confirm">Share</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tags Modal -->
+        <div id="tags-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Tags</h2>
+                    <button class="modal-close" id="tags-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="tags-file-name" id="tags-file-name"></div>
+                    <div class="tags-container" id="tags-container"></div>
+                    <div class="tag-input-wrapper">
+                        <input type="text" id="tag-input" class="input" placeholder="Add a tag...">
+                        <div id="tag-suggestions" class="tag-suggestions hidden"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="tags-done">Done</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notifications Modal -->
+        <div id="notifications-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Notifications</h2>
+                    <button class="modal-close" id="notifications-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="notifications-list" id="notifications-list"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="mark-all-read">Mark All Read</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Activity Log Modal -->
+        <div id="activity-modal" class="modal hidden">
+            <div class="modal-content modal-wide">
+                <div class="modal-header">
+                    <h2>Activity Log</h2>
+                    <button class="modal-close" id="activity-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="activity-filters">
+                        <select id="activity-filter" class="input">
+                            <option value="all">All Activity</option>
+                            <option value="upload">Uploads</option>
+                            <option value="download">Downloads</option>
+                            <option value="delete">Deletions</option>
+                            <option value="move">Moves</option>
+                            <option value="share">Shares</option>
+                            <option value="comment">Comments</option>
+                        </select>
+                        <button class="btn" id="clear-activity">Clear History</button>
+                    </div>
+                    <div class="activity-list" id="activity-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- File Comments Modal -->
+        <div id="comments-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Comments</h2>
+                    <button class="modal-close" id="comments-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="comments-file-name" id="comments-file-name"></div>
+                    <div class="comments-list" id="comments-list"></div>
+                    <div class="comment-input-area">
+                        <textarea id="comment-input" class="input" placeholder="Add a comment..." rows="3"></textarea>
+                        <button class="btn btn-primary" id="add-comment-btn">Add Comment</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Folder Customize Modal -->
+        <div id="folder-customize-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Customize Folder</h2>
+                    <button class="modal-close" id="folder-customize-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="folder-name-display" id="customize-folder-name"></div>
+
+                    <div class="customize-section">
+                        <label>Color</label>
+                        <div class="color-picker" id="folder-color-picker"></div>
+                    </div>
+
+                    <div class="customize-section">
+                        <label>Icon</label>
+                        <div class="icon-picker" id="folder-icon-picker"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="folder-customize-reset">Reset</button>
+                    <button class="btn btn-primary" id="folder-customize-save">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Manage Shares Modal -->
+        <div id="manage-shares-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Manage Shares</h2>
+                    <button class="modal-close" id="manage-shares-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="share-file-name" id="manage-shares-file-name"></p>
+                    <div id="manage-shares-list" class="share-list">
+                        <div class="empty-state">Loading shares...</div>
+                    </div>
+                    <div class="share-actions-section">
+                        <h4>Revoke All Access</h4>
+                        <p class="modal-description">Re-encrypt this file with a new key. All existing shares and public links will stop working.</p>
+                        <button class="btn btn-danger" id="rekey-file-btn">Re-encrypt File</button>
+                    </div>
+                    <div id="manage-shares-status" class="share-status hidden"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="manage-shares-close">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Version History Modal -->
+        <div id="version-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Version History</h2>
+                    <button class="modal-close" id="version-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="version-file-name" id="version-file-name"></p>
+                    <div id="version-list" class="version-list">
+                        <div class="empty-state">Loading versions...</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="version-close">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Public Link Modal -->
+        <div id="public-link-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Create Public Link</h2>
+                    <button class="modal-close" id="public-link-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="public-link-file-name" id="public-link-file-name"></p>
+                    <div class="form-group">
+                        <label for="public-link-expiry">Link expires in:</label>
+                        <select id="public-link-expiry" class="input">
+                            <option value="0">Never</option>
+                            <option value="3600">1 hour</option>
+                            <option value="86400">1 day</option>
+                            <option value="604800">1 week</option>
+                            <option value="2592000">30 days</option>
+                        </select>
+                    </div>
+                    <div id="public-link-result" class="public-link-result hidden">
+                        <label>Your public link:</label>
+                        <div class="public-link-url-container">
+                            <input type="text" id="public-link-url" class="input" readonly>
+                            <button id="public-link-copy" class="btn btn-primary">Copy</button>
+                        </div>
+                        <p class="public-link-warning">Anyone with this link can download the file. The decryption key is embedded in the URL.</p>
+                    </div>
+                    <div id="public-link-status" class="share-status hidden"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="public-link-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="public-link-generate">Generate Link</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Text Editor Modal (Collaboration) -->
+        <div id="editor-modal" class="modal hidden">
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2 id="editor-file-name">Edit File</h2>
+                    <div class="editor-toolbar">
+                        <div id="editor-collaborators" class="editor-collaborators"></div>
+                        <button class="btn btn-small" id="editor-invite">Invite</button>
+                        <button class="btn btn-small" id="editor-save">Save</button>
+                    </div>
+                    <button class="modal-close" id="editor-modal-close">&times;</button>
+                </div>
+                <div class="modal-body editor-body">
+                    <textarea id="editor-textarea" class="editor-textarea" placeholder="Loading..."></textarea>
+                </div>
+                <div class="modal-footer">
+                    <span id="editor-status" class="editor-status">Ready</span>
+                    <button class="btn" id="editor-close">Close</button>
+                    <button class="btn btn-primary" id="editor-save-close">Save & Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Key Backup Modal -->
+        <div id="backup-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Key Backup</h2>
+                    <button class="modal-close" id="backup-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div id="backup-export" class="backup-section">
+                        <h3>Export Keys</h3>
+                        <p class="modal-description">Download an encrypted backup of your encryption keys. You'll need your Nostr key to restore.</p>
+                        <button class="btn btn-primary" id="backup-export-btn">Download Backup</button>
+                    </div>
+                    <div id="backup-import" class="backup-section">
+                        <h3>Import Keys</h3>
+                        <p class="modal-description">Restore keys from a backup file.</p>
+                        <input type="file" id="backup-file-input" accept=".json" hidden>
+                        <button class="btn" id="backup-import-btn">Select Backup File</button>
+                    </div>
+                    <div id="backup-status" class="share-status hidden"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="backup-close">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Keyboard Shortcuts Modal -->
+        <div id="keyboard-shortcuts-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Keyboard Shortcuts</h2>
+                    <button class="modal-close" id="keyboard-shortcuts-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="shortcuts-list">
+                        <div class="shortcut-item"><kbd>?</kbd><span>Show this help</span></div>
+                        <div class="shortcut-item"><kbd>u</kbd><span>Upload files</span></div>
+                        <div class="shortcut-item"><kbd>n</kbd><span>New folder</span></div>
+                        <div class="shortcut-item"><kbd>/</kbd><span>Focus search</span></div>
+                        <div class="shortcut-item"><kbd>Esc</kbd><span>Close modal / Clear selection</span></div>
+                        <div class="shortcut-item"><kbd>Delete</kbd><span>Delete selected files</span></div>
+                        <div class="shortcut-item"><kbd>d</kbd><span>Download selected</span></div>
+                        <div class="shortcut-item"><kbd>Enter</kbd><span>Open selected file</span></div>
+                        <div class="shortcut-item"><kbd>Ctrl+A</kbd><span>Select all</span></div>
+                        <div class="shortcut-item"><kbd>↑</kbd> <kbd>↓</kbd><span>Navigate files</span></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" id="keyboard-shortcuts-done">Done</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Encryption Info Modal -->
+        <div id="encryption-info-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Encryption Details</h2>
+                    <button class="modal-close" id="encryption-info-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="encryption-status-box">
+                        <span class="encryption-icon-large">&#128274;</span>
+                        <span class="encryption-status-text">End-to-End Encrypted</span>
+                    </div>
+
+                    <div class="encryption-info-section">
+                        <h4>Algorithm</h4>
+                        <p class="encryption-algorithm">XChaCha20-Poly1305</p>
+                    </div>
+
+                    <div class="encryption-info-section">
+                        <h4>Key Derivation</h4>
+                        <div id="key-hierarchy" class="key-hierarchy">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <div class="encryption-info-section">
+                        <h4>Storage</h4>
+                        <p class="encryption-storage-info">Your encryption keys are stored locally in your browser, protected by your Nostr identity. The server never sees your keys or unencrypted data.</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" id="encryption-info-done">Done</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Relay Settings Modal -->
+        <div id="relay-settings-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Relay Settings</h2>
+                    <button class="modal-close" id="relay-settings-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-secondary">Your data is published to these relays:</p>
+                    <div id="relay-list" class="relay-list"></div>
+
+                    <div class="form-group" style="margin-top: 1rem;">
+                        <label>Add Relay</label>
+                        <div class="relay-add-row">
+                            <input type="text" id="relay-add-url" class="input" placeholder="wss://relay.example.com">
+                            <button id="relay-add-btn" class="btn">Add</button>
+                        </div>
+                        <div class="relay-add-options">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="relay-add-read" checked> Read
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="relay-add-write" checked> Write
+                            </label>
+                        </div>
+                    </div>
+
+                    <div id="relay-source-info" class="relay-source-info"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="relay-settings-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="relay-settings-save">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Migration Modal -->
+        <div id="migration-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Migrate Files</h2>
+                    <button class="modal-close" id="migration-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-description">You have unencrypted files that can be migrated to the new encrypted format.</p>
+                    <div id="migration-files" class="migration-files"></div>
+                    <div id="migration-progress" class="migration-progress hidden">
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="migration-bar"></div>
+                        </div>
+                        <span id="migration-status-text">Migrating...</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="migration-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="migration-start">Migrate All</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- New Folder Modal -->
+        <div id="new-folder-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>New Folder</h2>
+                    <button class="modal-close" id="new-folder-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-description">Create a new encrypted folder:</p>
+                    <input type="text" id="new-folder-name" class="input" placeholder="Folder name" autocomplete="off" autofocus>
+                    <p class="modal-help">Folder contents will be encrypted with a unique key derived from your identity.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="new-folder-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="new-folder-create">Create Folder</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Rename Modal -->
+        <div id="rename-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2 id="rename-modal-title">Rename</h2>
+                    <button class="modal-close" id="rename-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="modal-description" id="rename-modal-description">Enter new name:</p>
+                    <input type="text" id="rename-input" class="input" placeholder="New name" autocomplete="off" autofocus>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="rename-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="rename-confirm">Rename</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- File Preview Modal -->
+        <div id="preview-modal" class="modal hidden">
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2 id="preview-file-name">Preview</h2>
+                    <button class="modal-close" id="preview-modal-close">&times;</button>
+                </div>
+                <div class="modal-body preview-body">
+                    <div id="preview-loading" class="preview-loading">
+                        <div class="spinner"></div>
+                        <span>Loading preview...</span>
+                    </div>
+                    <div id="preview-content" class="preview-content hidden">
+                        <!-- Image preview -->
+                        <img id="preview-image" class="preview-image hidden" alt="Preview">
+                        <!-- Text/code preview -->
+                        <!-- Text/code preview with syntax highlighting -->
+                        <div id="preview-code-container" class="preview-code-container hidden">
+                            <div class="code-header">
+                                <span class="code-language" id="code-language"></span>
+                                <div class="code-actions">
+                                    <button class="code-btn" id="code-copy" aria-label="Copy code">Copy</button>
+                                    <button class="code-btn" id="code-wrap-toggle" aria-label="Toggle word wrap">Wrap</button>
+                                </div>
+                            </div>
+                            <div class="code-body">
+                                <div class="line-numbers" id="line-numbers"></div>
+                                <pre id="preview-text" class="preview-text"><code id="preview-code"></code></pre>
+                            </div>
+                        </div>
+                        <!-- Markdown preview -->
+                        <div id="preview-markdown-container" class="preview-markdown-container hidden">
+                            <div class="markdown-header">
+                                <div class="markdown-tabs">
+                                    <button class="markdown-tab active" id="md-preview-tab" data-view="preview">Preview</button>
+                                    <button class="markdown-tab" id="md-source-tab" data-view="source">Source</button>
+                                </div>
+                                <div class="markdown-actions">
+                                    <button class="code-btn" id="md-copy" aria-label="Copy markdown">Copy</button>
+                                </div>
+                            </div>
+                            <div class="markdown-content" id="markdown-preview"></div>
+                            <div class="markdown-source hidden" id="markdown-source">
+                                <pre><code id="markdown-raw"></code></pre>
+                            </div>
+                        </div>
+                        <!-- PDF preview with controls -->
+                        <div id="preview-pdf-container" class="preview-pdf-container hidden">
+                            <div class="pdf-toolbar">
+                                <div class="pdf-nav">
+                                    <button class="pdf-btn" id="pdf-prev" aria-label="Previous page">&#9664;</button>
+                                    <span class="pdf-page-info">
+                                        <input type="number" id="pdf-page-input" min="1" value="1" aria-label="Current page"> / <span id="pdf-total-pages">1</span>
+                                    </span>
+                                    <button class="pdf-btn" id="pdf-next" aria-label="Next page">&#9654;</button>
+                                </div>
+                                <div class="pdf-zoom">
+                                    <button class="pdf-btn" id="pdf-zoom-out" aria-label="Zoom out">&#8722;</button>
+                                    <select id="pdf-zoom-select" aria-label="Zoom level">
+                                        <option value="0.5">50%</option>
+                                        <option value="0.75">75%</option>
+                                        <option value="1" selected>100%</option>
+                                        <option value="1.25">125%</option>
+                                        <option value="1.5">150%</option>
+                                        <option value="2">200%</option>
+                                        <option value="fit-width">Fit Width</option>
+                                        <option value="fit-page">Fit Page</option>
+                                    </select>
+                                    <button class="pdf-btn" id="pdf-zoom-in" aria-label="Zoom in">&#43;</button>
+                                </div>
+                                <div class="pdf-actions">
+                                    <button class="pdf-btn" id="pdf-rotate" aria-label="Rotate">&#8635;</button>
+                                    <button class="pdf-btn" id="pdf-fullscreen" aria-label="Fullscreen">&#x26F6;</button>
+                                </div>
+                            </div>
+                            <div class="pdf-viewport" id="pdf-viewport">
+                                <canvas id="pdf-canvas"></canvas>
+                            </div>
+                            <div class="pdf-loading" id="pdf-loading">
+                                <div class="spinner"></div>
+                                <span>Loading PDF...</span>
+                            </div>
+                        </div>
+                        <!-- Video preview -->
+                        <div id="preview-video-container" class="preview-video-container hidden">
+                            <video id="preview-video" class="preview-video"></video>
+                            <div class="media-controls">
+                                <button class="media-btn play-btn" id="video-play" aria-label="Play/Pause">&#9654;</button>
+                                <div class="media-progress">
+                                    <input type="range" class="media-seek" id="video-seek" min="0" max="100" value="0" aria-label="Seek">
+                                    <span class="media-time" id="video-time">0:00 / 0:00</span>
+                                </div>
+                                <div class="media-right-controls">
+                                    <button class="media-btn volume-btn" id="video-mute" aria-label="Mute">&#128266;</button>
+                                    <input type="range" class="volume-slider" id="video-volume" min="0" max="100" value="100" aria-label="Volume">
+                                    <select class="playback-speed" id="video-speed" aria-label="Playback speed">
+                                        <option value="0.5">0.5x</option>
+                                        <option value="0.75">0.75x</option>
+                                        <option value="1" selected>1x</option>
+                                        <option value="1.25">1.25x</option>
+                                        <option value="1.5">1.5x</option>
+                                        <option value="2">2x</option>
+                                    </select>
+                                    <button class="media-btn pip-btn" id="video-pip" aria-label="Picture in Picture">&#128250;</button>
+                                    <button class="media-btn fullscreen-btn" id="video-fullscreen" aria-label="Fullscreen">&#x26F6;</button>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Audio preview -->
+                        <div id="preview-audio-container" class="preview-audio-container hidden">
+                            <div class="audio-visualization" id="audio-visualization"></div>
+                            <audio id="preview-audio" class="preview-audio"></audio>
+                            <div class="media-controls audio-controls">
+                                <button class="media-btn play-btn" id="audio-play" aria-label="Play/Pause">&#9654;</button>
+                                <div class="media-progress">
+                                    <input type="range" class="media-seek" id="audio-seek" min="0" max="100" value="0" aria-label="Seek">
+                                    <span class="media-time" id="audio-time">0:00 / 0:00</span>
+                                </div>
+                                <div class="media-right-controls">
+                                    <button class="media-btn volume-btn" id="audio-mute" aria-label="Mute">&#128266;</button>
+                                    <input type="range" class="volume-slider" id="audio-volume" min="0" max="100" value="100" aria-label="Volume">
+                                    <select class="playback-speed" id="audio-speed" aria-label="Playback speed">
+                                        <option value="0.5">0.5x</option>
+                                        <option value="0.75">0.75x</option>
+                                        <option value="1" selected>1x</option>
+                                        <option value="1.25">1.25x</option>
+                                        <option value="1.5">1.5x</option>
+                                        <option value="2">2x</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Unsupported message -->
+                        <div id="preview-unsupported" class="preview-unsupported hidden">
+                            <p>Preview not available for this file type</p>
+                            <button class="btn btn-primary" id="preview-download">Download Instead</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="preview-close">Close</button>
+                    <button class="btn btn-primary" id="preview-download-btn">Download</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- File Info Modal -->
+        <div id="file-info-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2 id="file-info-name">File Info</h2>
+                    <button class="modal-close" id="file-info-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="file-info-grid">
+                        <div class="info-row">
+                            <span class="info-label">Size</span>
+                            <span class="info-value" id="file-info-size">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Type</span>
+                            <span class="info-value" id="file-info-type">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Modified</span>
+                            <span class="info-value" id="file-info-date">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Encrypted</span>
+                            <span class="info-value" id="file-info-encrypted">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">SHA256</span>
+                            <span class="info-value info-hash" id="file-info-hash">-</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer file-info-actions">
+                    <button class="btn" id="file-info-preview" title="Preview file">👁 Preview</button>
+                    <button class="btn" id="file-info-download" title="Download file">⬇ Download</button>
+                    <button class="btn" id="file-info-share" title="Share with others">🔗 Share</button>
+                    <button class="btn" id="file-info-link" title="Create public link">🌐 Public Link</button>
+                    <button class="btn" id="file-info-history" title="Version history">📜 History</button>
+                    <button class="btn btn-danger" id="file-info-delete" title="Delete file">🗑 Delete</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sync Settings Modal (Desktop only) -->
+        <div id="sync-settings-modal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>Sync Settings</h2>
+                    <button class="modal-close" id="sync-settings-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="sync-folder-path">Sync Folder</label>
+                        <div class="input-with-button">
+                            <input type="text" id="sync-folder-path" class="input" readonly placeholder="No folder selected">
+                            <button class="btn" id="sync-folder-browse">Browse</button>
+                        </div>
+                        <p class="modal-help">Files in this folder will automatically sync with your Stash.</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="sync-auto-start" checked>
+                            Start on system boot
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="sync-notifications" checked>
+                            Show sync notifications
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="sync-settings-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="sync-settings-save">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Context Menu (created dynamically) -->
+        <div id="context-menu" class="context-menu hidden"></div>
+
+        <!-- Toast Container -->
+        <div id="toast-container" class="toast-container"></div>
+    </div>
+
+    <!-- libsodium for XChaCha20-Poly1305 encryption (local first, CDN fallback) -->
+    <script>
+        // Load libsodium (core + wrappers) - local first, CDN fallback
+        (async function loadSodium() {
+            // Try local files first (need both core and wrappers)
+            async function loadLocal() {
+                // Load core first
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = '/js/vendor/libsodium.js';
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+                console.log('libsodium core loaded from local');
+
+                // Then load wrappers
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = '/js/vendor/sodium.js';
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+                console.log('libsodium wrappers loaded from local');
+            }
+
+            // CDN fallback sources (these are combined bundles)
+            const cdnSources = [
+                {
+                    core: 'https://cdn.jsdelivr.net/npm/libsodium@0.7.13/dist/modules/libsodium.js',
+                    wrappers: 'https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/modules/libsodium-wrappers.js'
+                },
+                {
+                    core: 'https://unpkg.com/libsodium@0.7.13/dist/modules/libsodium.js',
+                    wrappers: 'https://unpkg.com/libsodium-wrappers@0.7.13/dist/modules/libsodium-wrappers.js'
+                }
+            ];
+
+            // Try local first
+            try {
+                await loadLocal();
+                // Wait for sodium to be ready
+                if (typeof sodium !== 'undefined' && sodium.ready) {
+                    await sodium.ready;
+                }
+                console.log('libsodium ready (local)');
+                window.dispatchEvent(new Event('sodium-loaded'));
+                return;
+            } catch (err) {
+                console.warn('Failed to load libsodium from local, trying CDN', err);
+            }
+
+            // CDN fallback
+            for (const cdn of cdnSources) {
+                try {
+                    // Load core
+                    await new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = cdn.core;
+                        script.onload = resolve;
+                        script.onerror = reject;
+                        document.head.appendChild(script);
+                    });
+                    // Load wrappers
+                    await new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = cdn.wrappers;
+                        script.onload = resolve;
+                        script.onerror = reject;
+                        document.head.appendChild(script);
+                    });
+
+                    // Wait for sodium to be ready
+                    if (typeof sodium !== 'undefined' && sodium.ready) {
+                        await sodium.ready;
+                    }
+
+                    console.log('libsodium loaded from CDN:', cdn.core);
+                    window.dispatchEvent(new Event('sodium-loaded'));
+                    return;
+                } catch (err) {
+                    console.warn('Failed to load libsodium from CDN', cdn.core, err);
+                }
+            }
+
+            console.error('Failed to load libsodium from any source');
+            window.dispatchEvent(new CustomEvent('sodium-error', { detail: 'All sources failed' }));
+        })();
+    </script>
+
+    <!-- Secp256k1 library for NIP-46 crypto operations (local first, CDN fallback) -->
+    <script>
+        // Load noble-curves - local first, CDN fallback
+        (async function loadNobleSecp256k1() {
+            // Try local bundle first
+            const localUrl = '/js/vendor/noble-secp256k1.min.js';
+            try {
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = localUrl;
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+                // Local bundle dispatches event and sets up window.nobleSecp256k1 automatically
+                return;
+            } catch (err) {
+                console.warn('Failed to load noble-secp256k1 from local, trying CDN fallback', err);
+            }
+
+            // CDN fallback using dynamic import
+            const cdns = [
+                'https://esm.sh/@noble',
+                'https://cdn.skypack.dev/@noble'
+            ];
+
+            for (const cdn of cdns) {
+                try {
+                    const [curves, hashes, sha256Module] = await Promise.all([
+                        import(`${cdn}/curves@1.6.0/secp256k1`),
+                        import(`${cdn}/hashes@1.4.0/hmac`),
+                        import(`${cdn}/hashes@1.4.0/sha256`)
+                    ]);
+
+                    const { schnorr, secp256k1 } = curves;
+                    const { hmac } = hashes;
+                    const { sha256 } = sha256Module;
+
+                    // Configure hmacSha256Sync for ECDH operations
+                    secp256k1.utils.hmacSha256Sync = (key, ...messages) => {
+                        const concat = secp256k1.utils.concatBytes(...messages);
+                        return hmac(sha256, key, concat);
+                    };
+
+                    // Export to window
+                    window.nobleSecp256k1 = secp256k1;
+                    window.nobleSchnorr = schnorr;
+                    console.log('secp256k1 loaded from CDN:', cdn);
+                    window.dispatchEvent(new Event('secp256k1-loaded'));
+                    return;
+                } catch (err) {
+                    console.warn('Failed to load noble-curves from', cdn, err.message);
+                }
+            }
+
+            console.error('Failed to load secp256k1 from any source');
+            window.dispatchEvent(new CustomEvent('secp256k1-error', { detail: 'All sources failed' }));
+        })();
+    </script>
+
+    <!-- Yjs CRDT for collaborative editing - local first with CDN fallback -->
+    <script>
+        (async function loadYjs() {
+            // Try local first
+            try {
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = '/js/vendor/yjs.min.js';
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+                console.log('Yjs loaded from local');
+                return;
+            } catch (err) {
+                console.warn('Failed to load local Yjs, trying CDN fallbacks...');
+            }
+
+            // CDN fallbacks (unlikely to work due to MIME issues but kept for completeness)
+            const cdns = [
+                'https://unpkg.com/yjs@13.6.10/dist/yjs.mjs',
+                'https://cdn.jsdelivr.net/npm/yjs@13.6.10/dist/yjs.mjs'
+            ];
+
+            for (const url of cdns) {
+                try {
+                    await new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.type = 'module';
+                        script.src = url;
+                        script.onload = resolve;
+                        script.onerror = reject;
+                        document.head.appendChild(script);
+                    });
+                    console.log('Yjs loaded from:', url);
+                    return;
+                } catch (err) {
+                    console.warn('Failed to load Yjs from', url);
+                }
+            }
+
+            console.warn('Failed to load Yjs - collaboration features disabled');
+        })();
+
+        // Load y-protocols for collaboration awareness
+        (async function loadYProtocols() {
+            // Wait a bit for Yjs to initialize
+            await new Promise(r => setTimeout(r, 100));
+
+            if (typeof Y === 'undefined') {
+                console.warn('Yjs not loaded, skipping y-protocols');
+                return;
+            }
+
+            try {
+                // Try CDN (y-protocols doesn't have a simple UMD build)
+                const response = await fetch('https://cdn.jsdelivr.net/npm/y-protocols@1.0.6/dist/awareness.cjs');
+                if (response.ok) {
+                    // y-protocols uses CommonJS, we need to eval it with module shim
+                    const code = await response.text();
+                    const module = { exports: {} };
+                    const require = (name) => {
+                        if (name === 'yjs') return Y;
+                        throw new Error('Unknown module: ' + name);
+                    };
+                    const fn = new Function('module', 'exports', 'require', code);
+                    fn(module, module.exports, require);
+                    window.awarenessProtocol = module.exports;
+                    console.log('y-protocols loaded from CDN');
+                    return;
+                }
+            } catch (err) {
+                console.warn('Failed to load y-protocols:', err.message);
+            }
+
+            console.warn('y-protocols not available - some collaboration features disabled');
+        })();
+    </script>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/relay.js"></script>
+    <script src="/js/relayprefs.js"></script>
+    <script src="/js/auth.js"></script>
+    <!-- NIP-46 via @cloistr/collab-common UMD build -->
+    <script src="/js/vendor/cloistr-auth.umd.js"></script>
+    <script src="/js/vendor/nip46-compat.js"></script>
+    <script src="/js/crypto.js"></script>
+    <script src="/js/keys.js"></script>
+    <script src="/js/sharing.js"></script>
+    <script src="/js/versioning.js"></script>
+    <script src="/js/collaboration.js"></script>
+    <script src="/js/search.js"></script>
+    <script src="/js/upload.js"></script>
+    <script src="/js/ui.js"></script>
+    <script src="/js/desktop.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>
