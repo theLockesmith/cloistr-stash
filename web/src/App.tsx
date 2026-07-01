@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNostrAuth } from '@cloistr/collab-common/auth'
+import { useNostrAuth } from '@cloistr/auth'
 import { Header, Footer, LoginPrompt } from '@cloistr/ui/components'
 import { updateAuth, type Signer } from './lib/authBridge'
 import { useStash } from './state/useStash'
