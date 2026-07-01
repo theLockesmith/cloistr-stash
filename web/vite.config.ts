@@ -8,6 +8,12 @@ const libsodiumCjs = fileURLToPath(
   new URL('./node_modules/libsodium-wrappers/dist/modules/libsodium-wrappers.js', import.meta.url),
 )
 
+// Dev API proxy target. Defaults to a local Go backend; set VITE_API_PROXY to
+// point the dev UI at a remote backend, e.g. VITE_API_PROXY=https://stash.cloistr.xyz
+// to smoke-test the new frontend against production data with a real signer.
+const apiTarget = process.env.VITE_API_PROXY || 'http://localhost:8080'
+const proxyEntry = { target: apiTarget, changeOrigin: true, secure: true }
+
 // Stash frontend (React + @cloistr/ui). Go backend serves the built `dist/`
 // in production (`server --web web/dist`); in dev we proxy API calls to it.
 export default defineConfig({
@@ -54,9 +60,9 @@ export default defineConfig({
     port: 3000,
     host: true,
     proxy: {
-      '/api': 'http://localhost:8080',
-      '/public': 'http://localhost:8080',
-      '/health': 'http://localhost:8080',
+      '/api': proxyEntry,
+      '/public': proxyEntry,
+      '/health': proxyEntry,
     },
   },
   build: {
