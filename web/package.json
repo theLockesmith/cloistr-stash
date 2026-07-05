@@ -11,8 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@cloistr/collab-common": "^0.2.3",
-    "@cloistr/ui": "^0.10.1",
+    "@cloistr/collab-common": "^0.2.4",
+    "@cloistr/ui": "^0.10.2",
     "libsodium-wrappers": "^0.7.13",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
