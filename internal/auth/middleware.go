@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/platform"
 	"github.com/nbd-wtf/go-nostr"
@@ -22,27 +24,47 @@ const (
 	ContextKeyAuthorized contextKey = "authorized"
 )
 
+// signerSessionEntry is a cached signer-session → pubkey resolution.
+type signerSessionEntry struct {
+	pubkey  string
+	expires time.Time
+}
+
 // AuthMiddleware provides authentication and authorization middleware
 type AuthMiddleware struct {
 	whitelist      *Whitelist
 	platformClient *platform.Client
 	logger         *slog.Logger
+
+	// signerURL enables unified-auth: the .cloistr.xyz session cookie (or a
+	// Bearer signer JWT) is validated against the signer's /users/me and mapped
+	// to a pubkey. Empty = disabled (Blossom Nostr-event auth only).
+	signerURL   string
+	httpClient  *http.Client
+	sessionMu   sync.RWMutex
+	sessionCache map[string]signerSessionEntry
 }
 
 // NewAuthMiddleware creates a new auth middleware
-func NewAuthMiddleware(whitelist *Whitelist, logger *slog.Logger) *AuthMiddleware {
+func NewAuthMiddleware(whitelist *Whitelist, signerURL string, logger *slog.Logger) *AuthMiddleware {
 	return &AuthMiddleware{
-		whitelist: whitelist,
-		logger:    logger,
+		whitelist:    whitelist,
+		logger:       logger,
+		signerURL:    signerURL,
+		httpClient:   &http.Client{Timeout: 5 * time.Second},
+		sessionCache: make(map[string]signerSessionEntry),
 	}
 }
 
 // NewAuthMiddlewareWithPlatform creates an auth middleware with platform ACL support
-func NewAuthMiddlewareWithPlatform(whitelist *Whitelist, platformClient *platform.Client, logger *slog.Logger) *AuthMiddleware {
+func NewAuthMiddlewareWithPlatform(whitelist *Whitelist, platformClient *platform.Client, signerURL string, logger *slog.Logger) *AuthMiddleware {
 	return &AuthMiddleware{
 		whitelist:      whitelist,
 		platformClient: platformClient,
 		logger:         logger,
+		signerURL:      signerURL,
+		httpClient:     &http.Client{Timeout: 5 * time.Second},
+		sessionCache:   make(map[string]signerSessionEntry),
 	}
 }
 
@@ -64,11 +86,78 @@ func (m *AuthMiddleware) ExtractPubkey(r *http.Request) (string, error) {
 		authHeader = r.Header.Get("X-Blossom-Auth")
 	}
 
-	if authHeader == "" {
-		return "", nil
+	if authHeader != "" {
+		return ExtractPubkeyFromAuth(authHeader)
 	}
 
-	return ExtractPubkeyFromAuth(authHeader)
+	// Unified-auth fallback: no Blossom Nostr-event header — try the Cloistr
+	// signer session (.cloistr.xyz cookie or Bearer signer JWT).
+	return m.resolveSignerSession(r), nil
+}
+
+// resolveSignerSession validates a Cloistr signer session and returns the
+// associated pubkey, or "" if there is none / it can't be validated. It forwards
+// the caller's auth_token cookie (or Authorization header) to the signer's
+// /api/v1/users/me and reads back the pubkey. Results are cached briefly to keep
+// the file-serving hot path fast and to avoid hammering the signer.
+func (m *AuthMiddleware) resolveSignerSession(r *http.Request) string {
+	if m.signerURL == "" {
+		return ""
+	}
+
+	// Identify the credential (cookie preferred; Bearer accepted).
+	var cacheKey, cookieVal, bearer string
+	if c, err := r.Cookie("auth_token"); err == nil && c.Value != "" {
+		cookieVal = c.Value
+		cacheKey = "c:" + c.Value
+	} else if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		bearer = strings.TrimPrefix(h, "Bearer ")
+		cacheKey = "b:" + bearer
+	} else {
+		return ""
+	}
+
+	// Cache hit?
+	m.sessionMu.RLock()
+	if e, ok := m.sessionCache[cacheKey]; ok && time.Now().Before(e.expires) {
+		m.sessionMu.RUnlock()
+		return e.pubkey
+	}
+	m.sessionMu.RUnlock()
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, m.signerURL+"/api/v1/users/me", nil)
+	if err != nil {
+		return ""
+	}
+	if cookieVal != "" {
+		req.AddCookie(&http.Cookie{Name: "auth_token", Value: cookieVal})
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		m.logger.Warn("signer session validation failed", "error", err)
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	var body struct {
+		Pubkey string `json:"pubkey"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || body.Pubkey == "" {
+		return ""
+	}
+
+	m.sessionMu.Lock()
+	m.sessionCache[cacheKey] = signerSessionEntry{pubkey: body.Pubkey, expires: time.Now().Add(2 * time.Minute)}
+	m.sessionMu.Unlock()
+
+	return body.Pubkey
 }
 
 // ExtractPubkeyFromAuth extracts the pubkey from a Nostr auth header

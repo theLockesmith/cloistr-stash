@@ -24,6 +24,10 @@ type Config struct {
 type AuthConfig struct {
 	WhitelistFile string   `yaml:"whitelist_file"` // Path to file with one pubkey per line
 	Pubkeys       []string `yaml:"pubkeys"`        // Inline list of allowed pubkeys
+	// SignerURL is the Cloistr signer (IdP) base URL. When set, the .cloistr.xyz
+	// session cookie (or a Bearer signer JWT) is accepted as an alternative to a
+	// Blossom Nostr-event auth header — unified-auth slice 3 convergence.
+	SignerURL string `yaml:"signer_url"`
 }
 
 // ServerConfig represents HTTP server configuration
@@ -122,6 +126,9 @@ func Load(path string) (*Config, error) {
 	// Auth configuration from environment
 	if whitelistFile := os.Getenv("DRIVE_WHITELIST_FILE"); whitelistFile != "" {
 		cfg.Auth.WhitelistFile = whitelistFile
+	}
+	if signerURL := os.Getenv("DRIVE_SIGNER_URL"); signerURL != "" {
+		cfg.Auth.SignerURL = signerURL
 	}
 	if whitelist := os.Getenv("DRIVE_WHITELIST"); whitelist != "" {
 		// Comma-separated pubkeys

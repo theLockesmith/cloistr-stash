@@ -35,7 +35,7 @@ func setupTestServer(t *testing.T) *Server {
 	s := &Server{
 		config:         cfg,
 		whitelist:      whitelist,
-		authMiddle:     auth.NewAuthMiddleware(whitelist, logger),
+		authMiddle:     auth.NewAuthMiddleware(whitelist, "", logger),
 		mux:            http.NewServeMux(),
 		webDir:         "",
 		logger:         logger,

@@ -109,9 +109,9 @@ func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metad
 	// Create auth middleware with appropriate mode
 	var authMiddle *auth.AuthMiddleware
 	if platformClient != nil {
-		authMiddle = auth.NewAuthMiddlewareWithPlatform(whitelist, platformClient, logger)
+		authMiddle = auth.NewAuthMiddlewareWithPlatform(whitelist, platformClient, cfg.Auth.SignerURL, logger)
 	} else {
-		authMiddle = auth.NewAuthMiddleware(whitelist, logger)
+		authMiddle = auth.NewAuthMiddleware(whitelist, cfg.Auth.SignerURL, logger)
 	}
 
 	s := &Server{

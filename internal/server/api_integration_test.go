@@ -57,7 +57,7 @@ func setupAPITestServer(t *testing.T) (*Server, string) {
 		metadata:       nil, // No metadata store for isolated testing
 		whitelist:      whitelist,
 		platformClient: nil,
-		authMiddle:     auth.NewAuthMiddleware(whitelist, logger),
+		authMiddle:     auth.NewAuthMiddleware(whitelist, "", logger),
 		quota:          nil,
 		rateLimiter:    nil,
 		mux:            http.NewServeMux(),
