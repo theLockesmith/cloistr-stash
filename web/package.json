@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "@cloistr/auth": "^0.1.2",
-    "@cloistr/collab-common": "^0.2.4",
-    "@cloistr/ui": "^0.12.6",
+    "@cloistr/collab-common": "^0.2.6",
+    "@cloistr/ui": "^0.12.7",
     "libsodium-wrappers": "^0.7.13",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
