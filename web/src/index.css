@@ -1,5 +1,5 @@
 :root {
-  color-scheme: dark;
+  /* color-scheme follows ThemeProvider via @cloistr/ui variables */
 }
 
 * {
@@ -15,8 +15,8 @@ body,
 
 body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  background: #0b0b0f;
-  color: #e8e8ef;
+  background: var(--cloistr-bg);
+  color: var(--cloistr-text);
 }
 
 .stash-app {
@@ -58,7 +58,7 @@ body {
 .sidebar {
   width: 240px;
   flex-shrink: 0;
-  border-right: 1px solid #1c1c26;
+  border-right: 1px solid var(--cloistr-border);
   padding: 0.75rem;
   overflow-y: auto;
 }
@@ -81,9 +81,9 @@ body {
 }
 
 .search-input {
-  background: #0f0f16;
-  color: #e8e8ef;
-  border: 1px solid #2a2a36;
+  background: var(--cloistr-bg);
+  color: var(--cloistr-text);
+  border: 1px solid var(--cloistr-border);
   border-radius: 6px;
   padding: 0.35rem 0.6rem;
   width: 16rem;
@@ -93,7 +93,7 @@ body {
 .search-clear {
   background: none;
   border: none;
-  color: #9a9aa8;
+  color: var(--cloistr-text-muted);
   cursor: pointer;
   font-size: 1rem;
 }
@@ -141,7 +141,7 @@ body {
   align-items: center;
   gap: 0.5rem;
   padding: 0.4rem 0;
-  border-bottom: 1px solid #1c1c26;
+  border-bottom: 1px solid var(--cloistr-border);
 }
 
 .version-meta {
@@ -162,7 +162,7 @@ body {
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 0.6rem;
-  border-bottom: 1px solid #1c1c26;
+  border-bottom: 1px solid var(--cloistr-border);
 }
 
 .shared-meta {
@@ -178,9 +178,9 @@ body {
 }
 
 .upload-btn {
-  background: #2d2d6b;
-  color: #dcdcff;
-  border: 1px solid #3a3a8a;
+  background: var(--cloistr-bg-hover);
+  color: var(--cloistr-primary-light);
+  border: 1px solid var(--cloistr-primary-dark);
   border-radius: 6px;
   padding: 0.35rem 0.8rem;
   margin: 0.75rem 1rem 0 0;
@@ -195,10 +195,10 @@ body {
   width: 300px;
   max-height: 50vh;
   overflow-y: auto;
-  background: #15151e;
-  border: 1px solid #2a2a36;
+  background: var(--cloistr-bg-elevated);
+  border: 1px solid var(--cloistr-border);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--cloistr-shadow-lg);
   padding: 0.6rem 0.75rem;
 }
 
@@ -233,21 +233,21 @@ body {
 }
 
 .upload-progress-item.status-success .upload-progress-status {
-  color: #7ad17a;
+  color: var(--cloistr-success);
 }
 
 .upload-progress-item.status-error .upload-progress-status,
 .upload-progress-item.status-duplicate .upload-progress-status {
-  color: #ff9a9a;
+  color: var(--cloistr-error);
 }
 
 /* Hamburger hidden on desktop; sidebar always visible there. */
 .sidebar-toggle {
   display: none;
   background: none;
-  border: 1px solid #2a2a36;
+  border: 1px solid var(--cloistr-border);
   border-radius: 6px;
-  color: #e8e8ef;
+  color: var(--cloistr-text);
   font-size: 1.1rem;
   padding: 0.2rem 0.55rem;
   margin: 0.75rem 0 0 1rem;
@@ -268,7 +268,7 @@ body {
     left: 0;
     bottom: 0;
     z-index: 40;
-    background: #0b0b0f;
+    background: var(--cloistr-bg);
     transform: translateX(-100%);
     transition: transform 0.2s ease;
   }
@@ -298,8 +298,8 @@ body {
 }
 
 .shortcut-row kbd {
-  background: #1b1b24;
-  border: 1px solid #2a2a36;
+  background: var(--cloistr-bg-elevated);
+  border: 1px solid var(--cloistr-border);
   border-radius: 4px;
   padding: 0.1rem 0.4rem;
   font-size: 0.8rem;
@@ -316,19 +316,19 @@ body {
   text-align: left;
   background: none;
   border: none;
-  color: #e8e8ef;
+  color: var(--cloistr-text);
   padding: 0.45rem 0.6rem;
   border-radius: 6px;
   cursor: pointer;
 }
 
 .sidebar-view:hover {
-  background: #16161d;
+  background: var(--cloistr-bg-hover);
 }
 
 .sidebar-view.active {
-  background: #1d1d2a;
-  color: #b9b9ff;
+  background: var(--cloistr-bg-hover);
+  color: var(--cloistr-primary-light);
 }
 
 .folder-tree-list {
@@ -344,7 +344,7 @@ body {
 }
 
 .folder-tree-row.active .folder-tree-name {
-  color: #b9b9ff;
+  color: var(--cloistr-primary-light);
 }
 
 .folder-tree-toggle,
@@ -374,7 +374,7 @@ body {
 .breadcrumb-item {
   background: none;
   border: none;
-  color: #b9b9ff;
+  color: var(--cloistr-primary-light);
   cursor: pointer;
   font: inherit;
   padding: 0.1rem 0.2rem;
@@ -401,14 +401,14 @@ body {
 .fb-star {
   background: none;
   border: none;
-  color: #6a6a78;
+  color: var(--cloistr-text-muted);
   cursor: pointer;
   font-size: 1rem;
   padding: 0;
 }
 
 .fb-star.on {
-  color: #d9b441;
+  color: var(--cloistr-warning);
 }
 
 .fb-toolbar {
@@ -418,17 +418,17 @@ body {
 }
 
 .fb-view-btn {
-  background: #16161d;
-  color: #e8e8ef;
-  border: 1px solid #2a2a36;
+  background: var(--cloistr-bg-elevated);
+  color: var(--cloistr-text);
+  border: 1px solid var(--cloistr-border);
   border-radius: 6px;
   padding: 0.35rem 0.7rem;
   cursor: pointer;
 }
 
 .fb-view-btn.active {
-  border-color: #6b6bff;
-  background: #1d1d2a;
+  border-color: var(--cloistr-primary);
+  background: var(--cloistr-bg-hover);
 }
 
 .fb-status {
@@ -438,7 +438,7 @@ body {
 }
 
 .fb-error {
-  color: #ff8080;
+  color: var(--cloistr-error);
 }
 
 .fb-list {
@@ -452,7 +452,7 @@ body {
   align-items: center;
   gap: 0.5rem;
   padding: 0.45rem 0.5rem;
-  border-bottom: 1px solid #1c1c26;
+  border-bottom: 1px solid var(--cloistr-border);
 }
 
 .fb-name-btn {
@@ -474,7 +474,7 @@ body {
 .fb-menu-btn {
   background: none;
   border: none;
-  color: #9a9aa8;
+  color: var(--cloistr-text-muted);
   cursor: pointer;
   font-size: 1.1rem;
   padding: 0 0.35rem;
@@ -496,28 +496,28 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 9rem;
-  background: #1b1b24;
-  border: 1px solid #2a2a36;
+  background: var(--cloistr-bg-elevated);
+  border: 1px solid var(--cloistr-border);
   border-radius: 6px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--cloistr-shadow-lg);
   overflow: hidden;
 }
 
 .fb-menu-item {
   background: none;
   border: none;
-  color: #e8e8ef;
+  color: var(--cloistr-text);
   text-align: left;
   padding: 0.5rem 0.7rem;
   cursor: pointer;
 }
 
 .fb-menu-item:hover {
-  background: #242430;
+  background: var(--cloistr-bg-hover);
 }
 
 .fb-menu-item.danger {
-  color: #ff8585;
+  color: var(--cloistr-error);
 }
 
 /* Batch selection toolbar */
@@ -527,8 +527,8 @@ body {
   gap: 0.6rem;
   padding: 0.5rem 0.75rem;
   margin-bottom: 0.5rem;
-  background: #1a1a28;
-  border: 1px solid #2a2a3a;
+  background: var(--cloistr-bg-elevated);
+  border: 1px solid var(--cloistr-border);
   border-radius: 8px;
 }
 
@@ -537,17 +537,17 @@ body {
 }
 
 .selection-btn {
-  background: #20202c;
-  color: #e8e8ef;
-  border: 1px solid #2e2e3c;
+  background: var(--cloistr-bg-hover);
+  color: var(--cloistr-text);
+  border: 1px solid var(--cloistr-border);
   border-radius: 6px;
   padding: 0.3rem 0.7rem;
   cursor: pointer;
 }
 
 .selection-btn.danger {
-  border-color: #5a2a2a;
-  color: #ff9a9a;
+  border-color: var(--cloistr-error);
+  color: var(--cloistr-error);
 }
 
 /* File info modal */
@@ -571,9 +571,9 @@ body {
 .modal-input {
   width: 100%;
   box-sizing: border-box;
-  background: #0f0f16;
-  color: #e8e8ef;
-  border: 1px solid #2a2a36;
+  background: var(--cloistr-bg);
+  color: var(--cloistr-text);
+  border: 1px solid var(--cloistr-border);
   border-radius: 6px;
   padding: 0.5rem 0.6rem;
   margin-bottom: 0.9rem;
@@ -586,9 +586,9 @@ body {
 }
 
 .selection-btn.primary {
-  background: #2d2d6b;
-  border-color: #3a3a8a;
-  color: #dcdcff;
+  background: var(--cloistr-bg-hover);
+  border-color: var(--cloistr-primary-dark);
+  color: var(--cloistr-primary-light);
 }
 
 .move-list {
@@ -604,18 +604,18 @@ body {
   text-align: left;
   background: none;
   border: none;
-  color: #e8e8ef;
+  color: var(--cloistr-text);
   padding: 0.55rem 0.6rem;
   border-radius: 6px;
   cursor: pointer;
 }
 
 .move-target:hover {
-  background: #1d1d2a;
+  background: var(--cloistr-bg-hover);
 }
 
 .fb-row.selected {
-  background: #1b1b2b;
+  background: var(--cloistr-bg-elevated);
 }
 
 .fb-name {
@@ -641,13 +641,13 @@ body {
 }
 
 .fb-star {
-  color: #d9b441;
+  color: var(--cloistr-warning);
 }
 
 .fb-e2e {
   font-size: 0.65rem;
-  border: 1px solid #3a7a3a;
-  color: #7ad17a;
+  border: 1px solid var(--cloistr-success);
+  color: var(--cloistr-success);
   border-radius: 4px;
   padding: 0 0.25rem;
 }
@@ -671,8 +671,8 @@ body {
   align-items: center;
   gap: 0.35rem;
   padding: 1rem 0.5rem;
-  background: #14141c;
-  border: 1px solid #20202c;
+  background: var(--cloistr-bg-elevated);
+  border: 1px solid var(--cloistr-border);
   border-radius: 8px;
   color: inherit;
   cursor: default;
