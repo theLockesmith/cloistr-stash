@@ -11,6 +11,11 @@ variables:
   GOPRIVATE: "git.aegis-hq.xyz"
   GOINSECURE: "git.aegis-hq.xyz"
 
+include:
+  - project: 'coldforge/ci-templates'
+    ref: main
+    file: '/templates/kaniko-build.yml'
+
 .go-cache: &go-cache
   cache:
     key: go-modules-${CI_COMMIT_REF_SLUG}
@@ -49,15 +54,7 @@ lint:
   allow_failure: true
 
 build:
+  extends: .kaniko-build
   stage: build
-  only:
-    - master
-    - main
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
-  before_script:
-    - mkdir -p /kaniko/.docker
-    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
-  script:
-    - /kaniko/executor --context ${CI_PROJECT_DIR} --dockerfile ${CI_PROJECT_DIR}/Dockerfile --build-arg=NPM_TOKEN=${CI_JOB_TOKEN} --destination ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHORT_SHA} --destination ${CI_REGISTRY_IMAGE}:latest
+  variables:
+    KANIKO_EXTRA_FLAGS: "--build-arg=NPM_TOKEN=${CI_JOB_TOKEN}"
