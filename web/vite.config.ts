@@ -53,7 +53,7 @@ export default defineConfig({
     // linked packages pull their own nested React/collab-common, producing a
     // second context instance -> "useNostrAuth must be used within an
     // AuthProvider". See cloistr-signer gotcha (Vite dedupe + npm overrides).
-    dedupe: ['react', 'react-dom', '@cloistr/collab-common'],
+    dedupe: ['react', 'react-dom', '@cloistr/collab-common', '@cloistr/auth'],
     alias: { 'libsodium-wrappers': libsodiumCjs },
   },
   server: {

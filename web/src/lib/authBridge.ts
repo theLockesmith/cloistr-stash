@@ -18,6 +18,10 @@ export interface Signer {
   signEvent(event: UnsignedEvent): Promise<SignedEvent>
   encrypt(pubkey: string, plaintext: string): Promise<string>
   decrypt(pubkey: string, ciphertext: string): Promise<string>
+  // Present once @cloistr/auth exposes NIP-44 (see coord task / migration doc).
+  // Feature-detected at runtime; the data layer falls back to NIP-04 when absent.
+  nip44Encrypt?(pubkey: string, plaintext: string): Promise<string>
+  nip44Decrypt?(pubkey: string, ciphertext: string): Promise<string>
 }
 
 export interface AuthSnapshot {
@@ -52,6 +56,21 @@ const authPort = {
   },
   async nip04Decrypt(pubkey: string, ciphertext: string): Promise<string> {
     return requireSigner().decrypt(pubkey, ciphertext)
+  },
+
+  // NIP-44 self-encryption. Always present on the port; throws `signer:no-nip44`
+  // when the current signer predates NIP-44 (older @cloistr/auth, or a NIP-07
+  // extension without window.nostr.nip44). keys.ts feature-detects by catching
+  // this and falling back to NIP-04. See docs/migration-nip04-to-nip44-root-key.md.
+  async nip44Encrypt(pubkey: string, plaintext: string): Promise<string> {
+    const s = requireSigner()
+    if (!s.nip44Encrypt) throw new Error('signer:no-nip44')
+    return s.nip44Encrypt(pubkey, plaintext)
+  },
+  async nip44Decrypt(pubkey: string, ciphertext: string): Promise<string> {
+    const s = requireSigner()
+    if (!s.nip44Decrypt) throw new Error('signer:no-nip44')
+    return s.nip44Decrypt(pubkey, ciphertext)
   },
 
   async signEvent(event: UnsignedEvent): Promise<SignedEvent> {

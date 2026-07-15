@@ -20,6 +20,11 @@ export interface AuthPort {
   readonly isConnected: boolean
   nip04Encrypt(pubkey: string, plaintext: string): Promise<string>
   nip04Decrypt(pubkey: string, ciphertext: string): Promise<string>
+  // NIP-44 self-encryption. Optional: absent when the deployed signer/@cloistr/auth
+  // predates NIP-44 support, in which case callers fall back to NIP-04. See
+  // docs/migration-nip04-to-nip44-root-key.md.
+  nip44Encrypt?(pubkey: string, plaintext: string): Promise<string>
+  nip44Decrypt?(pubkey: string, ciphertext: string): Promise<string>
   createRootKeyEvent(encryptedKey: string): Promise<unknown>
   publishEvent(event: unknown): Promise<void>
 }
@@ -60,9 +65,18 @@ export const Keys = {
   auth: null as AuthPort | null,
   api: null as ApiPort | null,
 
-  configure(deps: { auth?: AuthPort | null; api?: ApiPort | null }): void {
+  // Write-gate for the NIP-04 -> NIP-44 root-key migration. Kept as a kill-switch
+  // (disable via configure({nip44Writes:false})), but DEFAULT ON: the drive has
+  // no stored files yet, so the lockout hazard is moot -- an unreadable root key
+  // just gets regenerated, with no data behind it to lose. The read path
+  // (selfDecrypt) accepts both schemes regardless. Revisit this default before
+  // real user data exists. See docs/migration-nip04-to-nip44-root-key.md.
+  nip44Writes: true as boolean,
+
+  configure(deps: { auth?: AuthPort | null; api?: ApiPort | null; nip44Writes?: boolean }): void {
     if (deps.auth !== undefined) this.auth = deps.auth
     if (deps.api !== undefined) this.api = deps.api
+    if (deps.nip44Writes !== undefined) this.nip44Writes = deps.nip44Writes
   },
 
   async init(pubkey: string): Promise<void> {
@@ -100,7 +114,7 @@ export const Keys = {
 
       if (!localKey && hasNostrKey) {
         console.log('Keys: Restoring root key from Nostr...')
-        const keyHex = await this.auth.nip04Decrypt(this.userPubkey, nostrResult!.encrypted_root_key!)
+        const keyHex = await this.selfDecrypt(this.userPubkey, nostrResult!.encrypted_root_key!)
         const rootKey = Crypto.hexToBytes(keyHex)
         await this.storeEncryptedKey('root', rootKey, null)
         this.keyCache.set('root', rootKey)
@@ -146,6 +160,41 @@ export const Keys = {
     return rootKey
   },
 
+  // NIP-04 v-04 ciphertext always carries the literal '?iv=' separator; NIP-44 v2
+  // is a single base64 blob (first decoded byte 0x02) and never contains it.
+  isNip04Ciphertext(ciphertext: string): boolean {
+    return ciphertext.includes('?iv=')
+  },
+
+  // Self-wrap encrypt. Writes NIP-04 unless the NIP-44 write-gate is enabled AND
+  // the signer supports NIP-44; falls back to NIP-04 if the NIP-44 attempt fails.
+  async selfEncrypt(pubkey: string, plaintext: string): Promise<string> {
+    if (this.nip44Writes && this.auth?.nip44Encrypt) {
+      try {
+        return await this.auth.nip44Encrypt(pubkey, plaintext)
+      } catch (err) {
+        console.warn('Keys: NIP-44 encrypt unavailable, falling back to NIP-04:', (err as Error).message)
+      }
+    }
+    return this.auth!.nip04Encrypt(pubkey, plaintext)
+  },
+
+  // Self-wrap decrypt accepting either scheme: NIP-04 (legacy root-key events) or
+  // NIP-44 (new). Format-detects first, then falls back defensively.
+  async selfDecrypt(pubkey: string, ciphertext: string): Promise<string> {
+    if (this.isNip04Ciphertext(ciphertext)) {
+      return this.auth!.nip04Decrypt(pubkey, ciphertext)
+    }
+    if (this.auth?.nip44Decrypt) {
+      try {
+        return await this.auth.nip44Decrypt(pubkey, ciphertext)
+      } catch (err) {
+        console.warn('Keys: NIP-44 decrypt failed, trying NIP-04:', (err as Error).message)
+      }
+    }
+    return this.auth!.nip04Decrypt(pubkey, ciphertext)
+  },
+
   // Publish root key to Nostr for persistence across devices/sessions (kind 30078, d='root-key')
   async publishRootKeyToNostr(rootKey: Uint8Array): Promise<void> {
     if (!this.auth || !this.auth.isConnected) {
@@ -154,7 +203,7 @@ export const Keys = {
     }
     try {
       const keyHex = Crypto.bytesToHex(rootKey)
-      const encryptedKey = await this.auth.nip04Encrypt(this.userPubkey!, keyHex)
+      const encryptedKey = await this.selfEncrypt(this.userPubkey!, keyHex)
       const signedEvent = await this.auth.createRootKeyEvent(encryptedKey)
       await this.auth.publishEvent(signedEvent)
       console.log('Keys: Published root key to Nostr')
