@@ -21,13 +21,13 @@ include:
 
 test:
   stage: test
-  image: golang:${GO_VERSION}-alpine
+  image: golang:${GO_VERSION}
   <<: *go-cache
   variables:
     GOPATH: ${CI_PROJECT_DIR}/.go
     CGO_ENABLED: "1"
   before_script:
-    - for i in 1 2 3 4 5; do apk add --no-cache git ca-certificates build-base && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
+    - for i in 1 2 3 4 5; do apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
     - mkdir -p .go
   script:
     - go mod download
