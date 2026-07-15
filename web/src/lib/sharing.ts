@@ -235,6 +235,17 @@ export const Sharing = {
     console.log('Sharing: Initialized')
   },
 
+  // Peer-directed encryption for share keys/content. Delegates to the single
+  // scheme policy in Keys (prefer NIP-44 when the nip44Writes gate is on and the
+  // signer supports it; else NIP-04). Decrypt accepts either scheme, so legacy
+  // NIP-04 shares stay readable. See docs/migration-nip04-to-nip44-root-key.md.
+  async encryptForRecipient(recipientPubkey: string, plaintext: string): Promise<string> {
+    return Keys.selfEncrypt(recipientPubkey, plaintext)
+  },
+  async decryptFromSender(senderPubkey: string, ciphertext: string): Promise<string> {
+    return Keys.selfDecrypt(senderPubkey, ciphertext)
+  },
+
   // Share a file with a specific recipient.
   // Encrypts the file key with recipient's pubkey via NIP-44.
   async shareFile(
@@ -263,9 +274,9 @@ export const Sharing = {
       fileKey = await Keys.deriveRootFileKey(fileId)
     }
 
-    // Encrypt the file key for the recipient using NIP-44
+    // Encrypt the file key for the recipient (NIP-44 preferred, NIP-04 fallback)
     const fileKeyHex = Crypto.bytesToHex(fileKey)
-    const encryptedFileKey = await authPort.nip04Encrypt(recipientPubkey, fileKeyHex)
+    const encryptedFileKey = await this.encryptForRecipient(recipientPubkey, fileKeyHex)
 
     // Create share content
     const shareContent: ShareFileContent = {
@@ -328,9 +339,9 @@ export const Sharing = {
     // Get the folder key
     const folderKey = await Keys.getFolderKey(folderId, folder.parent_id ?? null)
 
-    // Encrypt the folder key for the recipient using NIP-44
+    // Encrypt the folder key for the recipient (NIP-44 preferred, NIP-04 fallback)
     const folderKeyHex = Crypto.bytesToHex(folderKey)
-    const encryptedFolderKey = await authPort.nip04Encrypt(recipientPubkey, folderKeyHex)
+    const encryptedFolderKey = await this.encryptForRecipient(recipientPubkey, folderKeyHex)
 
     // Create share content
     const shareContent: ShareFolderContent = {
@@ -370,9 +381,9 @@ export const Sharing = {
   async createShareEvent(shareInfo: ShareEventInfo): Promise<SignedEvent> {
     const now = Math.floor(Date.now() / 1000)
 
-    // Encrypt the entire share content for the recipient
+    // Encrypt the entire share content for the recipient (NIP-44 preferred)
     const contentJson = JSON.stringify(shareInfo.shareContent)
-    const encryptedContent = await authPort.nip04Encrypt(shareInfo.recipientPubkey, contentJson)
+    const encryptedContent = await this.encryptForRecipient(shareInfo.recipientPubkey, contentJson)
 
     const event: UnsignedEvent = {
       kind: 30080, // Share kind
@@ -640,8 +651,8 @@ export const Sharing = {
       throw new Error('Not connected')
     }
 
-    // Decrypt the share content
-    const decryptedContent = await authPort.nip04Decrypt(
+    // Decrypt the share content (accepts NIP-04 legacy or NIP-44)
+    const decryptedContent = await this.decryptFromSender(
       share.owner_pubkey,
       share.encrypted_content,
     )
@@ -658,8 +669,8 @@ export const Sharing = {
     }
 
     if (content.type === this.SHARE_TYPE_FILE && content.fileKey) {
-      // Decrypt the file key
-      const fileKeyHex = await authPort.nip04Decrypt(share.owner_pubkey, content.fileKey)
+      // Decrypt the file key (accepts NIP-04 legacy or NIP-44)
+      const fileKeyHex = await this.decryptFromSender(share.owner_pubkey, content.fileKey)
       const fileKey = Crypto.hexToBytes(fileKeyHex)
 
       // Store the file key locally (associated with the share)
@@ -675,7 +686,7 @@ export const Sharing = {
       }
     } else if (content.type === this.SHARE_TYPE_FOLDER && content.folderKey) {
       // Decrypt the folder key (verbatim from legacy: computed but passed encrypted form to import)
-      const folderKeyHex = await authPort.nip04Decrypt(share.owner_pubkey, content.folderKey)
+      const folderKeyHex = await this.decryptFromSender(share.owner_pubkey, content.folderKey)
       const folderKey = Crypto.hexToBytes(folderKeyHex)
       void folderKey // unused per legacy logic; importSharedFolderKey re-decrypts internally
 
@@ -760,7 +771,7 @@ export const Sharing = {
       const decryptedShares: DecryptedIncomingShare[] = []
       for (const share of shares) {
         try {
-          const decryptedContent = await authPort.nip04Decrypt(
+          const decryptedContent = await this.decryptFromSender(
             share.owner_pubkey,
             share.encrypted_content,
           )

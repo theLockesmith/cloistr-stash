@@ -166,8 +166,9 @@ export const Keys = {
     return ciphertext.includes('?iv=')
   },
 
-  // Self-wrap encrypt. Writes NIP-04 unless the NIP-44 write-gate is enabled AND
-  // the signer supports NIP-44; falls back to NIP-04 if the NIP-44 attempt fails.
+  // Scheme-aware encrypt to `pubkey` (own pubkey for self-wrap, or a recipient's
+  // for shares). Writes NIP-04 unless the NIP-44 write-gate is enabled AND the
+  // signer supports NIP-44; falls back to NIP-04 if the NIP-44 attempt fails.
   async selfEncrypt(pubkey: string, plaintext: string): Promise<string> {
     if (this.nip44Writes && this.auth?.nip44Encrypt) {
       try {
@@ -179,8 +180,9 @@ export const Keys = {
     return this.auth!.nip04Encrypt(pubkey, plaintext)
   },
 
-  // Self-wrap decrypt accepting either scheme: NIP-04 (legacy root-key events) or
-  // NIP-44 (new). Format-detects first, then falls back defensively.
+  // Scheme-aware decrypt from `pubkey`, accepting either scheme: NIP-04 (legacy
+  // root-key events / legacy shares) or NIP-44 (new). Ciphertext self-identifies
+  // (NIP-04 carries '?iv='), so no version tag is needed. Falls back defensively.
   async selfDecrypt(pubkey: string, ciphertext: string): Promise<string> {
     if (this.isNip04Ciphertext(ciphertext)) {
       return this.auth!.nip04Decrypt(pubkey, ciphertext)
@@ -388,7 +390,7 @@ export const Keys = {
     if (!this.auth || !this.auth.isConnected) {
       throw new Error('Not connected')
     }
-    const keyHex = await this.auth.nip04Decrypt(senderPubkey, encryptedKey)
+    const keyHex = await this.selfDecrypt(senderPubkey, encryptedKey)
     const folderKey = Crypto.hexToBytes(keyHex)
     await this.storeEncryptedKey(`folder:${folderId}`, folderKey, folderId)
     this.keyCache.set(`folder:${folderId}`, folderKey)
@@ -400,7 +402,7 @@ export const Keys = {
     const folderKey = await this.getFolderKey(folderId)
     const keyHex = Crypto.bytesToHex(folderKey)
     if (!this.auth) throw new Error('Not connected')
-    return this.auth.nip04Encrypt(recipientPubkey, keyHex)
+    return this.selfEncrypt(recipientPubkey, keyHex)
   },
 
   async getPublicLinkKey(folderId: string | null, fileId: string): Promise<string> {
