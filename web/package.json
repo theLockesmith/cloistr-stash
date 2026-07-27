@@ -13,7 +13,7 @@
   "dependencies": {
     "@cloistr/auth": "^0.4.0",
     "@cloistr/collab-common": "^0.2.7",
-    "@cloistr/ui": "^0.20.1",
+    "@cloistr/ui": "^0.20.2",
     "libsodium-wrappers": "^0.7.13",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
