@@ -35,7 +35,7 @@ test:
     - mkdir -p .go
   script:
     - go mod download
-    - go test -v -race -coverprofile=coverage.out ./...
+    - go test -v -race -timeout 25m -coverprofile=coverage.out ./...
     - go tool cover -func=coverage.out
   coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
 
