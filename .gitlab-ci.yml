@@ -10,6 +10,9 @@ variables:
 include:
   - project: 'coldforge/ci-templates'
     ref: main
+    file: '/templates/cloistr-rules.yml'
+  - project: 'coldforge/ci-templates'
+    ref: main
     file: '/templates/kaniko-build.yml'
 
 .go-cache: &go-cache
@@ -20,6 +23,7 @@ include:
     policy: pull-push
 
 test:
+  extends: .cloistr-rules
   stage: test
   image: golang:${GO_VERSION}
   <<: *go-cache
@@ -36,6 +40,7 @@ test:
   coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
 
 lint:
+  extends: .cloistr-rules
   stage: test
   image: golang:${GO_VERSION}-alpine
   <<: *go-cache
