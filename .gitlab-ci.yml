@@ -10,6 +10,12 @@ variables:
 include:
   - project: 'coldforge/ci-templates'
     ref: main
+    file: '/templates/cloistr-rules.yml'
+  - project: 'coldforge/ci-templates'
+    ref: main
+    file: '/templates/go-test.yml'
+  - project: 'coldforge/ci-templates'
+    ref: main
     file: '/templates/kaniko-build.yml'
 
 .go-cache: &go-cache
@@ -19,38 +25,16 @@ include:
       - .go/pkg/mod/
     policy: pull-push
 
-test:
-  stage: test
-  image: golang:${GO_VERSION}
-  <<: *go-cache
-  variables:
-    GOPATH: ${CI_PROJECT_DIR}/.go
-    CGO_ENABLED: "1"
-  before_script:
-    - for i in 1 2 3 4 5; do apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates && break || echo "Attempt $i failed, retrying in 5s..." && sleep 5; done
-    - mkdir -p .go
-  script:
-    - go mod download
-    - go test -v -race -coverprofile=coverage.out ./...
-    - go tool cover -func=coverage.out
-  coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
 
-lint:
-  stage: test
-  image: golang:${GO_VERSION}-alpine
-  <<: *go-cache
-  variables:
-    GOPATH: ${CI_PROJECT_DIR}/.go
-  before_script:
-    - apk add --no-cache git ca-certificates curl
-    - mkdir -p .go
-    - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.1.0
-  script:
-    - ${GOPATH}/bin/golangci-lint run --timeout 10m ./...
-  allow_failure: true
 
 build:
   extends: .kaniko-build
   stage: build
   variables:
     KANIKO_EXTRA_FLAGS: "--build-arg=NPM_TOKEN=${CI_JOB_TOKEN}"
+
+test:
+  extends: [.go-test, .cloistr-rules]
+
+lint:
+  extends: [.go-lint, .cloistr-rules]
