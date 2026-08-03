@@ -9,11 +9,13 @@ import { useStash } from '../state/useStash'
 import type { StashFile, StashFolder } from '../state/types'
 import { formatDate, formatFileSize, getFileIcon } from './format'
 import { FileInfoModal } from './FileInfoModal'
+import { EditorModal } from './EditorModal'
 import { SelectionToolbar } from './SelectionToolbar'
 import { RenameModal } from './RenameModal'
 import { MoveModal } from './MoveModal'
 import { ShareModal } from './ShareModal'
 import { VersionHistoryModal } from './VersionHistoryModal'
+import { Collaboration } from '../lib/collaboration'
 
 type ViewMode = 'list' | 'grid'
 
@@ -72,6 +74,7 @@ export function FileBrowser() {
   const [moveTarget, setMoveTarget] = useState<StashFile | null>(null)
   const [shareTarget, setShareTarget] = useState<StashFile | null>(null)
   const [versionTarget, setVersionTarget] = useState<StashFile | null>(null)
+  const [editorTarget, setEditorTarget] = useState<StashFile | null>(null)
 
   const openInfo = (file: StashFile) => {
     recordFileAccess(file.sha256)
@@ -82,6 +85,7 @@ export function FileBrowser() {
   const modals = (
     <>
       <FileInfoModal file={infoFile} onClose={() => setInfoFile(null)} />
+      <EditorModal file={editorTarget} onClose={() => setEditorTarget(null)} />
       <ShareModal file={shareTarget} onClose={() => setShareTarget(null)} />
       <VersionHistoryModal
         file={versionTarget}
@@ -131,6 +135,9 @@ export function FileBrowser() {
 
   const fileMenuItems = (file: StashFile) => [
     { label: 'Info', onClick: () => openInfo(file) },
+    ...(Collaboration.isCollaborativeFileType(file.mime_type)
+      ? [{ label: 'Edit', onClick: () => setEditorTarget(file) }]
+      : []),
     { label: 'Share', onClick: () => setShareTarget(file) },
     { label: 'Versions', onClick: () => setVersionTarget(file) },
     { label: 'Rename', onClick: () => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) }) },
