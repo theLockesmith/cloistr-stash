@@ -699,3 +699,265 @@ body {
   font-size: 0.72rem;
   opacity: 0.55;
 }
+
+/* ── Notifications ─────────────────────────────────────────────────────────
+   Ported from legacy css/style.css.  Notification badge, list items, and
+   accept/decline actions.  The .modal / .modal.hidden / .modal-content /
+   .modal-header / .modal-body / .modal-footer rules are also here because
+   NotificationsModal renders a persistent DOM element with these classes
+   (not via @cloistr/ui Modal which returns null when closed).
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Secondary nav (sidebar bottom section) */
+.sidebar-nav-extra {
+  margin-top: auto;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--cloistr-border, #e5e7eb);
+}
+
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  border-radius: 6px;
+  color: var(--cloistr-text-secondary, #6b7280);
+  font-size: 0.875rem;
+  transition: background-color 0.15s, color 0.15s;
+  user-select: none;
+}
+
+.sidebar-nav-item:hover {
+  background-color: var(--cloistr-surface-hover, rgba(0,0,0,0.04));
+  color: var(--cloistr-text, #111827);
+}
+
+.sidebar-nav-item:focus-visible {
+  outline: 2px solid var(--cloistr-accent, #6366f1);
+  outline-offset: -2px;
+}
+
+.sidebar-nav-icon {
+  width: 20px;
+  margin-right: 0.6rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.sidebar-nav-name {
+  flex: 1;
+}
+
+.sidebar-nav-badge {
+  padding: 0.1rem 0.45rem;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  min-width: 18px;
+  text-align: center;
+}
+
+/* notification-badge: red dot, hides when empty */
+.notification-badge {
+  background-color: var(--cloistr-error, #ef4444);
+  color: #fff;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  padding: 0 5px;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notification-badge:empty {
+  display: none;
+}
+
+/* Generic modal overlay (used by NotificationsModal and other legacy-style modals) */
+.modal {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-content {
+  background-color: var(--cloistr-surface, #fff);
+  border: 1px solid var(--cloistr-border, #e5e7eb);
+  border-radius: 8px;
+  width: 90%;
+  max-width: 520px;
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--cloistr-border, #e5e7eb);
+}
+
+.modal-header h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+  color: var(--cloistr-text-secondary, #6b7280);
+}
+
+.modal-close:hover {
+  color: var(--cloistr-text, #111827);
+}
+
+.modal-body {
+  padding: 1rem 1.25rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--cloistr-border, #e5e7eb);
+}
+
+/* Notification list */
+.notifications-list {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.notification-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 0;
+  border-bottom: 1px solid var(--cloistr-border, #e5e7eb);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.notification-item:last-child {
+  border-bottom: none;
+}
+
+.notification-item.unread {
+  background-color: rgba(99, 102, 241, 0.06);
+  border-radius: 6px;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.notification-icon {
+  font-size: 1.4rem;
+  width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+  padding-top: 0.1rem;
+}
+
+.notification-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.notification-title {
+  font-weight: 500;
+  font-size: 0.9rem;
+  margin-bottom: 0.2rem;
+}
+
+.notification-description {
+  font-size: 0.85rem;
+  color: var(--cloistr-text-secondary, #6b7280);
+  margin-bottom: 0.35rem;
+}
+
+.notification-time {
+  font-size: 0.75rem;
+  color: var(--cloistr-text-secondary, #6b7280);
+}
+
+.notification-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+.no-notifications {
+  text-align: center;
+  color: var(--cloistr-text-secondary, #6b7280);
+  padding: 2.5rem 1rem;
+  font-style: italic;
+}
+
+/* Generic .btn used inside NotificationsModal */
+.btn {
+  padding: 0.35rem 0.75rem;
+  border-radius: 5px;
+  border: 1px solid var(--cloistr-border, #d1d5db);
+  background: var(--cloistr-surface, #fff);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background-color 0.15s;
+}
+
+.btn:hover {
+  background-color: var(--cloistr-surface-hover, #f3f4f6);
+}
+
+.btn.btn-primary {
+  background-color: var(--cloistr-accent, #6366f1);
+  color: #fff;
+  border-color: var(--cloistr-accent, #6366f1);
+}
+
+.btn.btn-primary:hover {
+  opacity: 0.9;
+}
+
+@media (prefers-color-scheme: dark) {
+  .modal-content {
+    background-color: var(--cloistr-surface, #1f2937);
+    border-color: var(--cloistr-border, #374151);
+  }
+  .modal-header,
+  .modal-footer {
+    border-color: var(--cloistr-border, #374151);
+  }
+  .notification-item {
+    border-color: var(--cloistr-border, #374151);
+  }
+  .sidebar-nav-extra {
+    border-color: var(--cloistr-border, #374151);
+  }
+  .btn {
+    background: var(--cloistr-surface, #1f2937);
+    border-color: var(--cloistr-border, #374151);
+    color: var(--cloistr-text, #f9fafb);
+  }
+  .btn:hover {
+    background-color: var(--cloistr-surface-hover, #374151);
+  }
+}

@@ -7,6 +7,7 @@ import { FileBrowser } from './components/FileBrowser'
 import { Sidebar } from './components/Sidebar'
 import { Breadcrumbs } from './components/Breadcrumbs'
 import { KeyboardShortcuts } from './components/KeyboardShortcuts'
+import { NotificationsModal } from './components/NotificationsModal'
 import { UploadButton, UploadProgress } from './components/UploadBar'
 import { SearchBar } from './components/SearchBar'
 import { Search } from './lib/search'
@@ -29,6 +30,7 @@ export default function App() {
   const pubkey = authState?.pubkey ?? null
   const { loadFiles, loadFolderTree, uploadFiles, view } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
 
   // Bridge the shared signer into the data layer, then load on connect.
   useEffect(() => {
@@ -62,7 +64,7 @@ export default function App() {
       <main className="stash-main">
         {isConnected ? (
           <div className={`stash-workspace ${sidebarOpen ? 'sidebar-open' : ''}`}>
-            <Sidebar />
+            <Sidebar onOpenNotifications={() => setNotificationsOpen(true)} />
             {sidebarOpen && (
               <button
                 type="button"
@@ -102,6 +104,10 @@ export default function App() {
             </div>
             <UploadProgress />
             <KeyboardShortcuts />
+            <NotificationsModal
+              open={notificationsOpen}
+              onClose={() => setNotificationsOpen(false)}
+            />
           </div>
         ) : (
           <LoginPrompt

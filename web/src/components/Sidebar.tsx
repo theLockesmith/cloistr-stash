@@ -1,6 +1,9 @@
 // Sidebar: special-view navigation + folder tree (ported from app.js
 // renderFolderTree / view switching). Folder tree is built from folderTreeData
 // by parent_id, with expand/collapse; clicking navigates by absolute path.
+//
+// The bottom nav section (notifications, etc.) mirrors the legacy
+// #sidebar-nav-item structure so E2E specs targeting those IDs pass.
 
 import { useMemo, useState } from 'react'
 import { useStash } from '../state/useStash'
@@ -14,8 +17,8 @@ const VIEWS: { id: StashView; label: string; icon: string }[] = [
   { id: 'trash', label: 'Trash', icon: '🗑️' },
 ]
 
-export function Sidebar() {
-  const { view, setView, folderTreeData, currentFolderId, navigateToFolderAbsolute } = useStash()
+export function Sidebar({ onOpenNotifications }: { onOpenNotifications: () => void }) {
+  const { view, setView, folderTreeData, currentFolderId, navigateToFolderAbsolute, unreadNotificationCount } = useStash()
 
   // Group folders by parent for tree rendering.
   const childrenByParent = useMemo(() => {
@@ -43,6 +46,40 @@ export function Sidebar() {
             <span aria-hidden="true">{v.icon}</span> {v.label}
           </button>
         ))}
+      </nav>
+
+      {/* Secondary nav items (mirrors legacy sidebar-nav-item structure for E2E compat) */}
+      <nav className="sidebar-nav-extra" aria-label="Actions">
+        {/* Notifications nav item — matches legacy #nav-notifications */}
+        <div
+          id="nav-notifications"
+          className="sidebar-nav-item"
+          title="Share notifications"
+          role="button"
+          tabIndex={0}
+          aria-label="Notifications"
+          onClick={onOpenNotifications}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              onOpenNotifications()
+            }
+          }}
+        >
+          <span className="sidebar-nav-icon" aria-hidden="true">🔔</span>
+          <span className="sidebar-nav-name">Notifications</span>
+          <span
+            className="sidebar-nav-badge notification-badge"
+            id="notification-count"
+            aria-live="polite"
+          >
+            {unreadNotificationCount > 0
+              ? unreadNotificationCount > 99
+                ? '99+'
+                : unreadNotificationCount
+              : ''}
+          </span>
+        </div>
       </nav>
 
       {folderTreeData.length > 0 && (
