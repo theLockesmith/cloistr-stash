@@ -1,6 +1,10 @@
 // Sidebar: special-view navigation + folder tree (ported from app.js
 // renderFolderTree / view switching). Folder tree is built from folderTreeData
 // by parent_id, with expand/collapse; clicking navigates by absolute path.
+//
+// Secondary nav items (starred, recent, trash, activity, notifications,
+// relay-settings) use the legacy sidebar-nav-item DOM shape so existing
+// Playwright specs pass without changes.
 
 import { useMemo, useState } from 'react'
 import { useStash } from '../state/useStash'
@@ -18,9 +22,10 @@ interface SidebarProps {
   isOpen: boolean
   onToggle: () => void
   onClose: () => void
+  onOpenActivity: () => void
 }
 
-export function Sidebar({ isOpen, onToggle }: SidebarProps) {
+export function Sidebar({ onToggle, onOpenActivity }: SidebarProps) {
   const { view, setView, folderTreeData, currentFolderId, navigateToFolderAbsolute } = useStash()
 
   // Group folders by parent for tree rendering.
@@ -65,6 +70,28 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
             <span aria-hidden="true">{v.icon}</span> {v.label}
           </button>
         ))}
+      </nav>
+
+      {/* Secondary nav items – legacy sidebar-nav-item shape for Playwright compat */}
+      <nav className="sidebar-nav" aria-label="Tools">
+        <div
+          id="nav-activity"
+          className="sidebar-nav-item"
+          title="Activity log"
+          role="button"
+          tabIndex={0}
+          aria-label="Activity"
+          onClick={onOpenActivity}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              onOpenActivity()
+            }
+          }}
+        >
+          <span className="sidebar-nav-icon" aria-hidden="true">📋</span>
+          <span className="sidebar-nav-name">Activity</span>
+        </div>
       </nav>
 
       {folderTreeData.length > 0 && (

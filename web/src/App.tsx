@@ -9,6 +9,7 @@ import { Breadcrumbs } from './components/Breadcrumbs'
 import { KeyboardShortcuts } from './components/KeyboardShortcuts'
 import { UploadButton, UploadProgress } from './components/UploadBar'
 import { SearchBar } from './components/SearchBar'
+import { ActivityModal } from './components/ActivityModal'
 import { Search } from './lib/search'
 import { Sharing } from './lib/sharing'
 import { Versioning } from './lib/versioning'
@@ -29,6 +30,7 @@ export default function App() {
   const pubkey = authState?.pubkey ?? null
   const { loadFiles, loadFolderTree, uploadFiles, view } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [activityOpen, setActivityOpen] = useState(false)
 
   const toggleSidebar = () => setSidebarOpen((o) => !o)
   const closeSidebar = () => setSidebarOpen(false)
@@ -65,7 +67,7 @@ export default function App() {
       <main className="stash-main">
         {isConnected ? (
           <div className={`stash-workspace ${sidebarOpen ? 'sidebar-open' : ''}`}>
-            <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} onClose={closeSidebar} />
+            <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} onClose={closeSidebar} onOpenActivity={() => setActivityOpen(true)} />
             {/* Overlay: always in DOM so tests can find #sidebar-overlay; visible class shows it */}
             <div
               id="sidebar-overlay"
@@ -110,6 +112,7 @@ export default function App() {
             </div>
             <UploadProgress />
             <KeyboardShortcuts />
+            <ActivityModal isOpen={activityOpen} onClose={() => setActivityOpen(false)} />
           </div>
         ) : (
           <LoginPrompt
