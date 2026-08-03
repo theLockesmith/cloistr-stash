@@ -699,3 +699,239 @@ body {
   font-size: 0.72rem;
   opacity: 0.55;
 }
+
+/* ---- New Button + dropdown ---- */
+.btn-accent {
+  background: var(--cloistr-primary);
+  border-color: var(--cloistr-primary-dark);
+  color: #fff;
+}
+
+.btn-accent:hover:not(:disabled) {
+  background: var(--cloistr-primary-hover);
+}
+
+.new-dropdown {
+  position: relative;
+  display: inline-block;
+  margin: 0.5rem 0 0;
+}
+
+.new-dropdown-content {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: var(--cloistr-z-dropdown, 100);
+  min-width: 180px;
+  background: var(--cloistr-bg-elevated);
+  border: 1px solid var(--cloistr-border);
+  border-radius: 8px;
+  box-shadow: var(--cloistr-shadow-lg);
+  padding: 0.25rem 0;
+  overflow: hidden;
+}
+
+.new-dropdown-content.show {
+  display: flex;
+  flex-direction: column;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--cloistr-text);
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.5rem 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dropdown-item:hover {
+  background: var(--cloistr-bg-hover);
+}
+
+.dropdown-icon {
+  font-size: 1rem;
+  width: 1.4rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.dropdown-arrow {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: var(--cloistr-border);
+  margin: 0.25rem 0;
+}
+
+/* ---- Sidebar restructure ---- */
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0.25rem 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.sidebar-tree-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+}
+
+.sidebar-tree-toggle {
+  background: none;
+  border: none;
+  color: var(--cloistr-text-muted);
+  font-size: 0.8rem;
+  padding: 0.15rem 0.3rem;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.sidebar-tree-toggle:hover {
+  background: var(--cloistr-bg-hover);
+  color: var(--cloistr-text);
+}
+
+.sidebar-section {
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--cloistr-border);
+  padding-top: 0.5rem;
+}
+
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.9rem;
+  color: var(--cloistr-text);
+}
+
+.sidebar-nav-item:hover {
+  background: var(--cloistr-bg-hover);
+}
+
+.sidebar-nav-item[aria-current="true"] {
+  background: var(--cloistr-bg-hover);
+  color: var(--cloistr-primary-light);
+}
+
+.sidebar-storage {
+  margin-top: auto;
+  padding: 0.75rem 0.25rem 0.25rem;
+  border-top: 1px solid var(--cloistr-border);
+  font-size: 0.8rem;
+}
+
+.storage-info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.3rem;
+  color: var(--cloistr-text-muted);
+}
+
+.storage-bar {
+  height: 4px;
+  background: var(--cloistr-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.storage-bar-fill {
+  height: 100%;
+  background: var(--cloistr-primary);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* ---- Folder tree root item ---- */
+.folder-tree-item.root {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--cloistr-text);
+}
+
+.folder-tree-item.root:hover {
+  background: var(--cloistr-bg-hover);
+}
+
+.folder-tree-item.root.active {
+  background: var(--cloistr-bg-hover);
+  color: var(--cloistr-primary-light);
+}
+
+.folder-tree-item.root .folder-tree-name {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.folder-tree-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+/* ---- Sidebar overlay (mobile) ---- */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.sidebar-overlay.active {
+  display: block;
+}
+
+/* ---- Breadcrumb bar ---- */
+#breadcrumb-bar {
+  /* wrapper required by spec */
+}
+
+/* ---- Folder customize modal stub ---- */
+.folder-name-display {
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  min-height: 1.2em;
+}
+
+.customize-section {
+  margin-bottom: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.icon-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}

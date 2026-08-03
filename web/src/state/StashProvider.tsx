@@ -17,6 +17,8 @@ import {
 } from 'react'
 import { API } from '../lib/api'
 import { Keys } from '../lib/keys'
+import { Crypto } from '../lib/crypto'
+import { Events } from '../lib/events'
 import { authPort } from '../lib/authBridge'
 import {
   delay,
@@ -88,6 +90,8 @@ export interface StashContextValue {
   clearSearch: () => void
   sharedItems: DecryptedIncomingShare[]
   acceptShare: (share: DecryptedIncomingShare) => Promise<void>
+  /** Create a new encrypted folder in the current directory. */
+  createFolder: (name: string) => Promise<void>
 }
 
 export const StashContext = createContext<StashContextValue | null>(null)
@@ -542,6 +546,34 @@ export function StashProvider({ children }: { children: ReactNode }) {
     [loadFolderTree, loadShared],
   )
 
+  // Port of app.js App.createFolder().
+  // (1) Generate a random 16-byte folder ID; (2) derive and locally cache a fresh
+  // AES key; (3) self-encrypt the key hex via NIP-44/NIP-04; (4) build a signed
+  // kind:30079 event; (5) publish directly to the relay (client-side, no HTTP round-trip);
+  // (6) reload files and folder tree.
+  const createFolder = useCallback(
+    async (name: string) => {
+      const pubkey = authPort.pubkey
+      if (!authPort.isConnected || !pubkey) throw new Error('Not connected')
+
+      const folderId = Events.generateFolderId()
+      const folderKey = await Keys.generateFolderKey(folderId)
+      const folderKeyHex = Crypto.bytesToHex(folderKey)
+      const encryptedFolderKey = await Keys.selfEncrypt(pubkey, folderKeyHex)
+
+      const signedEvent = await Events.createEncryptedFolderEvent({
+        id: folderId,
+        name: name.trim(),
+        parentId: folderIdRef.current || undefined,
+        encryptedFolderKey,
+      })
+
+      await authPort.publishEvent(signedEvent)
+      await Promise.all([loadFilesFor(folderIdRef.current), loadFolderTree()])
+    },
+    [loadFilesFor, loadFolderTree],
+  )
+
   const value = useMemo<StashContextValue>(
     () => ({
       files,
@@ -585,6 +617,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       clearSearch,
       sharedItems,
       acceptShare,
+      createFolder,
     }),
     [
       files,
@@ -626,6 +659,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       clearSearch,
       sharedItems,
       acceptShare,
+      createFolder,
     ],
   )
 

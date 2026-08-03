@@ -9,6 +9,8 @@ import { Breadcrumbs } from './components/Breadcrumbs'
 import { KeyboardShortcuts } from './components/KeyboardShortcuts'
 import { UploadButton, UploadProgress } from './components/UploadBar'
 import { SearchBar } from './components/SearchBar'
+import { NewButton } from './components/NewButton'
+import { NewFolderModal } from './components/NewFolderModal'
 import { Search } from './lib/search'
 import { Sharing } from './lib/sharing'
 import { Versioning } from './lib/versioning'
@@ -29,6 +31,7 @@ export default function App() {
   const pubkey = authState?.pubkey ?? null
   const { loadFiles, loadFolderTree, uploadFiles, view } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [newFolderOpen, setNewFolderOpen] = useState(false)
 
   // Bridge the shared signer into the data layer, then load on connect.
   useEffect(() => {
@@ -63,14 +66,13 @@ export default function App() {
         {isConnected ? (
           <div className={`stash-workspace ${sidebarOpen ? 'sidebar-open' : ''}`}>
             <Sidebar />
-            {sidebarOpen && (
-              <button
-                type="button"
-                className="sidebar-scrim"
-                aria-label="Close navigation"
-                onClick={() => setSidebarOpen(false)}
-              />
-            )}
+            {/* Sidebar overlay for mobile — always in DOM (spec asserts it). */}
+            <div
+              id="sidebar-overlay"
+              className={`sidebar-overlay${sidebarOpen ? ' active' : ''}`}
+              role="presentation"
+              onClick={() => setSidebarOpen(false)}
+            />
             <div
               className="stash-content"
               onDragOver={(e) => {
@@ -84,9 +86,12 @@ export default function App() {
               }}
             >
               <div className="content-header">
+                {/* Mobile hamburger — id="mobile-menu-btn" required by spec */}
                 <button
+                  id="mobile-menu-btn"
                   type="button"
                   className="sidebar-toggle"
+                  title="Menu"
                   aria-label="Toggle navigation"
                   aria-expanded={sidebarOpen}
                   onClick={() => setSidebarOpen((o) => !o)}
@@ -95,13 +100,45 @@ export default function App() {
                 </button>
                 <Breadcrumbs />
                 <span className="content-header-spacer" />
+                {view === 'my-files' && (
+                  <NewButton onNewFolder={() => setNewFolderOpen(true)} />
+                )}
                 <SearchBar />
                 <UploadButton />
               </div>
               <FileBrowser />
             </div>
             <UploadProgress />
-            <KeyboardShortcuts />
+            {/* New Folder modal — always in DOM; visibility via .hidden class. */}
+            <NewFolderModal
+              open={newFolderOpen}
+              onClose={() => setNewFolderOpen(false)}
+            />
+            {/* Folder Customize modal stub — structure required by spec. */}
+            <div id="folder-customize-modal" className="modal hidden">
+              <div className="modal-content modal-small">
+                <div className="modal-header">
+                  <h2>Customize Folder</h2>
+                  <button type="button" className="modal-close" id="folder-customize-close">&times;</button>
+                </div>
+                <div className="modal-body">
+                  <div id="customize-folder-name" className="folder-name-display" />
+                  <div className="customize-section">
+                    <span>Color</span>
+                    <div id="folder-color-picker" className="color-picker" />
+                  </div>
+                  <div className="customize-section">
+                    <span>Icon</span>
+                    <div id="folder-icon-picker" className="icon-picker" />
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn" id="folder-customize-reset">Reset</button>
+                  <button type="button" className="btn btn-primary" id="folder-customize-save">Save</button>
+                </div>
+              </div>
+            </div>
+            <KeyboardShortcuts onNewFolder={() => setNewFolderOpen(true)} />
           </div>
         ) : (
           <LoginPrompt

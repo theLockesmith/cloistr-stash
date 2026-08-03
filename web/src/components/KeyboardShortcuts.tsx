@@ -1,21 +1,27 @@
 // Global keyboard shortcuts (ported from app.js keydown handler) + the
 // shortcuts help modal. Mounted once inside the authenticated app.
 //
-// Active subset (others depend on not-yet-ported features like upload/preview):
+// Active shortcuts:
 //   Esc       clear selection
 //   ?         show this help
 //   Ctrl/⌘+A  select all in view
 //   Delete    delete selection (with confirm)
+//   n         open New Folder modal
 
 import { useEffect, useState } from 'react'
 import { ConfirmModal, Modal } from '@cloistr/ui/components'
 import { useStash } from '../state/useStash'
+
+interface KeyboardShortcutsProps {
+  onNewFolder?: () => void
+}
 
 const SHORTCUTS: { keys: string; description: string }[] = [
   { keys: 'Esc', description: 'Clear selection' },
   { keys: '?', description: 'Show this help' },
   { keys: 'Ctrl / ⌘ + A', description: 'Select all in current view' },
   { keys: 'Delete / Backspace', description: 'Delete selection' },
+  { keys: 'n', description: 'New folder' },
 ]
 
 function isTypingTarget(el: EventTarget | null): boolean {
@@ -23,7 +29,7 @@ function isTypingTarget(el: EventTarget | null): boolean {
   return !!node && (node.matches?.('input, textarea, [contenteditable]') ?? false)
 }
 
-export function KeyboardShortcuts() {
+export function KeyboardShortcuts({ onNewFolder }: KeyboardShortcutsProps) {
   const { selectedFiles, selectedFolders, selectAll, clearSelection, deleteSelected } = useStash()
   const [helpOpen, setHelpOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -60,6 +66,12 @@ export function KeyboardShortcuts() {
             selectAll()
           }
           break
+        case 'n':
+          if (!ctrl) {
+            e.preventDefault()
+            onNewFolder?.()
+          }
+          break
         case 'Delete':
         case 'Backspace':
           if (selectionCount > 0 && !ctrl) {
@@ -72,7 +84,7 @@ export function KeyboardShortcuts() {
 
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [selectionCount, selectAll, clearSelection])
+  }, [selectionCount, selectAll, clearSelection, onNewFolder])
 
   return (
     <>
