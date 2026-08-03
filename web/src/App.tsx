@@ -9,6 +9,7 @@ import { Breadcrumbs } from './components/Breadcrumbs'
 import { KeyboardShortcuts } from './components/KeyboardShortcuts'
 import { UploadButton, UploadProgress } from './components/UploadBar'
 import { SearchBar } from './components/SearchBar'
+import { MigrationModal } from './components/MigrationModal'
 import { Search } from './lib/search'
 import { Sharing } from './lib/sharing'
 import { Versioning } from './lib/versioning'
@@ -27,7 +28,7 @@ export default function App() {
   const { authState, signer } = useNostrAuth()
   const isConnected = !!authState?.isConnected
   const pubkey = authState?.pubkey ?? null
-  const { loadFiles, loadFolderTree, uploadFiles, view } = useStash()
+  const { loadFiles, loadFolderTree, uploadFiles, view, currentFolderId, migrationFiles, dismissMigration } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   // Bridge the shared signer into the data layer, then load on connect.
@@ -102,6 +103,15 @@ export default function App() {
             </div>
             <UploadProgress />
             <KeyboardShortcuts />
+            <MigrationModal
+              unencryptedFiles={migrationFiles}
+              folderId={currentFolderId}
+              onClose={dismissMigration}
+              onComplete={() => {
+                dismissMigration()
+                void loadFiles()
+              }}
+            />
           </div>
         ) : (
           <LoginPrompt

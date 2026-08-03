@@ -114,6 +114,23 @@ const authPort = {
     })
     return `Nostr ${btoa(JSON.stringify(signed))}`
   },
+
+  // Blossom delete auth (kind 24242, t=delete), encoded as the `Nostr <base64>` header.
+  // Ported from legacy Auth.createDeleteAuth + encodeAuthHeader.
+  async createDeleteAuth(fileHash: string): Promise<string> {
+    const ts = Math.floor(Date.now() / 1000)
+    const signed = await requireSigner().signEvent({
+      kind: 24242,
+      created_at: ts,
+      tags: [
+        ['t', 'delete'],
+        ['x', fileHash],
+        ['expiration', (ts + 300).toString()],
+      ],
+      content: `Delete ${fileHash}`,
+    })
+    return `Nostr ${btoa(JSON.stringify(signed))}`
+  },
 }
 
 export type AuthPortImpl = typeof authPort

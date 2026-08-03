@@ -47,6 +47,9 @@ export interface StashContextValue {
   folderTreeData: StashFolder[]
   /** Files shown for the active special view (starred/recent/trash). */
   specialFiles: StashFile[]
+  /** Unencrypted files detected after a load — non-empty triggers MigrationModal. */
+  migrationFiles: StashFile[]
+  dismissMigration: () => void
   // Navigation
   currentFolderId: string
   folderPath: FolderPathItem[]
@@ -161,6 +164,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
   const [sharedItems, setSharedItems] = useState<DecryptedIncomingShare[]>([])
+  const [migrationFiles, setMigrationFiles] = useState<StashFile[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -189,6 +193,15 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
       setFolders(loadedFolders)
       setFiles(visibleFiles)
+
+      // Ported from legacy checkMigration(): scan for unencrypted files. The
+      // legacy version checked `!f.encrypted && !f.encryption`; we keep the
+      // same predicate. Only run for authenticated sessions — no point surfacing
+      // the modal before the key store is ready.
+      if (authPort.isConnected) {
+        const unencrypted = visibleFiles.filter((f) => !f.encrypted && !f.encryption)
+        setMigrationFiles(unencrypted)
+      }
     } catch (err) {
       console.error('loadFiles: Failed -', err)
       setError('Failed to load files')
@@ -198,6 +211,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const loadFiles = useCallback(() => loadFilesFor(folderIdRef.current), [loadFilesFor])
+
+  const dismissMigration = useCallback(() => setMigrationFiles([]), [])
 
   // Load the file set backing a special view (starred / recent / trash) from the
   // full file list. Ported from app.js loadStarredFiles/loadRecentFiles/loadTrashFiles.
@@ -585,6 +600,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
       clearSearch,
       sharedItems,
       acceptShare,
+      migrationFiles,
+      dismissMigration,
     }),
     [
       files,
@@ -626,6 +643,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
       clearSearch,
       sharedItems,
       acceptShare,
+      migrationFiles,
+      dismissMigration,
     ],
   )
 
