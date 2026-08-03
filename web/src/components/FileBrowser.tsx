@@ -15,6 +15,7 @@ import { RenameModal } from './RenameModal'
 import { MoveModal } from './MoveModal'
 import { ShareModal } from './ShareModal'
 import { VersionHistoryModal } from './VersionHistoryModal'
+import { CommentsModal } from './CommentsModal'
 
 type ViewMode = 'list' | 'grid'
 
@@ -74,6 +75,7 @@ export function FileBrowser() {
   const [moveTarget, setMoveTarget] = useState<StashFile | null>(null)
   const [shareTarget, setShareTarget] = useState<StashFile | null>(null)
   const [versionTarget, setVersionTarget] = useState<StashFile | null>(null)
+  const [commentsTarget, setCommentsTarget] = useState<StashFile | null>(null)
 
   const openInfo = (file: StashFile) => {
     recordFileAccess(file.sha256)
@@ -98,6 +100,7 @@ export function FileBrowser() {
         onClose={() => setVersionTarget(null)}
         onRestored={() => void loadFiles()}
       />
+      <CommentsModal file={commentsTarget} onClose={() => setCommentsTarget(null)} />
       <RenameModal
         open={!!renameTarget}
         initialName={renameTarget?.name ?? ''}
@@ -144,6 +147,7 @@ export function FileBrowser() {
     { label: 'Preview', onClick: () => setPreviewFile(file) },
     { label: 'Share', onClick: () => setShareTarget(file) },
     { label: 'Versions', onClick: () => setVersionTarget(file) },
+    { label: 'Comments', onClick: () => setCommentsTarget(file) },
     { label: 'Rename', onClick: () => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) }) },
     { label: 'Move to…', onClick: () => setMoveTarget(file) },
     {
