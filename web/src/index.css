@@ -288,21 +288,32 @@ body {
 /* Keyboard shortcuts help */
 .shortcuts-list {
   margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 
-.shortcut-row {
-  display: grid;
-  grid-template-columns: 12rem 1fr;
-  gap: 0.5rem;
+/* Legacy class was shortcut-row; spec asserts .shortcut-item */
+.shortcut-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   padding: 0.3rem 0;
 }
 
+.shortcut-item span {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+.shortcut-item kbd,
 .shortcut-row kbd {
   background: var(--cloistr-bg-elevated);
   border: 1px solid var(--cloistr-border);
   border-radius: 4px;
   padding: 0.1rem 0.4rem;
   font-size: 0.8rem;
+  white-space: nowrap;
 }
 
 .sidebar-views {
@@ -698,4 +709,142 @@ body {
 .fb-card-size {
   font-size: 0.72rem;
   opacity: 0.55;
+}
+
+/* ── Plain modal shell (always-in-DOM pattern) ────────────────────────────────
+ * Used by modals that must satisfy toBeAttached() + toHaveClass(/hidden/) in
+ * the Playwright spec (e.g. #keyboard-shortcuts-modal).  The @cloistr/ui
+ * Modal component is portal-rendered and does not produce permanent DOM nodes.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--cloistr-z-modal, 200);
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-content {
+  background: var(--cloistr-bg-elevated);
+  border: 1px solid var(--cloistr-border);
+  border-radius: 8px;
+  width: 90%;
+  max-width: 500px;
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-content.modal-small {
+  max-width: 420px;
+}
+
+.modal-content.modal-wide {
+  max-width: 720px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--cloistr-border);
+}
+
+.modal-header h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--cloistr-text-muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.25rem;
+}
+
+.modal-close:hover {
+  color: var(--cloistr-text);
+}
+
+.modal-body {
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--cloistr-border);
+}
+
+.modal-description {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  color: var(--cloistr-text-muted);
+}
+
+.modal-help {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: var(--cloistr-text-muted);
+}
+
+/* ── Shared button styles (used inside plain-div modals) ─────────────────── */
+.btn {
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--cloistr-border);
+  border-radius: 6px;
+  background: var(--cloistr-bg-hover);
+  color: var(--cloistr-text);
+  font-size: 0.875rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--cloistr-transition-fast);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--cloistr-border);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--cloistr-primary);
+  border-color: var(--cloistr-primary-dark, var(--cloistr-primary));
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--cloistr-primary-hover);
+}
+
+/* ── Generic text input inside modals ────────────────────────────────────── */
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--cloistr-bg);
+  color: var(--cloistr-text);
+  border: 1px solid var(--cloistr-border);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.9rem;
+  font-family: inherit;
 }
