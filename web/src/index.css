@@ -520,6 +520,46 @@ body {
   color: var(--cloistr-error);
 }
 
+/* ============================================================
+   Right-click context menu (#context-menu)
+   Ported from the legacy UI's .context-menu / showContextMenu.
+   Always present in the DOM; the `hidden` class hides it.
+   ============================================================ */
+.hidden {
+  display: none !important;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 3000;
+  min-width: 160px;
+  padding: 0.35rem 0;
+  background: var(--cloistr-bg-elevated);
+  border: 1px solid var(--cloistr-border);
+  border-radius: 6px;
+  box-shadow: var(--cloistr-shadow-lg);
+}
+
+.context-menu-item {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.875rem;
+  color: var(--cloistr-text);
+  cursor: pointer;
+}
+
+.context-menu-item:hover {
+  background: var(--cloistr-bg-hover);
+}
+
+.context-menu-item.danger {
+  color: var(--cloistr-error);
+}
+
 /* Batch selection toolbar */
 .selection-toolbar {
   display: flex;

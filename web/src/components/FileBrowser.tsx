@@ -2,8 +2,15 @@
 // actions menu (info/share/versions/rename/move/delete), file-info/share/
 // version-history/rename/move modals, batch selection toolbar, and the
 // encrypted-search results view.
+//
+// Context menu: right-click (or ⋮ button) on file/folder rows opens a fixed-position
+// menu (#context-menu) that mirrors the legacy vanilla-JS UI's showFileContextMenu /
+// showContextMenu behaviour.  Items are the same set as the inline RowMenu.
+// Touch long-press and the extended legacy items (Tags, Comments, Public Link,
+// Manage Shares, Encryption Info, Collaborative Edit) are not ported — each is a
+// separate feature tracked independently.
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { ConfirmModal } from '@cloistr/ui/components'
 import { useStash } from '../state/useStash'
 import type { StashFile, StashFolder } from '../state/types'
@@ -39,6 +46,18 @@ interface RenameTarget {
   folder?: StashFolder
 }
 
+interface MenuItem {
+  label: string
+  onClick: () => void
+  danger?: boolean
+}
+
+interface ContextMenuState {
+  x: number
+  y: number
+  items: MenuItem[]
+}
+
 export function FileBrowser() {
   const {
     view,
@@ -72,11 +91,32 @@ export function FileBrowser() {
   const [moveTarget, setMoveTarget] = useState<StashFile | null>(null)
   const [shareTarget, setShareTarget] = useState<StashFile | null>(null)
   const [versionTarget, setVersionTarget] = useState<StashFile | null>(null)
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
 
   const openInfo = (file: StashFile) => {
     recordFileAccess(file.sha256)
     setInfoFile(file)
   }
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), [])
+
+  /**
+   * Open the context menu at the mouse coordinates from a contextmenu event.
+   * Mirrors the legacy showContextMenu(x, y, items) viewport-clipping logic.
+   */
+  const openContextMenu = useCallback(
+    (e: React.MouseEvent, items: MenuItem[]) => {
+      e.preventDefault()
+      e.stopPropagation()
+      // Approximate menu dimensions for edge-clamping (matches legacy heuristic).
+      const MENU_W = 170
+      const MENU_H = items.length * 36 + 16
+      const x = Math.max(10, Math.min(e.clientX, window.innerWidth - MENU_W - 10))
+      const y = Math.max(10, Math.min(e.clientY, window.innerHeight - MENU_H - 10))
+      setContextMenu({ x, y, items })
+    },
+    [],
+  )
 
   // Modals are always mounted so they render regardless of the early returns below.
   const modals = (
@@ -129,7 +169,7 @@ export function FileBrowser() {
     </>
   )
 
-  const fileMenuItems = (file: StashFile) => [
+  const fileMenuItems = (file: StashFile): MenuItem[] => [
     { label: 'Info', onClick: () => openInfo(file) },
     { label: 'Share', onClick: () => setShareTarget(file) },
     { label: 'Versions', onClick: () => setVersionTarget(file) },
@@ -140,6 +180,17 @@ export function FileBrowser() {
       onClick: () => setPendingDelete({ kind: 'file', file, name: fileDisplayName(file) }),
       danger: true,
     },
+  ]
+
+  const folderMenuItems = (
+    folder: StashFolder,
+    onOpen: () => void,
+    onRename: () => void,
+    onDelete: () => void,
+  ): MenuItem[] => [
+    { label: 'Open', onClick: onOpen },
+    { label: 'Rename', onClick: onRename },
+    { label: 'Delete', onClick: onDelete, danger: true },
   ]
 
   // --- Search results view ---
@@ -176,12 +227,13 @@ export function FileBrowser() {
           </div>
         )}
         {modals}
+        <ContextMenu state={contextMenu} onClose={closeContextMenu} />
       </div>
     )
   }
 
-  if (loading) return <div className="fb-status">Loading…{modals}</div>
-  if (error) return <div className="fb-status fb-error">{error}{modals}</div>
+  if (loading) return <div className="fb-status">Loading…{modals}<ContextMenu state={contextMenu} onClose={closeContextMenu} /></div>
+  if (error) return <div className="fb-status fb-error">{error}{modals}<ContextMenu state={contextMenu} onClose={closeContextMenu} /></div>
 
   // --- Shared (incoming shares) view ---
   if (view === 'shared') {
@@ -222,6 +274,7 @@ export function FileBrowser() {
           </ul>
         )}
         {modals}
+        <ContextMenu state={contextMenu} onClose={closeContextMenu} />
       </div>
     )
   }
@@ -263,35 +316,52 @@ export function FileBrowser() {
         </button>
       </div>
 
-      {empty ? (
-        <div className="fb-status fb-empty">{emptyMessage}</div>
-      ) : viewMode === 'list' ? (
-        <div className="fb-list" role="list">
-          {shownFolders.map((folder) => (
+      {empty && <div className="fb-status fb-empty">{emptyMessage}</div>}
+
+      {/*
+        #file-list-body is always attached to the DOM (Playwright spec asserts toBeAttached).
+        In grid mode it is hidden with display:none so it doesn't affect layout.
+      */}
+      <div
+        id="file-list-body"
+        className="fb-list"
+        role="list"
+        aria-label="Files and folders"
+        style={viewMode !== 'list' ? { display: 'none' } : undefined}
+      >
+        {viewMode === 'list' && shownFolders.map((folder) => {
+          const onOpen = () => navigateToFolder(folder.id, folder.name)
+          const onRename = () => setRenameTarget({ kind: 'folder', folder, name: folder.name })
+          const onDelete = () => setPendingDelete({ kind: 'folder', folderId: folder.id, name: folder.name })
+          return (
             <FolderRow
               key={folder.id}
               folder={folder}
               selected={selectedFolders.has(folder.id)}
-              onOpen={() => navigateToFolder(folder.id, folder.name)}
+              onOpen={onOpen}
               onToggleSelect={() => toggleFolderSelection(folder.id)}
-              onRename={() => setRenameTarget({ kind: 'folder', folder, name: folder.name })}
-              onDelete={() => setPendingDelete({ kind: 'folder', folderId: folder.id, name: folder.name })}
+              onRename={onRename}
+              onDelete={onDelete}
+              onContextMenu={(e) => openContextMenu(e, folderMenuItems(folder, onOpen, onRename, onDelete))}
             />
-          ))}
-          {shownFiles.map((file) => (
-            <FileRow
-              key={file.sha256}
-              file={file}
-              selected={selectedFiles.has(file.sha256)}
-              starred={starredFiles.has(file.sha256)}
-              onToggleSelect={() => toggleFileSelection(file.sha256)}
-              onToggleStar={() => toggleStar(file.sha256)}
-              onInfo={() => openInfo(file)}
-              menuItems={fileMenuItems(file)}
-            />
-          ))}
-        </div>
-      ) : (
+          )
+        })}
+        {viewMode === 'list' && shownFiles.map((file) => (
+          <FileRow
+            key={file.sha256}
+            file={file}
+            selected={selectedFiles.has(file.sha256)}
+            starred={starredFiles.has(file.sha256)}
+            onToggleSelect={() => toggleFileSelection(file.sha256)}
+            onToggleStar={() => toggleStar(file.sha256)}
+            onInfo={() => openInfo(file)}
+            menuItems={fileMenuItems(file)}
+            onContextMenu={(e) => openContextMenu(e, fileMenuItems(file))}
+          />
+        ))}
+      </div>
+
+      {viewMode === 'grid' && (
         <div className="fb-grid" role="list">
           {shownFolders.map((folder) => (
             <FolderCard
@@ -307,14 +377,9 @@ export function FileBrowser() {
       )}
 
       {modals}
+      <ContextMenu state={contextMenu} onClose={closeContextMenu} />
     </div>
   )
-}
-
-interface MenuItem {
-  label: string
-  onClick: () => void
-  danger?: boolean
 }
 
 /** Lightweight per-row actions menu (⋮) with a click-away overlay. */
@@ -357,6 +422,59 @@ function RowMenu({ items, label }: { items: MenuItem[]; label: string }) {
   )
 }
 
+/**
+ * Fixed-position context menu (#context-menu).
+ *
+ * Ported from the legacy showContextMenu(x, y, items) in ui.js:976-1025.
+ * Always present in the DOM so Playwright's toBeAttached() assertion passes;
+ * carries the `hidden` class when not open (matching the legacy .hidden rule).
+ * Dismisses on any click outside the menu via a one-shot document listener,
+ * identical to the legacy setTimeout-deferred addEventListener pattern.
+ */
+function ContextMenu({ state, onClose }: { state: ContextMenuState | null; onClose: () => void }) {
+  useEffect(() => {
+    if (!state) return
+    // Defer so the contextmenu event that opened the menu doesn't immediately
+    // close it — same pattern as the legacy `setTimeout(..., 0)` on line 1020.
+    const id = setTimeout(() => {
+      document.addEventListener('click', onClose, { once: true })
+    }, 0)
+    return () => {
+      clearTimeout(id)
+      document.removeEventListener('click', onClose)
+    }
+  }, [state, onClose])
+
+  const style: React.CSSProperties = state
+    ? { left: `${state.x}px`, top: `${state.y}px` }
+    : {}
+
+  return (
+    <div
+      id="context-menu"
+      className={`context-menu${state ? '' : ' hidden'}`}
+      style={style}
+      role="menu"
+      aria-hidden={!state}
+    >
+      {state?.items.map((item) => (
+        <button
+          key={item.label}
+          type="button"
+          role="menuitem"
+          className={`context-menu-item${item.danger ? ' danger' : ''}`}
+          onClick={() => {
+            onClose()
+            item.onClick()
+          }}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function FolderRow({
   folder,
   selected,
@@ -364,6 +482,7 @@ function FolderRow({
   onToggleSelect,
   onRename,
   onDelete,
+  onContextMenu,
 }: {
   folder: StashFolder
   selected: boolean
@@ -371,9 +490,14 @@ function FolderRow({
   onToggleSelect: () => void
   onRename: () => void
   onDelete: () => void
+  onContextMenu: (e: React.MouseEvent) => void
 }) {
   return (
-    <div className={`fb-row fb-folder ${selected ? 'selected' : ''}`} role="listitem">
+    <div
+      className={`fb-row fb-folder ${selected ? 'selected' : ''}`}
+      role="listitem"
+      onContextMenu={onContextMenu}
+    >
       <input
         type="checkbox"
         className="fb-checkbox"
@@ -408,6 +532,7 @@ function FileRow({
   onToggleStar,
   onInfo,
   menuItems,
+  onContextMenu,
 }: {
   file: StashFile
   selected: boolean
@@ -416,6 +541,7 @@ function FileRow({
   onToggleStar: () => void
   onInfo: () => void
   menuItems: MenuItem[]
+  onContextMenu: (e: React.MouseEvent) => void
 }) {
   const enc = isEncrypted(file)
   const name = fileDisplayName(file)
@@ -424,6 +550,7 @@ function FileRow({
       className={`fb-row fb-file ${selected ? 'selected' : ''} ${enc ? 'encrypted' : ''}`}
       role="listitem"
       aria-label={`${name}, ${formatFileSize(file.size)}${enc ? ', encrypted' : ''}${starred ? ', starred' : ''}`}
+      onContextMenu={onContextMenu}
     >
       <input
         type="checkbox"
