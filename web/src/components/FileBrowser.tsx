@@ -9,6 +9,7 @@ import { useStash } from '../state/useStash'
 import type { StashFile, StashFolder } from '../state/types'
 import { formatDate, formatFileSize, getFileIcon } from './format'
 import { FileInfoModal } from './FileInfoModal'
+import { PreviewModal } from './PreviewModal'
 import { SelectionToolbar } from './SelectionToolbar'
 import { RenameModal } from './RenameModal'
 import { MoveModal } from './MoveModal'
@@ -67,6 +68,7 @@ export function FileBrowser() {
   } = useStash()
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [infoFile, setInfoFile] = useState<StashFile | null>(null)
+  const [previewFile, setPreviewFile] = useState<StashFile | null>(null)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
   const [moveTarget, setMoveTarget] = useState<StashFile | null>(null)
@@ -81,7 +83,15 @@ export function FileBrowser() {
   // Modals are always mounted so they render regardless of the early returns below.
   const modals = (
     <>
-      <FileInfoModal file={infoFile} onClose={() => setInfoFile(null)} />
+      <FileInfoModal
+          file={infoFile}
+          onClose={() => setInfoFile(null)}
+          onPreview={(f) => { setInfoFile(null); setPreviewFile(f) }}
+          onShare={(f) => setShareTarget(f)}
+          onVersions={(f) => setVersionTarget(f)}
+          onDelete={(f) => setPendingDelete({ kind: 'file', file: f, name: fileDisplayName(f) })}
+        />
+      <PreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
       <ShareModal file={shareTarget} onClose={() => setShareTarget(null)} />
       <VersionHistoryModal
         file={versionTarget}
@@ -131,6 +141,7 @@ export function FileBrowser() {
 
   const fileMenuItems = (file: StashFile) => [
     { label: 'Info', onClick: () => openInfo(file) },
+    { label: 'Preview', onClick: () => setPreviewFile(file) },
     { label: 'Share', onClick: () => setShareTarget(file) },
     { label: 'Versions', onClick: () => setVersionTarget(file) },
     { label: 'Rename', onClick: () => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) }) },
