@@ -241,9 +241,33 @@ body {
   color: var(--cloistr-error);
 }
 
-/* Hamburger hidden on desktop; sidebar always visible there. */
+/* Desktop sidebar toggle button (inside sidebar header). Always visible. */
 .sidebar-toggle {
-  display: none;
+  background: none;
+  border: 1px solid var(--cloistr-border);
+  border-radius: 6px;
+  color: var(--cloistr-text);
+  font-size: 1.1rem;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0 0.75rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--cloistr-border);
+}
+
+.sidebar-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+/* Mobile hamburger: inline display:none is overridden by !important on ≤768px */
+.mobile-menu-btn {
   background: none;
   border: 1px solid var(--cloistr-border);
   border-radius: 6px;
@@ -254,14 +278,25 @@ body {
   cursor: pointer;
 }
 
-.sidebar-scrim {
+/* Sidebar overlay: always in DOM for tests; visible class shows it on mobile */
+.sidebar-overlay {
   display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 39;
+}
+
+.sidebar-overlay.visible {
+  display: block;
 }
 
 @media (max-width: 768px) {
-  .sidebar-toggle {
-    display: inline-block;
+  /* Show the mobile hamburger button; !important overrides inline display:none */
+  .mobile-menu-btn {
+    display: flex !important;
   }
+
   .sidebar {
     position: fixed;
     top: 0;
@@ -274,14 +309,6 @@ body {
   }
   .stash-workspace.sidebar-open .sidebar {
     transform: translateX(0);
-  }
-  .stash-workspace.sidebar-open .sidebar-scrim {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 39;
-    background: rgba(0, 0, 0, 0.5);
-    border: none;
   }
 }
 
