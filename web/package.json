@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@cloistr/auth": "^0.4.0",
-    "@cloistr/collab-common": "^0.2.8",
+    "@cloistr/collab-common": "^0.2.9",
     "@cloistr/ui": "^0.20.2",
     "libsodium-wrappers": "^0.7.13",
     "react": "^18.3.1",
