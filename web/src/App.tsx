@@ -9,6 +9,7 @@ import { Breadcrumbs } from './components/Breadcrumbs'
 import { KeyboardShortcuts } from './components/KeyboardShortcuts'
 import { UploadButton, UploadProgress } from './components/UploadBar'
 import { SearchBar } from './components/SearchBar'
+import { BackupModal } from './components/BackupModal'
 import { Search } from './lib/search'
 import { Sharing } from './lib/sharing'
 import { Versioning } from './lib/versioning'
@@ -29,6 +30,7 @@ export default function App() {
   const pubkey = authState?.pubkey ?? null
   const { loadFiles, loadFolderTree, uploadFiles, view } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [backupOpen, setBackupOpen] = useState(false)
 
   // Bridge the shared signer into the data layer, then load on connect.
   useEffect(() => {
@@ -97,11 +99,22 @@ export default function App() {
                 <span className="content-header-spacer" />
                 <SearchBar />
                 <UploadButton />
+                <button
+                  type="button"
+                  id="backup-btn"
+                  className="backup-trigger-btn"
+                  title="Key Backup"
+                  aria-label="Key Backup"
+                  onClick={() => setBackupOpen(true)}
+                >
+                  🔑
+                </button>
               </div>
               <FileBrowser />
             </div>
             <UploadProgress />
             <KeyboardShortcuts />
+            <BackupModal isOpen={backupOpen} onClose={() => setBackupOpen(false)} />
           </div>
         ) : (
           <LoginPrompt
