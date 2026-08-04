@@ -15,6 +15,8 @@ import { RenameModal } from './RenameModal'
 import { MoveModal } from './MoveModal'
 import { ShareModal } from './ShareModal'
 import { VersionHistoryModal } from './VersionHistoryModal'
+import { FolderCustomizeModal, useFolderCustomizations } from './FolderCustomizeModal'
+import type { FolderCustomization } from './FolderCustomizeModal'
 
 type ViewMode = 'list' | 'grid'
 
@@ -74,6 +76,10 @@ export function FileBrowser() {
   const [moveTarget, setMoveTarget] = useState<StashFile | null>(null)
   const [shareTarget, setShareTarget] = useState<StashFile | null>(null)
   const [versionTarget, setVersionTarget] = useState<StashFile | null>(null)
+  // Folder being customized (null = modal closed).
+  const [customizeFolder, setCustomizeFolder] = useState<{ id: string; name: string } | null>(null)
+
+  const { getCustomization, setCustomization } = useFolderCustomizations()
 
   const openInfo = (file: StashFile) => {
     recordFileAccess(file.sha256)
@@ -135,6 +141,11 @@ export function FileBrowser() {
             : `Move "${pendingDelete?.name}" to Trash?`
         }
         confirmText="Delete"
+      />
+      <FolderCustomizeModal
+        folder={customizeFolder}
+        onClose={() => setCustomizeFolder(null)}
+        onSaved={(folderId, color, icon) => setCustomization(folderId, color, icon)}
       />
     </>
   )
@@ -282,9 +293,11 @@ export function FileBrowser() {
             <FolderRow
               key={folder.id}
               folder={folder}
+              customization={getCustomization(folder.id)}
               selected={selectedFolders.has(folder.id)}
               onOpen={() => navigateToFolder(folder.id, folder.name)}
               onToggleSelect={() => toggleFolderSelection(folder.id)}
+              onCustomize={() => setCustomizeFolder({ id: folder.id, name: folder.name })}
               onRename={() => setRenameTarget({ kind: 'folder', folder, name: folder.name })}
               onDelete={() => setPendingDelete({ kind: 'folder', folderId: folder.id, name: folder.name })}
             />
@@ -308,7 +321,10 @@ export function FileBrowser() {
             <FolderCard
               key={folder.id}
               folder={folder}
+              customization={getCustomization(folder.id)}
               onOpen={() => navigateToFolder(folder.id, folder.name)}
+              onCustomize={() => setCustomizeFolder({ id: folder.id, name: folder.name })}
+              onDelete={() => setPendingDelete({ kind: 'folder', folderId: folder.id, name: folder.name })}
             />
           ))}
           {shownFiles.map((file) => (
@@ -370,19 +386,24 @@ function RowMenu({ items, label }: { items: MenuItem[]; label: string }) {
 
 function FolderRow({
   folder,
+  customization,
   selected,
   onOpen,
   onToggleSelect,
+  onCustomize,
   onRename,
   onDelete,
 }: {
   folder: StashFolder
+  customization: FolderCustomization
   selected: boolean
   onOpen: () => void
   onToggleSelect: () => void
+  onCustomize: () => void
   onRename: () => void
   onDelete: () => void
 }) {
+  const icon = customization.icon ?? '📁'
   return (
     <div className={`fb-row fb-folder ${selected ? 'selected' : ''}`} role="listitem">
       <input
@@ -393,8 +414,12 @@ function FolderRow({
         aria-label={`Select ${folder.name}`}
       />
       <button type="button" className="fb-name fb-folder-open" onClick={onOpen}>
-        <span className="fb-icon" aria-hidden="true">
-          📁
+        <span
+          className="fb-icon"
+          aria-hidden="true"
+          style={customization.color ? { color: customization.color } : undefined}
+        >
+          {icon}
         </span>
         <span className="fb-name-text">{folder.name}</span>
       </button>
@@ -403,6 +428,7 @@ function FolderRow({
       <RowMenu
         label={`Actions for ${folder.name}`}
         items={[
+          { label: 'Customize', onClick: onCustomize },
           { label: 'Rename', onClick: onRename },
           { label: 'Delete', onClick: onDelete, danger: true },
         ]}
@@ -472,14 +498,50 @@ function FileRow({
   )
 }
 
-function FolderCard({ folder, onOpen }: { folder: StashFolder; onOpen: () => void }) {
+/**
+ * Grid card for a folder.  The legacy grid view had a customize + delete
+ * button directly on the card; we reproduce that with a ⋮ menu so there is
+ * a reachable entry point for customisation without cluttering the card face.
+ */
+function FolderCard({
+  folder,
+  customization,
+  onOpen,
+  onCustomize,
+  onDelete,
+}: {
+  folder: StashFolder
+  customization: FolderCustomization
+  onOpen: () => void
+  onCustomize: () => void
+  onDelete: () => void
+}) {
+  const icon = customization.icon ?? '📁'
   return (
-    <button type="button" className="fb-card fb-folder" onClick={onOpen} role="listitem">
-      <span className="fb-card-icon" aria-hidden="true">
-        📁
-      </span>
-      <span className="fb-card-name">{folder.name}</span>
-    </button>
+    <div className="fb-card fb-folder" role="listitem">
+      <button
+        type="button"
+        className="fb-card-main"
+        onClick={onOpen}
+        aria-label={`Open folder ${folder.name}`}
+      >
+        <span
+          className="fb-card-icon"
+          aria-hidden="true"
+          style={customization.color ? { color: customization.color } : undefined}
+        >
+          {icon}
+        </span>
+        <span className="fb-card-name">{folder.name}</span>
+      </button>
+      <RowMenu
+        label={`Actions for ${folder.name}`}
+        items={[
+          { label: 'Customize', onClick: onCustomize },
+          { label: 'Delete', onClick: onDelete, danger: true },
+        ]}
+      />
+    </div>
   )
 }
 
