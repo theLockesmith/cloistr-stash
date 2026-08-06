@@ -19,6 +19,6 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
-    "libsodium-wrappers": "^0.7.13"
+    "libsodium-wrappers": "^0.8.4"
   }
 }
