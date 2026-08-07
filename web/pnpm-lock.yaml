@@ -18,8 +18,8 @@ importers:
         specifier: ^0.20.3
         version: 0.20.3(@cloistr/auth@0.4.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       libsodium-wrappers:
-        specifier: ^0.7.13
-        version: 0.7.16
+        specifier: ^0.8.4
+        version: 0.8.4
       marked:
         specifier: ^18.0.9
         version: 18.0.9
@@ -34,8 +34,8 @@ importers:
         version: 13.6.31
     devDependencies:
       '@types/libsodium-wrappers':
-        specifier: ^0.7.14
-        version: 0.7.14
+        specifier: ^0.8.2
+        version: 0.8.2
       '@types/react':
         specifier: ^18.3.12
         version: 18.3.31
@@ -1002,6 +1002,10 @@ packages:
   '@types/libsodium-wrappers@0.7.14':
     resolution: {integrity: sha512-5Kv68fXuXK0iDuUir1WPGw2R9fOZUlYlSAa0ztMcL0s0BfIDTqg9GXz8K30VJpPP3sxWhbolnQma2x+/TfkzDQ==}
 
+  '@types/libsodium-wrappers@0.8.2':
+    resolution: {integrity: sha512-+2IDfSULPUskSjIYfZl9suIUsIE5PXwoKZiE/j0MZWd+M9nEGvJDsk/ztMZKNhL1lBL+1CaypW0dQSjqPW2dMg==}
+    deprecated: This is a stub types definition. libsodium-wrappers provides its own type definitions, so you do not need this installed.
+
   '@types/node@26.1.1':
     resolution: {integrity: sha512-nxAkRSVkN1Y0JC1W8ky/fTfkGsMmcrRsbx+3XoZE+rMOX71kLYTV7fLXpqud1GpbpP5TuffXFqfX7fH2GgZREw==}
 
@@ -1617,14 +1621,8 @@ packages:
     engines: {node: '>=16'}
     hasBin: true
 
-  libsodium-wrappers@0.7.16:
-    resolution: {integrity: sha512-Gtr/WBx4dKjvRL1pvfwZqu7gO6AfrQ0u9vFL+kXihtHf6NfkROR8pjYWn98MFDI3jN19Ii1ZUfPR9afGiPyfHg==}
-
   libsodium-wrappers@0.8.4:
     resolution: {integrity: sha512-mu8aAWucZjTB5O/BtGXtW4e1agy7uHxNYG7zPthmmD1jU43LCDmSWZLN4JhflbdPXj3yDO4lxM1O9hLDgIOXDw==}
-
-  libsodium@0.7.16:
-    resolution: {integrity: sha512-3HrzSPuzm6Yt9aTYCDxYEG8x8/6C0+ag655Y7rhhWZM9PT4NpdnbqlzXhGZlDnkgR6MeSTnOt/VIyHLs9aSf+Q==}
 
   libsodium@0.8.4:
     resolution: {integrity: sha512-lMcYaRi0zcs7tarATsQUYC7rstliIXZuoq0c6zXSgNtSNtdvBgkSegjWhpMJAXzKX3SUSwIp7+zEsob+j3LuRw==}
@@ -3259,6 +3257,10 @@ snapshots:
 
   '@types/libsodium-wrappers@0.7.14': {}
 
+  '@types/libsodium-wrappers@0.8.2':
+    dependencies:
+      libsodium-wrappers: 0.8.4
+
   '@types/node@26.1.1':
     dependencies:
       undici-types: 8.3.0
@@ -3963,15 +3965,9 @@ snapshots:
     dependencies:
       isomorphic.js: 0.2.5
 
-  libsodium-wrappers@0.7.16:
-    dependencies:
-      libsodium: 0.7.16
-
   libsodium-wrappers@0.8.4:
     dependencies:
       libsodium: 0.8.4
-
-  libsodium@0.7.16: {}
 
   libsodium@0.8.4: {}
 

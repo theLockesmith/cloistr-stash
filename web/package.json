@@ -14,14 +14,14 @@
     "@cloistr/auth": "^0.4.0",
     "@cloistr/collab-common": "^0.2.14",
     "@cloistr/ui": "^0.20.3",
-    "libsodium-wrappers": "^0.7.13",
+    "libsodium-wrappers": "^0.8.4",
     "marked": "^18.0.9",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "yjs": "^13.6.20"
   },
   "devDependencies": {
-    "@types/libsodium-wrappers": "^0.7.14",
+    "@types/libsodium-wrappers": "^0.8.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
