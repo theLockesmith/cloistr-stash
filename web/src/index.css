@@ -626,21 +626,32 @@ body {
 /* Keyboard shortcuts help */
 .shortcuts-list {
   margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 
-.shortcut-row {
-  display: grid;
-  grid-template-columns: 12rem 1fr;
-  gap: 0.5rem;
+/* Legacy class was shortcut-row; spec asserts .shortcut-item */
+.shortcut-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   padding: 0.3rem 0;
 }
 
+.shortcut-item span {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+.shortcut-item kbd,
 .shortcut-row kbd {
   background: var(--cloistr-bg-elevated);
   border: 1px solid var(--cloistr-border);
   border-radius: 4px;
   padding: 0.1rem 0.4rem;
   font-size: 0.8rem;
+  white-space: nowrap;
 }
 
 .sidebar-views {
@@ -1033,7 +1044,6 @@ body {
   font-size: 0.72rem;
   opacity: 0.55;
 }
-
 /* ── Preview modal (ported from legacy CSS) ─────────────────────────────── */
 
 .modal {
@@ -1559,4 +1569,52 @@ body {
 .icon-option:hover {
   border-color: var(--cloistr-primary-light, #a78bfa);
   background: var(--cloistr-bg-hover);
+}
+
+/* ── Keyboard-shortcuts modal additions ───────────────────────────────────
+ * Kept from the shortcuts branch: rules with no equivalent on master.
+ * The shared modal/.btn shell above is master's — taking the branch copy
+ * would have restyled .btn-primary app-wide (filled vs subtle).
+ * ─────────────────────────────────────────────────────────────────────── */
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--cloistr-bg);
+  color: var(--cloistr-text);
+  border: 1px solid var(--cloistr-border);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+
+.modal-body {
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-content.modal-small {
+  max-width: 420px;
+}
+
+.modal-content.modal-wide {
+  max-width: 720px;
+}
+
+.modal-description {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  color: var(--cloistr-text-muted);
+}
+
+.modal-help {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: var(--cloistr-text-muted);
 }
