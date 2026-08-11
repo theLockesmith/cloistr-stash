@@ -16,7 +16,7 @@
 //   - Multi-user WebRTC signaling: setupNostrSignaling is a stub in
 //     collaboration.ts; real-time sync requires that stub to be wired.
 //   - Collaborator chips: y-protocols is not installed (collaboration.ts:10-13),
-//     so sessions always run in soloMode -- awareness / cursor / presence are
+//     so sessions always run in soloMode — awareness / cursor / presence are
 //     unavailable and the chip strip is rendered empty.
 //
 // The save path DOES work when Collaboration.configure() has been called in

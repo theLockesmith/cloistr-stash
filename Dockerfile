@@ -1,5 +1,5 @@
 # --- Stage 1: build the React web UI (Vite) ---
-FROM node:22-alpine AS web-builder
+FROM node:22.23.2-alpine AS web-builder
 
 WORKDIR /web
 
@@ -18,7 +18,7 @@ COPY web/ ./
 RUN npm run build
 
 # --- Stage 2: build the Go server ---
-FROM golang:1.25-alpine AS go-builder
+FROM golang:1.26-alpine AS go-builder
 
 WORKDIR /app
 RUN apk add --no-cache git make
