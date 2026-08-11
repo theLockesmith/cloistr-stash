@@ -743,11 +743,12 @@ export const Sharing = {
     }
 
     try {
+      // Backend emits outgoing shares under the key "shares" (not "created").
       const response = (await API.listShares(
         authPort.pubkey!,
         'created',
-      )) as unknown as { created?: unknown[] }
-      return response.created ?? []
+      )) as unknown as { shares?: unknown[] }
+      return response.shares ?? []
     } catch (err) {
       console.error('Sharing: Failed to list outgoing shares:', err)
       return []

@@ -21,6 +21,7 @@ import { SelectionToolbar } from './SelectionToolbar'
 import { RenameModal } from './RenameModal'
 import { MoveModal } from './MoveModal'
 import { ShareModal } from './ShareModal'
+import { ManageSharesModal } from './ManageSharesModal'
 import { VersionHistoryModal } from './VersionHistoryModal'
 import { FolderCustomizeModal, useFolderCustomizations } from './FolderCustomizeModal'
 import type { FolderCustomization } from './FolderCustomizeModal'
@@ -94,6 +95,7 @@ export function FileBrowser() {
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
   const [moveTarget, setMoveTarget] = useState<StashFile | null>(null)
   const [shareTarget, setShareTarget] = useState<StashFile | null>(null)
+  const [manageSharesTarget, setManageSharesTarget] = useState<StashFile | null>(null)
   const [versionTarget, setVersionTarget] = useState<StashFile | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   // Folder being customized (null = modal closed).
@@ -139,6 +141,11 @@ export function FileBrowser() {
         />
       <PreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
       <ShareModal file={shareTarget} onClose={() => setShareTarget(null)} />
+      <ManageSharesModal
+        file={manageSharesTarget}
+        onClose={() => setManageSharesTarget(null)}
+        onRekeyed={() => void loadFiles()}
+      />
       <VersionHistoryModal
         file={versionTarget}
         onClose={() => setVersionTarget(null)}
@@ -194,6 +201,7 @@ export function FileBrowser() {
     { label: 'Info', onClick: () => openInfo(file) },
     { label: 'Preview', onClick: () => setPreviewFile(file) },
     { label: 'Share', onClick: () => setShareTarget(file) },
+    { label: 'Manage Shares', onClick: () => setManageSharesTarget(file) },
     { label: 'Versions', onClick: () => setVersionTarget(file) },
     { label: 'Rename', onClick: () => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) }) },
     { label: 'Move to…', onClick: () => setMoveTarget(file) },
