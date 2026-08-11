@@ -241,9 +241,33 @@ body {
   color: var(--cloistr-error);
 }
 
-/* Hamburger hidden on desktop; sidebar always visible there. */
+/* Desktop sidebar toggle button (inside sidebar header). Always visible. */
 .sidebar-toggle {
-  display: none;
+  background: none;
+  border: 1px solid var(--cloistr-border);
+  border-radius: 6px;
+  color: var(--cloistr-text);
+  font-size: 1.1rem;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0 0.75rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--cloistr-border);
+}
+
+.sidebar-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+/* Mobile hamburger: inline display:none is overridden by !important on ≤768px */
+.mobile-menu-btn {
   background: none;
   border: 1px solid var(--cloistr-border);
   border-radius: 6px;
@@ -254,14 +278,25 @@ body {
   cursor: pointer;
 }
 
-.sidebar-scrim {
+/* Sidebar overlay: always in DOM for tests; visible class shows it on mobile */
+.sidebar-overlay {
   display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 39;
+}
+
+.sidebar-overlay.visible {
+  display: block;
 }
 
 @media (max-width: 768px) {
-  .sidebar-toggle {
-    display: inline-block;
+  /* Show the mobile hamburger button; !important overrides inline display:none */
+  .mobile-menu-btn {
+    display: flex !important;
   }
+
   .sidebar {
     position: fixed;
     top: 0;
@@ -274,14 +309,6 @@ body {
   }
   .stash-workspace.sidebar-open .sidebar {
     transform: translateX(0);
-  }
-  .stash-workspace.sidebar-open .sidebar-scrim {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 39;
-    background: rgba(0, 0, 0, 0.5);
-    border: none;
   }
 }
 
@@ -678,10 +705,6 @@ body {
   cursor: default;
 }
 
-.fb-card.fb-folder {
-  cursor: pointer;
-}
-
 .fb-card-icon {
   font-size: 2rem;
 }
@@ -699,10 +722,8 @@ body {
   font-size: 0.72rem;
   opacity: 0.55;
 }
+/* ── Preview modal (ported from legacy CSS) ─────────────────────────────── */
 
-/* ── Base modal overlay (shared by BackupModal and future modals) ─────────── */
-/* NOTE: PreviewModal reconciliation (fix/preview-modal-reconcile) adds these   */
-/* too – deduplicate when that branch merges.                                   */
 .modal {
   position: fixed;
   top: 0;
@@ -730,6 +751,18 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.modal-large {
+  max-width: 900px;
+  height: 80vh;
+}
+
+.modal-large .modal-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .modal-header {
@@ -760,18 +793,6 @@ body {
   color: var(--cloistr-text, inherit);
 }
 
-.modal-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1.5rem;
-}
-
-.modal-description {
-  font-size: 0.9rem;
-  opacity: 0.8;
-  margin: 0 0 0.75rem;
-}
-
 .modal-footer {
   display: flex;
   justify-content: flex-end;
@@ -780,16 +801,465 @@ body {
   border-top: 1px solid var(--cloistr-border, #3a3a4a);
 }
 
-/* ── Backup modal ──────────────────────────────────────────────────────────── */
+/* Preview body */
+.preview-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.preview-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  color: var(--cloistr-text-muted, #888);
+}
+
+.preview-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+}
+
+.preview-video-container,
+.preview-audio-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 1rem;
+}
+
+.preview-video-container video {
+  max-width: 100%;
+  max-height: 60vh;
+}
+
+.preview-unsupported {
+  text-align: center;
+  color: var(--cloistr-text-muted, #888);
+  padding: 2rem;
+}
+
+/* Plain text / code preview */
+.preview-code-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 65vh;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: #282c34;
+}
+
+.preview-text {
+  flex: 1;
+  margin: 0;
+  padding: 1rem;
+  overflow: auto;
+  background-color: #282c34;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: #abb2bf;
+  white-space: pre;
+}
+
+.preview-text code {
+  font-family: inherit;
+  font-size: inherit;
+  background: transparent;
+  padding: 0;
+}
+
+/* Markdown preview */
+.preview-markdown-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 65vh;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: var(--cloistr-surface, #1e1e2e);
+}
+
+.markdown-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: var(--cloistr-surface-2, #2a2a3a);
+  border-bottom: 1px solid var(--cloistr-border, #3a3a4a);
+  flex-shrink: 0;
+}
+
+.markdown-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.markdown-tab {
+  background: transparent;
+  border: none;
+  color: var(--cloistr-text-muted, #888);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.markdown-tab:hover {
+  background-color: var(--cloistr-surface, #1e1e2e);
+  color: var(--cloistr-text, inherit);
+}
+
+.markdown-tab.active {
+  background-color: var(--cloistr-accent, #7c3aed);
+  color: white;
+}
+
+.markdown-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.code-btn {
+  background: #3a3f4b;
+  border: none;
+  color: #abb2bf;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.code-btn:hover {
+  background: var(--cloistr-accent, #7c3aed);
+  color: white;
+}
+
+.code-btn.active {
+  background: var(--cloistr-accent, #7c3aed);
+  color: white;
+}
+
+.markdown-content,
+.markdown-source {
+  flex: 1;
+  overflow: auto;
+  padding: 1.5rem;
+}
+
+.markdown-content {
+  line-height: 1.7;
+  color: var(--cloistr-text, inherit);
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.markdown-content h1 { font-size: 2em; border-bottom: 1px solid var(--cloistr-border, #3a3a4a); padding-bottom: 0.3em; }
+.markdown-content h2 { font-size: 1.5em; border-bottom: 1px solid var(--cloistr-border, #3a3a4a); padding-bottom: 0.3em; }
+.markdown-content h3 { font-size: 1.25em; }
+.markdown-content h4 { font-size: 1em; }
+.markdown-content h5 { font-size: 0.875em; }
+.markdown-content h6 { font-size: 0.85em; opacity: 0.7; }
+
+.markdown-content p { margin: 1em 0; }
+
+.markdown-content a {
+  color: var(--cloistr-accent, #7c3aed);
+  text-decoration: none;
+}
+.markdown-content a:hover { text-decoration: underline; }
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: 1em 0;
+  padding-left: 2em;
+}
+.markdown-content li { margin: 0.25em 0; }
+
+.markdown-content blockquote {
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  border-left: 4px solid var(--cloistr-accent, #7c3aed);
+  background-color: var(--cloistr-surface-2, #2a2a3a);
+  opacity: 0.9;
+}
+
+.markdown-content code {
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 0.9em;
+  padding: 0.2em 0.4em;
+  background-color: var(--cloistr-surface-2, #2a2a3a);
+  border-radius: 4px;
+}
+
+.markdown-content pre {
+  margin: 1em 0;
+  padding: 1em;
+  background-color: #282c34;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.markdown-content pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid var(--cloistr-border, #3a3a4a);
+  padding: 0.5em 1em;
+  text-align: left;
+}
+
+.markdown-content th {
+  background-color: var(--cloistr-surface-2, #2a2a3a);
+  font-weight: 600;
+}
+
+.markdown-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.markdown-content hr {
+  border: none;
+  border-top: 1px solid var(--cloistr-border, #3a3a4a);
+  margin: 2em 0;
+}
+
+.markdown-content input[type="checkbox"] {
+  margin-right: 0.5em;
+}
+
+.markdown-source pre {
+  margin: 0;
+  background: #282c34;
+  color: #abb2bf;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.markdown-source code {
+  font-family: inherit;
+}
+
+/* ── Generic .btn / .btn-primary (used by EditorModal, FolderCustomizeModal) ── */
+
+.btn {
+  background: var(--cloistr-bg-hover);
+  color: var(--cloistr-text);
+  border: 1px solid var(--cloistr-border);
+  border-radius: 6px;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.btn:hover {
+  background: var(--cloistr-bg-elevated);
+}
+
+.btn-primary {
+  background: var(--cloistr-bg-hover);
+  border-color: var(--cloistr-primary-dark);
+  color: var(--cloistr-primary-light);
+}
+
+.btn-primary:hover {
+  opacity: 0.85;
+}
+
+/* ── FolderCard with actions menu (grid view) ────────────────────────────── */
+
+.fb-card.fb-folder {
+  /* Override: grid card is now a div, not a button */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  position: relative;
+  cursor: default;
+  background: var(--cloistr-bg-elevated);
+  border: 1px solid var(--cloistr-border);
+  border-radius: 8px;
+  padding: 0.75rem 0.5rem 0.5rem;
+  text-align: center;
+}
+
+/* The inner "open" button fills most of the card */
+.fb-card-main {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0;
+}
+
+/* Position the ⋮ menu in the top-right corner of folder cards */
+.fb-card.fb-folder > .fb-menu {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+}
+
+/* ── Folder Customization Modal ──────────────────────────────────────────── */
+
+.folder-customize-body {
+  padding: 1rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.folder-name-display {
+  font-weight: 600;
+  font-size: 1rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--cloistr-bg);
+  border: 1px solid var(--cloistr-border);
+  border-radius: 6px;
+}
+
+.customize-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.customize-section-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  opacity: 0.75;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Color picker */
+.color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.color-swatch {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.1s;
+  padding: 0;
+}
+
+.color-swatch.default {
+  background: var(--cloistr-text-muted, #888) !important;
+  position: relative;
+}
+
+/* Strikethrough mark on the default swatch */
+.color-swatch.default::after {
+  content: '×';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.color-swatch.selected,
+.color-swatch:hover {
+  border-color: var(--cloistr-primary-light, #a78bfa);
+  transform: scale(1.12);
+}
+
+/* Icon picker */
+.icon-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.icon-option {
+  font-size: 1.4rem;
+  padding: 0.25rem 0.35rem;
+  background: none;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s;
+  line-height: 1;
+}
+
+.icon-option.selected,
+.icon-option:hover {
+  border-color: var(--cloistr-primary-light, #a78bfa);
+  background: var(--cloistr-bg-hover);
+}
+
+/* ── Ported feature styles ─────────────────────────────────────────────
+ * Rules from this branch with no equivalent on master. The shared modal
+ * and .btn shell above is MASTER's copy on purpose: the branch also
+ * re-declared it, and keeping both would let the older copy win by
+ * source order and restyle shared components app-wide.
+ * ───────────────────────────────────────────────────────────────────── */
 .backup-section {
   padding: 1rem;
   background-color: var(--cloistr-bg-elevated, rgba(255,255,255,0.04));
   border-radius: 6px;
   margin-bottom: 1rem;
-}
-
-.backup-section:last-of-type {
-  margin-bottom: 0;
 }
 
 .backup-section h3 {
@@ -798,7 +1268,10 @@ body {
   margin: 0 0 0.5rem;
 }
 
-/* ── Backup trigger button ─────────────────────────────────────────────────── */
+.backup-section:last-of-type {
+  margin-bottom: 0;
+}
+
 .backup-trigger-btn {
   background: none;
   border: none;
@@ -814,3 +1287,16 @@ body {
   color: var(--cloistr-text, inherit);
   background: var(--cloistr-bg-elevated, rgba(255,255,255,0.08));
 }
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.modal-description {
+  font-size: 0.9rem;
+  opacity: 0.8;
+  margin: 0 0 0.75rem;
+}
+
