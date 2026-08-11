@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNostrAuth } from '@cloistr/auth'
-import { Header, Footer, LoginPrompt } from '@cloistr/ui/components'
+import { Header, Footer } from '@cloistr/ui/components'
 import { updateAuth, type Signer } from './lib/authBridge'
 import { useStash } from './state/useStash'
 import { FileBrowser } from './components/FileBrowser'
@@ -10,6 +10,7 @@ import { KeyboardShortcuts } from './components/KeyboardShortcuts'
 import { NotificationsModal } from './components/NotificationsModal'
 import { UploadButton, UploadProgress } from './components/UploadBar'
 import { SearchBar } from './components/SearchBar'
+import { NIP46Dialog } from './components/NIP46Dialog'
 import { Search } from './lib/search'
 import { Sharing } from './lib/sharing'
 import { Versioning } from './lib/versioning'
@@ -23,6 +24,9 @@ import { Collaboration } from './lib/collaboration'
  * data layer (keys/relay/relayprefs) via updateAuth(), then loads the file
  * browser via the stash store. The file-manager UI is being ported module by
  * module (4b+); for now we render load status as proof the store is live.
+ *
+ * The unauthenticated state now renders NIP46Dialog — the ported landing page +
+ * NIP-46 remote-signer connect flow — replacing the static LoginPrompt placeholder.
  */
 export default function App() {
   const { authState, signer } = useNostrAuth()
@@ -123,10 +127,7 @@ export default function App() {
             />
           </div>
         ) : (
-          <LoginPrompt
-            title="Cloistr Stash"
-            subtitle="Zero-knowledge encrypted file storage powered by Nostr"
-          />
+          <NIP46Dialog />
         )}
       </main>
       <Footer />
