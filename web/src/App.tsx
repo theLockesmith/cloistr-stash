@@ -7,6 +7,7 @@ import { FileBrowser } from './components/FileBrowser'
 import { Sidebar } from './components/Sidebar'
 import { Breadcrumbs } from './components/Breadcrumbs'
 import { KeyboardShortcuts } from './components/KeyboardShortcuts'
+import { NotificationsModal } from './components/NotificationsModal'
 import { UploadButton, UploadProgress } from './components/UploadBar'
 import { SearchBar } from './components/SearchBar'
 import { MigrationModal } from './components/MigrationModal'
@@ -34,6 +35,7 @@ export default function App() {
   const pubkey = authState?.pubkey ?? null
   const { loadFiles, loadFolderTree, uploadFiles, view, currentFolderId, migrationFiles, dismissMigration } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
 
   const toggleSidebar = () => setSidebarOpen((o) => !o)
   const closeSidebar = () => setSidebarOpen(false)
@@ -70,7 +72,12 @@ export default function App() {
       <main className="stash-main">
         {isConnected ? (
           <div className={`stash-workspace ${sidebarOpen ? 'sidebar-open' : ''}`}>
-            <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} onClose={closeSidebar} />
+            <Sidebar
+              isOpen={sidebarOpen}
+              onToggle={toggleSidebar}
+              onClose={closeSidebar}
+              onOpenNotifications={() => setNotificationsOpen(true)}
+            />
             {/* Overlay: always in DOM so tests can find #sidebar-overlay; visible class shows it */}
             <div
               id="sidebar-overlay"
@@ -123,6 +130,10 @@ export default function App() {
                 dismissMigration()
                 void loadFiles()
               }}
+            />
+            <NotificationsModal
+              open={notificationsOpen}
+              onClose={() => setNotificationsOpen(false)}
             />
           </div>
         ) : (
