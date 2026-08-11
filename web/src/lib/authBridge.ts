@@ -7,6 +7,7 @@
 // the ported modules read the current values through this single port object.
 
 import { API } from './api'
+import { Crypto } from './crypto'
 import { Keys } from './keys'
 import { Relay } from './relay'
 import type { SignedEvent, UnsignedEvent } from './relay'
@@ -132,8 +133,14 @@ function wireOnce(): void {
  * Update the current signer/auth state and ensure the data layer is wired.
  * Call from React whenever useNostrAuth()'s signer or authState changes.
  * Initializes the key store on first connect, and clears caches on disconnect.
+ *
+ * Crypto.init() MUST precede Keys.init(): Keys.getRootKey() -> generateRootKey()
+ * -> Crypto.generateKey() -> ensureInit() throws if libsodium is not ready.
+ * Crypto.init() is idempotent (no-op after first call).
  */
 export async function updateAuth(signer: Signer | null, state: AuthSnapshot): Promise<void> {
+  await Crypto.init()
+
   const wasConnected = currentState.isConnected && !!currentSigner
   currentSigner = signer
   currentState = state

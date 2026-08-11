@@ -17,7 +17,14 @@ const VIEWS: { id: StashView; label: string; icon: string }[] = [
   { id: 'trash', label: 'Trash', icon: '🗑️' },
 ]
 
-export function Sidebar({ onOpenNotifications }: { onOpenNotifications: () => void }) {
+interface SidebarProps {
+  isOpen: boolean
+  onToggle: () => void
+  onClose: () => void
+  onOpenNotifications: () => void
+}
+
+export function Sidebar({ isOpen, onToggle, onOpenNotifications }: SidebarProps) {
   const { view, setView, folderTreeData, currentFolderId, navigateToFolderAbsolute, unreadNotificationCount } = useStash()
 
   // Group folders by parent for tree rendering.
@@ -33,7 +40,23 @@ export function Sidebar({ onOpenNotifications }: { onOpenNotifications: () => vo
   }, [folderTreeData])
 
   return (
-    <aside className="sidebar" aria-label="Navigation">
+    <aside id="sidebar" className="sidebar" role="navigation" aria-label="File navigation">
+      {/* Sidebar header with title and desktop collapse toggle (matches legacy #sidebar-toggle) */}
+      <div className="sidebar-header">
+        <span id="sidebar-title" className="sidebar-title">Folders</span>
+        <button
+          id="sidebar-toggle"
+          type="button"
+          className="btn btn-icon sidebar-toggle"
+          title="Toggle sidebar"
+          aria-label="Toggle sidebar"
+          aria-expanded={true}
+          onClick={onToggle}
+        >
+          ☰
+        </button>
+      </div>
+
       <nav className="sidebar-views">
         {VIEWS.map((v) => (
           <button
