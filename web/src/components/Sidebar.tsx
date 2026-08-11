@@ -2,9 +2,8 @@
 // renderFolderTree / view switching). Folder tree is built from folderTreeData
 // by parent_id, with expand/collapse; clicking navigates by absolute path.
 //
-// Secondary nav items (starred, recent, trash, activity, notifications,
-// relay-settings) use the legacy sidebar-nav-item DOM shape so existing
-// Playwright specs pass without changes.
+// The bottom nav section (notifications, activity, etc.) mirrors the legacy
+// #sidebar-nav-item DOM shape so E2E specs targeting those IDs pass unchanged.
 
 import { useMemo, useState } from 'react'
 import { useStash } from '../state/useStash'
@@ -22,11 +21,12 @@ interface SidebarProps {
   isOpen: boolean
   onToggle: () => void
   onClose: () => void
+  onOpenNotifications: () => void
   onOpenActivity: () => void
 }
 
-export function Sidebar({ onToggle, onOpenActivity }: SidebarProps) {
-  const { view, setView, folderTreeData, currentFolderId, navigateToFolderAbsolute } = useStash()
+export function Sidebar({ isOpen, onToggle, onOpenNotifications, onOpenActivity }: SidebarProps) {
+  const { view, setView, folderTreeData, currentFolderId, navigateToFolderAbsolute, unreadNotificationCount } = useStash()
 
   // Group folders by parent for tree rendering.
   const childrenByParent = useMemo(() => {
@@ -72,8 +72,42 @@ export function Sidebar({ onToggle, onOpenActivity }: SidebarProps) {
         ))}
       </nav>
 
-      {/* Secondary nav items – legacy sidebar-nav-item shape for Playwright compat */}
-      <nav className="sidebar-nav" aria-label="Tools">
+      {/* Secondary nav items (mirrors legacy sidebar-nav-item structure for E2E compat).
+          Notifications and Activity share one <nav>: the two ports each added their
+          own container, and keeping both would give the sidebar two sibling nav
+          landmarks with the same role. */}
+      <nav className="sidebar-nav-extra" aria-label="Actions">
+        {/* Notifications nav item — matches legacy #nav-notifications */}
+        <div
+          id="nav-notifications"
+          className="sidebar-nav-item"
+          title="Share notifications"
+          role="button"
+          tabIndex={0}
+          aria-label="Notifications"
+          onClick={onOpenNotifications}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              onOpenNotifications()
+            }
+          }}
+        >
+          <span className="sidebar-nav-icon" aria-hidden="true">🔔</span>
+          <span className="sidebar-nav-name">Notifications</span>
+          <span
+            className="sidebar-nav-badge notification-badge"
+            id="notification-count"
+            aria-live="polite"
+          >
+            {unreadNotificationCount > 0
+              ? unreadNotificationCount > 99
+                ? '99+'
+                : unreadNotificationCount
+              : ''}
+          </span>
+        </div>
+        {/* Activity log nav item — matches legacy #nav-activity */}
         <div
           id="nav-activity"
           className="sidebar-nav-item"
@@ -93,6 +127,7 @@ export function Sidebar({ onToggle, onOpenActivity }: SidebarProps) {
           <span className="sidebar-nav-name">Activity</span>
         </div>
       </nav>
+
 
       {folderTreeData.length > 0 && (
         <div className="sidebar-tree" role="tree" aria-label="Folders">
