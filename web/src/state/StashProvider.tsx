@@ -10,6 +10,7 @@
 import {
   createContext,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -32,7 +33,7 @@ import {
 import { uploadFiles as libUploadFiles, type UploadItem } from '../lib/upload'
 import { Search, type SearchResult } from '../lib/search'
 import { Sharing, type DecryptedIncomingShare } from '../lib/sharing'
-import type { FolderPathItem, StashFile, StashFolder, StashView } from './types'
+import type { FolderPathItem, StashFile, StashFolder, StashNotification, StashView } from './types'
 
 interface RecentEntry {
   sha256: string
@@ -41,6 +42,28 @@ interface RecentEntry {
 
 const STARRED_KEY = 'cloistr-starred'
 const RECENT_KEY = 'cloistr-recent'
+const NOTIFICATIONS_KEY = 'cloistr-notifications'
+/** Poll for new received shares every 30 s (mirrors legacy startNotificationPolling). */
+const NOTIFICATION_POLL_MS = 30_000
+/** First check is deferred 5 s after auth, so the initial file load completes first. */
+const NOTIFICATION_INITIAL_DELAY_MS = 5_000
+
+function loadStoredNotifications(): StashNotification[] {
+  try {
+    const raw = localStorage.getItem(NOTIFICATIONS_KEY)
+    return raw ? (JSON.parse(raw) as StashNotification[]) : []
+  } catch {
+    return []
+  }
+}
+
+function saveStoredNotifications(list: StashNotification[]): void {
+  try {
+    localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(list))
+  } catch (err) {
+    console.warn('Failed to save notifications:', err)
+  }
+}
 
 export interface StashContextValue {
   // Data
@@ -92,6 +115,13 @@ export interface StashContextValue {
   acceptShare: (share: DecryptedIncomingShare) => Promise<void>
   /** Create a new encrypted folder in the current directory. */
   createFolder: (name: string) => Promise<void>
+  // Notifications (ported from app.js notifications subsystem)
+  notifications: StashNotification[]
+  unreadNotificationCount: number
+  markNotificationRead: (id: string) => void
+  markAllNotificationsRead: () => void
+  acceptNotification: (id: string) => void
+  declineNotification: (id: string) => void
 }
 
 export const StashContext = createContext<StashContextValue | null>(null)
@@ -167,6 +197,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [sharedItems, setSharedItems] = useState<DecryptedIncomingShare[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notifications, setNotifications] = useState<StashNotification[]>(() => loadStoredNotifications())
 
   const folderIdRef = useRef('')
   const treeRef = useRef<StashFolder[]>([])
@@ -574,6 +605,153 @@ export function StashProvider({ children }: { children: ReactNode }) {
     [loadFilesFor, loadFolderTree],
   )
 
+  // ── Notifications ──────────────────────────────────────────────────────────
+  // Ported from app.js: loadNotifications / startNotificationPolling /
+  // checkForNewShares / addNotification / markNotificationRead /
+  // markAllNotificationsRead / acceptShare (notification variant) /
+  // declineShare.
+
+  const unreadNotificationCount = useMemo(
+    () => notifications.filter((n) => !n.read).length,
+    [notifications],
+  )
+
+  // Persist and update state in one call.
+  const applyNotifications = useCallback((next: StashNotification[]) => {
+    saveStoredNotifications(next)
+    setNotifications(next)
+  }, [])
+
+  const markNotificationRead = useCallback(
+    (id: string) => {
+      setNotifications((prev) => {
+        const next = prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+        saveStoredNotifications(next)
+        return next
+      })
+    },
+    [],
+  )
+
+  const markAllNotificationsRead = useCallback(() => {
+    setNotifications((prev) => {
+      const next = prev.map((n) => ({ ...n, read: true }))
+      saveStoredNotifications(next)
+      return next
+    })
+  }, [])
+
+  const acceptNotification = useCallback(
+    (id: string) => {
+      setNotifications((prev) => {
+        const next = prev.map((n) =>
+          n.id === id ? { ...n, read: true, accepted: true } : n,
+        )
+        saveStoredNotifications(next)
+        return next
+      })
+      // Refresh shared view so the newly-accepted share appears.
+      void loadShared()
+    },
+    [loadShared],
+  )
+
+  const declineNotification = useCallback(
+    (id: string) => {
+      setNotifications((prev) => {
+        const next = prev.map((n) =>
+          n.id === id ? { ...n, read: true, declined: true } : n,
+        )
+        saveStoredNotifications(next)
+        return next
+      })
+    },
+    [],
+  )
+
+  // Polling: mirrors checkForNewShares() + startNotificationPolling() in app.js.
+  // Uses a stable ref to avoid re-creating the interval when notifications change.
+  const notificationsRef = useRef<StashNotification[]>(notifications)
+  notificationsRef.current = notifications
+
+  const checkForNewShares = useCallback(async () => {
+    const pubkey = authPort.pubkey
+    if (!authPort.isConnected || !pubkey) return
+
+    try {
+      const response = (await API.listShares(pubkey, 'received')) as unknown as {
+        received?: Array<{ id: string; owner_pubkey: string; name?: string; isFolder?: boolean }>
+        shares?: Array<{ id: string; owner_pubkey: string; name?: string; isFolder?: boolean }>
+      }
+      // The API may return shares under `received` (type='received') or `shares`.
+      const shares = response.received ?? response.shares ?? []
+
+      const existingIds = new Set(
+        notificationsRef.current
+          .filter((n) => n.type === 'share_received' || n.type === 'share_folder')
+          .map((n) => n.data.shareId),
+      )
+
+      const newNotifications: StashNotification[] = []
+      for (const share of shares) {
+        if (existingIds.has(share.id)) continue
+        const from =
+          share.owner_pubkey && share.owner_pubkey.length > 8
+            ? `${share.owner_pubkey.slice(0, 8)}…`
+            : share.owner_pubkey || 'Someone'
+        const notif: StashNotification = {
+          id: Date.now().toString() + Math.random().toString(36).slice(2),
+          type: share.isFolder ? 'share_folder' : 'share_received',
+          data: {
+            shareId: share.id,
+            name: share.name || 'Unknown',
+            from,
+          },
+          timestamp: Date.now(),
+          read: false,
+        }
+        newNotifications.push(notif)
+
+        // Fire a Web Notifications API toast if permitted.
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          const body =
+            notif.type === 'share_folder'
+              ? `${from} shared folder "${notif.data.name}" with you`
+              : `${from} shared "${notif.data.name}" with you`
+          // eslint-disable-next-line no-new
+          new Notification('Cloistr Stash', { body, icon: '/favicon.svg' })
+        }
+      }
+
+      if (newNotifications.length > 0) {
+        applyNotifications([...newNotifications, ...notificationsRef.current])
+      }
+    } catch (err) {
+      console.warn('checkForNewShares failed:', err)
+    }
+  }, [applyNotifications])
+
+  // Start polling when connected; stop when disconnected.
+  const isConnectedForPolling = authPort.isConnected
+  useEffect(() => {
+    if (!isConnectedForPolling) return
+
+    const initialTimer = setTimeout(() => {
+      void checkForNewShares()
+    }, NOTIFICATION_INITIAL_DELAY_MS)
+
+    const interval = setInterval(() => {
+      void checkForNewShares()
+    }, NOTIFICATION_POLL_MS)
+
+    return () => {
+      clearTimeout(initialTimer)
+      clearInterval(interval)
+    }
+  }, [isConnectedForPolling, checkForNewShares])
+
+  // ── End notifications ──────────────────────────────────────────────────────
+
   const value = useMemo<StashContextValue>(
     () => ({
       files,
@@ -618,6 +796,12 @@ export function StashProvider({ children }: { children: ReactNode }) {
       sharedItems,
       acceptShare,
       createFolder,
+      notifications,
+      unreadNotificationCount,
+      markNotificationRead,
+      markAllNotificationsRead,
+      acceptNotification,
+      declineNotification,
     }),
     [
       files,
@@ -660,6 +844,12 @@ export function StashProvider({ children }: { children: ReactNode }) {
       sharedItems,
       acceptShare,
       createFolder,
+      notifications,
+      unreadNotificationCount,
+      markNotificationRead,
+      markAllNotificationsRead,
+      acceptNotification,
+      declineNotification,
     ],
   )
 

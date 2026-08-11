@@ -7,6 +7,7 @@ import { FileBrowser } from './components/FileBrowser'
 import { Sidebar } from './components/Sidebar'
 import { Breadcrumbs } from './components/Breadcrumbs'
 import { KeyboardShortcuts } from './components/KeyboardShortcuts'
+import { NotificationsModal } from './components/NotificationsModal'
 import { UploadButton, UploadProgress } from './components/UploadBar'
 import { SearchBar } from './components/SearchBar'
 import { NewButton } from './components/NewButton'
@@ -36,6 +37,7 @@ export default function App() {
   const { loadFiles, loadFolderTree, uploadFiles, view } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [newFolderOpen, setNewFolderOpen] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
 
   const toggleSidebar = () => setSidebarOpen((o) => !o)
   const closeSidebar = () => setSidebarOpen(false)
@@ -72,7 +74,12 @@ export default function App() {
       <main className="stash-main">
         {isConnected ? (
           <div className={`stash-workspace ${sidebarOpen ? 'sidebar-open' : ''}`}>
-            <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} onClose={closeSidebar} />
+            <Sidebar
+              isOpen={sidebarOpen}
+              onToggle={toggleSidebar}
+              onClose={closeSidebar}
+              onOpenNotifications={() => setNotificationsOpen(true)}
+            />
             {/* Overlay: always in DOM so tests can find #sidebar-overlay; visible class shows it */}
             <div
               id="sidebar-overlay"
@@ -149,6 +156,10 @@ export default function App() {
               </div>
             </div>
             <KeyboardShortcuts onNewFolder={() => setNewFolderOpen(true)} />
+            <NotificationsModal
+              open={notificationsOpen}
+              onClose={() => setNotificationsOpen(false)}
+            />
           </div>
         ) : (
           <NIP46Dialog />
