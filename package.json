@@ -13,12 +13,12 @@
     "test:all": "npm run test && npm run test:puppeteer"
   },
   "devDependencies": {
-    "@playwright/test": "^1.42.0",
+    "@playwright/test": "^1.62.1",
     "@vitest/browser": "^3.0.0",
-    "puppeteer": "^24.37.5",
+    "puppeteer": "^24.43.1",
     "vitest": "^3.0.0"
   },
   "dependencies": {
-    "libsodium-wrappers": "^0.7.13"
+    "libsodium-wrappers": "^0.8.4"
   }
 }

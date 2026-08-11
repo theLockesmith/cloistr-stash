@@ -30,6 +30,9 @@ export default function App() {
   const { loadFiles, loadFolderTree, uploadFiles, view } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
+  const toggleSidebar = () => setSidebarOpen((o) => !o)
+  const closeSidebar = () => setSidebarOpen(false)
+
   // Bridge the shared signer into the data layer, then load on connect.
   useEffect(() => {
     let cancelled = false
@@ -62,15 +65,17 @@ export default function App() {
       <main className="stash-main">
         {isConnected ? (
           <div className={`stash-workspace ${sidebarOpen ? 'sidebar-open' : ''}`}>
-            <Sidebar />
-            {sidebarOpen && (
-              <button
-                type="button"
-                className="sidebar-scrim"
-                aria-label="Close navigation"
-                onClick={() => setSidebarOpen(false)}
-              />
-            )}
+            <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} onClose={closeSidebar} />
+            {/* Overlay: always in DOM so tests can find #sidebar-overlay; visible class shows it */}
+            <div
+              id="sidebar-overlay"
+              className={`sidebar-overlay${sidebarOpen ? ' visible' : ''}`}
+              role="button"
+              tabIndex={-1}
+              aria-label="Close navigation"
+              onClick={closeSidebar}
+              onKeyDown={(e) => { if (e.key === 'Escape') closeSidebar() }}
+            />
             <div
               className="stash-content"
               onDragOver={(e) => {
@@ -84,12 +89,15 @@ export default function App() {
               }}
             >
               <div className="content-header">
+                {/* Mobile-only hamburger: inline display:none overridden by CSS on ≤768px */}
                 <button
+                  id="mobile-menu-btn"
                   type="button"
-                  className="sidebar-toggle"
-                  aria-label="Toggle navigation"
-                  aria-expanded={sidebarOpen}
-                  onClick={() => setSidebarOpen((o) => !o)}
+                  className="mobile-menu-btn"
+                  title="Menu"
+                  aria-label="Open navigation"
+                  style={{ display: 'none' }}
+                  onClick={toggleSidebar}
                 >
                   ☰
                 </button>
