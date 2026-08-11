@@ -9,6 +9,7 @@ import { useStash } from '../state/useStash'
 import type { StashFile, StashFolder } from '../state/types'
 import { formatDate, formatFileSize, getFileIcon } from './format'
 import { FileInfoModal } from './FileInfoModal'
+import { EncryptionInfoModal } from './EncryptionInfoModal'
 import { PreviewModal } from './PreviewModal'
 import { SelectionToolbar } from './SelectionToolbar'
 import { RenameModal } from './RenameModal'
@@ -71,6 +72,7 @@ export function FileBrowser() {
   } = useStash()
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [infoFile, setInfoFile] = useState<StashFile | null>(null)
+  const [encInfoFile, setEncInfoFile] = useState<StashFile | null>(null)
   const [previewFile, setPreviewFile] = useState<StashFile | null>(null)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
@@ -99,6 +101,7 @@ export function FileBrowser() {
           onVersions={(f) => setVersionTarget(f)}
           onDelete={(f) => setPendingDelete({ kind: 'file', file: f, name: fileDisplayName(f) })}
         />
+      <EncryptionInfoModal file={encInfoFile} onClose={() => setEncInfoFile(null)} />
       <PreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
       <ShareModal file={shareTarget} onClose={() => setShareTarget(null)} />
       <ManageSharesModal
@@ -160,6 +163,7 @@ export function FileBrowser() {
   const fileMenuItems = (file: StashFile) => [
     { label: 'Info', onClick: () => openInfo(file) },
     { label: 'Preview', onClick: () => setPreviewFile(file) },
+    { label: 'Encryption Info', onClick: () => setEncInfoFile(file) },
     { label: 'Share', onClick: () => setShareTarget(file) },
     { label: 'Manage Shares', onClick: () => setManageSharesTarget(file) },
     { label: 'Versions', onClick: () => setVersionTarget(file) },
