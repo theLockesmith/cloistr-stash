@@ -1610,7 +1610,6 @@ body {
   border-color: var(--cloistr-primary-light, #a78bfa);
   background: var(--cloistr-bg-hover);
 }
-
 /* ── Keyboard-shortcuts modal additions ───────────────────────────────────
  * Kept from the shortcuts branch: rules with no equivalent on master.
  * The shared modal/.btn shell above is master's — taking the branch copy
@@ -1658,3 +1657,153 @@ body {
   font-size: 0.8rem;
   color: var(--cloistr-text-muted);
 }
+
+/* ── Ported feature styles ─────────────────────────────────────────────
+ * Rules from this branch with no equivalent on master. The shared modal
+ * and .btn shell above is MASTER's copy on purpose: the branch also
+ * re-declared it, and keeping both would let the older copy win by
+ * source order and restyle shared components app-wide.
+ * ───────────────────────────────────────────────────────────────────── */
+.btn.btn-primary {
+  background-color: var(--cloistr-accent, #6366f1);
+  color: #fff;
+  border-color: var(--cloistr-accent, #6366f1);
+}
+
+.btn.btn-primary:hover {
+  opacity: 0.9;
+}
+
+.no-notifications {
+  text-align: center;
+  color: var(--cloistr-text-secondary, #6b7280);
+  padding: 2.5rem 1rem;
+  font-style: italic;
+}
+
+.notification-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+.notification-badge {
+  background-color: var(--cloistr-error, #ef4444);
+  color: #fff;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  padding: 0 5px;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notification-badge:empty {
+  display: none;
+}
+
+.notification-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.notification-description {
+  font-size: 0.85rem;
+  color: var(--cloistr-text-secondary, #6b7280);
+  margin-bottom: 0.35rem;
+}
+
+.notification-icon {
+  font-size: 1.4rem;
+  width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+  padding-top: 0.1rem;
+}
+
+.notification-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 0;
+  border-bottom: 1px solid var(--cloistr-border, #e5e7eb);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.notification-item.unread {
+  background-color: rgba(99, 102, 241, 0.06);
+  border-radius: 6px;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.notification-item:last-child {
+  border-bottom: none;
+}
+
+.notification-time {
+  font-size: 0.75rem;
+  color: var(--cloistr-text-secondary, #6b7280);
+}
+
+.notification-title {
+  font-weight: 500;
+  font-size: 0.9rem;
+  margin-bottom: 0.2rem;
+}
+
+.notifications-list {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.sidebar-nav-badge {
+  padding: 0.1rem 0.45rem;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  min-width: 18px;
+  text-align: center;
+}
+
+.sidebar-nav-extra {
+  margin-top: auto;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--cloistr-border, #e5e7eb);
+}
+
+.sidebar-nav-icon {
+  width: 20px;
+  margin-right: 0.6rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  border-radius: 6px;
+  color: var(--cloistr-text-secondary, #6b7280);
+  font-size: 0.875rem;
+  transition: background-color 0.15s, color 0.15s;
+  user-select: none;
+}
+
+.sidebar-nav-item:focus-visible {
+  outline: 2px solid var(--cloistr-accent, #6366f1);
+  outline-offset: -2px;
+}
+
+.sidebar-nav-item:hover {
+  background-color: var(--cloistr-surface-hover, rgba(0,0,0,0.04));
+  color: var(--cloistr-text, #111827);
+}
+
+.sidebar-nav-name {
+  flex: 1;
+}
+
