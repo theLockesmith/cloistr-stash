@@ -1917,6 +1917,99 @@ body {
  * re-declared it, and keeping both would let the older copy win by
  * source order and restyle shared components app-wide.
  * ───────────────────────────────────────────────────────────────────── */
+#editor-modal .btn {
+  padding: 0.375rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid var(--cloistr-border, #333);
+  cursor: pointer;
+  font-size: 0.875rem;
+  background: transparent;
+  color: var(--cloistr-text, inherit);
+  line-height: 1.4;
+}
+
+#editor-modal .btn-primary {
+  background: var(--cloistr-primary, #7c3aed);
+  color: #fff;
+  border-color: transparent;
+}
+
+#editor-modal .btn-small {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8125rem;
+}
+
+#editor-modal .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.editor-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editor-collaborator {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #fff;
+  border: 2px solid var(--cloistr-bg, #fff);
+}
+
+.editor-collaborators {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.editor-status {
+  font-size: 0.75rem;
+  color: var(--cloistr-text-muted, #888);
+  margin-right: auto;
+}
+
+.editor-textarea {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  padding: 1rem;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  resize: none;
+  border: none;
+  outline: none;
+  background: var(--cloistr-bg-elevated, #1a1a1a);
+  color: var(--cloistr-text, #f5f5f5);
+  box-sizing: border-box;
+}
+
+.editor-textarea:disabled {
+  opacity: 0.6;
+}
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+
+/* ── Ported feature styles ─────────────────────────────────────────────
+ * Rules from this branch with no equivalent on master. The shared modal
+ * and .btn shell above is MASTER's copy on purpose: the branch also
+ * re-declared it, and keeping both would let the older copy win by
+ * source order and restyle shared components app-wide.
+ * ───────────────────────────────────────────────────────────────────── */
 #breadcrumb-bar {
   /* wrapper required by spec */
 }
