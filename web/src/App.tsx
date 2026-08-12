@@ -16,6 +16,9 @@ import { Search } from './lib/search'
 import { Sharing } from './lib/sharing'
 import { Versioning } from './lib/versioning'
 import { Collaboration } from './lib/collaboration'
+import { API } from './lib/api'
+import { Keys } from './lib/keys'
+import { Crypto } from './lib/crypto'
 
 /**
  * Stash application shell.
@@ -48,6 +51,45 @@ export default function App() {
       await updateAuth((signer as Signer | null) ?? null, { isConnected, pubkey })
       if (cancelled) return
       if (isConnected && pubkey) {
+        // Wire Collaboration's injected deps before init so that saveDocument,
+        // createVersion, and shareFile all resolve against the live API.
+        Collaboration.configure({
+          downloadFileData: async (file) => {
+            const f = file as Record<string, unknown>
+            const sha256 = f.sha256 as string | undefined
+            if (!sha256) return null
+            const fileId = (f.file_id ?? f.fileId ?? f.d ?? f.id) as string | undefined
+            const folderId = (f.folder_id ?? f.folderId ?? f.folder ?? null) as string | null
+            if (!fileId) return null
+            const downloadUrl = API.getDownloadURL(sha256)
+            const resp = await fetch(downloadUrl)
+            if (!resp.ok) return null
+            const encryptedData = await resp.arrayBuffer()
+            const fileKey = folderId
+              ? await Keys.deriveFileKey(folderId, fileId)
+              : await Keys.deriveRootFileKey(fileId)
+            const decrypted = await Crypto.decryptFile(encryptedData, fileKey)
+            Crypto.wipeKey(fileKey)
+            return decrypted
+          },
+          createVersion: (file, data, opts) =>
+            Versioning.createVersion(
+              file as Parameters<typeof Versioning.createVersion>[0],
+              data,
+              opts,
+            ).then(() => undefined),
+          autoSaveVersion: (file, data) =>
+            Versioning.autoSaveVersion(
+              file as Parameters<typeof Versioning.autoSaveVersion>[0],
+              data,
+            ).then(() => undefined),
+          shareFile: (file, recipientPubkey, opts) =>
+            Sharing.shareFile(
+              file as Parameters<typeof Sharing.shareFile>[0],
+              recipientPubkey,
+              opts,
+            ).then(() => undefined),
+        })
         // Initialize the encrypted feature stores (idempotent; Keys is ready
         // after updateAuth). Non-fatal if any fails.
         try {
