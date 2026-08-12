@@ -79,7 +79,7 @@ lint:
 frontend:
   extends: .cloistr-rules
   stage: test
-  image: node:22-alpine
+  image: node:22.23.2-alpine
   variables:
     npm_config_audit: "false"
     npm_config_fund: "false"
