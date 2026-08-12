@@ -12,6 +12,7 @@ import { UploadButton, UploadProgress } from './components/UploadBar'
 import { SearchBar } from './components/SearchBar'
 import { NewButton } from './components/NewButton'
 import { NewFolderModal } from './components/NewFolderModal'
+import { ActivityModal } from './components/ActivityModal'
 import { NIP46Dialog } from './components/NIP46Dialog'
 import { Search } from './lib/search'
 import { Sharing } from './lib/sharing'
@@ -37,6 +38,7 @@ export default function App() {
   const { loadFiles, loadFolderTree, uploadFiles, view } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [newFolderOpen, setNewFolderOpen] = useState(false)
+  const [activityOpen, setActivityOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
 
   const toggleSidebar = () => setSidebarOpen((o) => !o)
@@ -79,6 +81,7 @@ export default function App() {
               onToggle={toggleSidebar}
               onClose={closeSidebar}
               onOpenNotifications={() => setNotificationsOpen(true)}
+              onOpenActivity={() => setActivityOpen(true)}
             />
             {/* Overlay: always in DOM so tests can find #sidebar-overlay; visible class shows it */}
             <div
@@ -156,6 +159,7 @@ export default function App() {
               </div>
             </div>
             <KeyboardShortcuts onNewFolder={() => setNewFolderOpen(true)} />
+            <ActivityModal isOpen={activityOpen} onClose={() => setActivityOpen(false)} />
             <NotificationsModal
               open={notificationsOpen}
               onClose={() => setNotificationsOpen(false)}
