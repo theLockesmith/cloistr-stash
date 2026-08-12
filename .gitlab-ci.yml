@@ -33,8 +33,78 @@ build:
   variables:
     KANIKO_EXTRA_FLAGS: "--build-arg=NPM_TOKEN=${CI_JOB_TOKEN}"
 
+# The Go jobs are SCOPED TO GO CHANGES on merge requests.
+#
+# Measured 2026-08-11 while landing the 13 legacy-UI port MRs: every one of them
+# touched only web/src, and every one still ran `go test -race` (~22 min) and
+# golangci-lint (~24 min). That is ~46 min of Go compute per MR that cannot
+# possibly be affected by a TypeScript change — and with a constrained runner
+# pool it was the queue, not the work, that gated the merges.
+#
+# `changes:` is applied ONLY on merge_request_event. On the default branch the
+# jobs always run: `changes` compares against the previous commit there, which
+# is unreliable for a deploy gate, and master must stay fully verified.
+.go-changes: &go-changes
+  - "**/*.go"
+  - go.mod
+  - go.sum
+  - .gitlab-ci.yml
+
 test:
   extends: [.go-test, .cloistr-rules]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *go-changes
+    - if: '$CI_COMMIT_BRANCH =~ /^renovate\// && $CI_OPEN_MERGE_REQUESTS == null'
 
 lint:
   extends: [.go-lint, .cloistr-rules]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *go-changes
+    - if: '$CI_COMMIT_BRANCH =~ /^renovate\// && $CI_OPEN_MERGE_REQUESTS == null'
+
+# Frontend gate. THE REPO HAD NONE.
+#
+# web/package.json defines `typecheck` and `test`, and CI ran neither — the only
+# thing exercising web/ was `vite build` inside the kaniko image build. That gap
+# is why all 13 port MRs had to be typechecked by hand, and why an unresolved
+# git conflict in web/src/index.css reached a branch: tsc does not read CSS and
+# vite bundles conflict markers without complaint, so BOTH existing checks passed
+# on a file full of <<<<<<< markers.
+#
+# Hence the explicit marker scan below — it is the only step that catches that.
+frontend:
+  extends: .cloistr-rules
+  stage: test
+  image: node:22-alpine
+  variables:
+    npm_config_audit: "false"
+    npm_config_fund: "false"
+  cache:
+    key: npm-web-${CI_COMMIT_REF_SLUG}
+    paths:
+      - web/node_modules/
+    policy: pull-push
+  before_script:
+    - cd web
+  script:
+    # Conflict markers first: cheapest check, and the one neither tsc nor vite
+    # can perform. Anchored to line start — CSS is full of /* ====== */ dividers.
+    - |
+      if grep -rnE '^(<<<<<<<|>>>>>>>|\|\|\|\|\|\|\|)' src/; then
+        echo "ERROR: unresolved conflict markers in web/src" >&2
+        exit 1
+      fi
+    - npm ci
+    - npm run typecheck
+    - npm test --if-present
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - "web/**/*"
+        - .gitlab-ci.yml
+    - if: '$CI_COMMIT_BRANCH =~ /^renovate\// && $CI_OPEN_MERGE_REQUESTS == null'
