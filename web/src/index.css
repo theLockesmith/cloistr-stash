@@ -2286,3 +2286,198 @@ body {
   margin-bottom: 0.3rem;
   color: var(--cloistr-text-muted);
 }
+
+
+/* ── Ported feature styles ─────────────────────────────────────────────
+ * Rules from this branch with no equivalent on master. The shared modal
+ * and .btn shell above is MASTER's copy on purpose: the branch also
+ * re-declared it, and keeping both would let the older copy win by
+ * source order and restyle shared components app-wide.
+ * ───────────────────────────────────────────────────────────────────── */
+.activity-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.activity-filters {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.activity-icon {
+  font-size: 1.4rem;
+  width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+  padding-top: 0.1rem;
+}
+
+.activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 0;
+  border-bottom: 1px solid var(--cloistr-border, #e5e7eb);
+}
+
+.activity-item:last-child {
+  border-bottom: none;
+}
+
+.activity-list {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.activity-text {
+  color: var(--cloistr-text, inherit);
+  word-break: break-word;
+}
+
+.activity-time {
+  font-size: 0.75rem;
+  color: var(--cloistr-text-secondary, #6b7280);
+}
+
+.encryption-algorithm {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.encryption-icon-large { font-size: 1.75rem; line-height: 1; }
+
+.encryption-info-section { margin-bottom: 1.25rem; }
+
+.encryption-info-section h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--cloistr-text-secondary, #6b7280);
+}
+
+.encryption-status-box {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--cloistr-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--cloistr-bg-hover, #f9fafb);
+}
+
+.encryption-status-text { font-weight: 600; }
+
+.encryption-storage-info {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--cloistr-text-secondary, #6b7280);
+}
+
+.key-arrow {
+  text-align: center;
+  color: var(--cloistr-text-secondary, #6b7280);
+  line-height: 1;
+  padding: 0.2rem 0;
+}
+
+.key-hierarchy { display: flex; flex-direction: column; align-items: stretch; }
+
+.key-node {
+  display: grid;
+  grid-template-columns: 28px auto;
+  grid-template-areas: "icon label" "icon desc";
+  gap: 0 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--cloistr-border, #e5e7eb);
+  border-radius: 6px;
+  background: var(--cloistr-bg-elevated, #fff);
+}
+
+.key-node-desc  {
+  grid-area: desc;
+  font-size: 0.8rem;
+  color: var(--cloistr-text-secondary, #6b7280);
+}
+
+.key-node-file   { border-left: 3px solid var(--cloistr-border, #e5e7eb); }
+
+.key-node-folder { border-left: 3px solid var(--cloistr-border, #e5e7eb); }
+
+.key-node-icon  { grid-area: icon; font-size: 1.1rem; align-self: center; }
+
+.key-node-label { grid-area: label; font-weight: 600; }
+
+.key-node-root   { border-left: 3px solid var(--cloistr-primary, #6366f1); }
+
+.manage-share-expiry {
+  font-size: 0.75rem;
+  color: var(--cloistr-text-secondary, #6b7280);
+}
+
+.manage-share-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.manage-share-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--cloistr-border, #e5e7eb);
+}
+
+.manage-share-item:last-child { border-bottom: none; }
+
+.manage-share-permission {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--cloistr-text-secondary, #6b7280);
+}
+
+.manage-share-recipient {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manage-shares-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.manage-shares-rekey {
+  margin-top: 1rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--cloistr-border, #e5e7eb);
+}
+
+.no-activity {
+  text-align: center;
+  color: var(--cloistr-text-secondary, #6b7280);
+  padding: 2.5rem 1rem;
+  font-style: italic;
+}
+
+.share-file-name {
+  margin: 0 0 0.75rem;
+  font-weight: 600;
+  word-break: break-word;
+}
