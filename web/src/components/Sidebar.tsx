@@ -26,7 +26,18 @@ interface SidebarProps {
 }
 
 export function Sidebar({ isOpen, onToggle, onOpenNotifications, onOpenActivity }: SidebarProps) {
-  const { view, setView, folderTreeData, currentFolderId, navigateToFolderAbsolute, unreadNotificationCount } = useStash()
+  const {
+    view,
+    setView,
+    folderTreeData,
+    currentFolderId,
+    navigateToFolderAbsolute,
+    navigateToRoot,
+    unreadNotificationCount,
+  } = useStash()
+
+  // "My Stash" root row is highlighted only at the top of the my-files view.
+  const isAtRoot = currentFolderId === '' && view === 'my-files'
 
   // Group folders by parent for tree rendering.
   const childrenByParent = useMemo(() => {
@@ -128,17 +139,35 @@ export function Sidebar({ isOpen, onToggle, onOpenNotifications, onOpenActivity 
         </div>
       </nav>
 
-
-      {folderTreeData.length > 0 && (
-        <div className="sidebar-tree" role="tree" aria-label="Folders">
-          <FolderTree
-            parentId=""
-            childrenByParent={childrenByParent}
-            currentFolderId={currentFolderId}
-            onNavigate={(id) => void navigateToFolderAbsolute(id)}
-          />
+      {/* Tree container is unconditional: the "My Stash" root row must be
+          reachable even before any folder exists, so a new user can navigate
+          back to the root after creating their first folder. */}
+      <div id="folder-tree" className="sidebar-tree" role="tree" aria-label="Folders">
+        <div
+          className={`folder-tree-item root${isAtRoot ? ' active' : ''}`}
+          role="treeitem"
+          tabIndex={0}
+          aria-selected={isAtRoot}
+          onClick={() => void navigateToRoot()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') void navigateToRoot()
+          }}
+        >
+          <span className="folder-tree-icon" aria-hidden="true">🏠</span>
+          <span className="folder-tree-name">My Stash</span>
         </div>
-      )}
+
+        {folderTreeData.length > 0 && (
+          <div id="folder-tree-root" role="group">
+            <FolderTree
+              parentId=""
+              childrenByParent={childrenByParent}
+              currentFolderId={currentFolderId}
+              onNavigate={(id) => void navigateToFolderAbsolute(id)}
+            />
+          </div>
+        )}
+      </div>
     </aside>
   )
 }

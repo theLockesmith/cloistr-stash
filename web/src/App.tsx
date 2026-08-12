@@ -10,6 +10,9 @@ import { KeyboardShortcuts } from './components/KeyboardShortcuts'
 import { NotificationsModal } from './components/NotificationsModal'
 import { UploadButton, UploadProgress } from './components/UploadBar'
 import { SearchBar } from './components/SearchBar'
+import { NewButton } from './components/NewButton'
+import { NewFolderModal } from './components/NewFolderModal'
+import { MigrationModal } from './components/MigrationModal'
 import { BackupModal } from './components/BackupModal'
 import { ActivityModal } from './components/ActivityModal'
 import { NIP46Dialog } from './components/NIP46Dialog'
@@ -37,8 +40,9 @@ export default function App() {
   const { authState, signer } = useNostrAuth()
   const isConnected = !!authState?.isConnected
   const pubkey = authState?.pubkey ?? null
-  const { loadFiles, loadFolderTree, uploadFiles, view } = useStash()
+  const { loadFiles, loadFolderTree, uploadFiles, view, currentFolderId, migrationFiles, dismissMigration } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [backupOpen, setBackupOpen] = useState(false)
   const [activityOpen, setActivityOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
@@ -161,6 +165,9 @@ export default function App() {
                 </button>
                 <Breadcrumbs />
                 <span className="content-header-spacer" />
+                {view === 'my-files' && (
+                  <NewButton onNewFolder={() => setNewFolderOpen(true)} />
+                )}
                 <SearchBar />
                 <UploadButton />
                 <button
@@ -177,7 +184,45 @@ export default function App() {
               <FileBrowser />
             </div>
             <UploadProgress />
-            <KeyboardShortcuts />
+            {/* New Folder modal — always in DOM; visibility via .hidden class. */}
+            <NewFolderModal
+              open={newFolderOpen}
+              onClose={() => setNewFolderOpen(false)}
+            />
+            {/* Folder Customize modal stub — structure required by spec. */}
+            <div id="folder-customize-modal" className="modal hidden">
+              <div className="modal-content modal-small">
+                <div className="modal-header">
+                  <h2>Customize Folder</h2>
+                  <button type="button" className="modal-close" id="folder-customize-close">&times;</button>
+                </div>
+                <div className="modal-body">
+                  <div id="customize-folder-name" className="folder-name-display" />
+                  <div className="customize-section">
+                    <span>Color</span>
+                    <div id="folder-color-picker" className="color-picker" />
+                  </div>
+                  <div className="customize-section">
+                    <span>Icon</span>
+                    <div id="folder-icon-picker" className="icon-picker" />
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn" id="folder-customize-reset">Reset</button>
+                  <button type="button" className="btn btn-primary" id="folder-customize-save">Save</button>
+                </div>
+              </div>
+            </div>
+            <KeyboardShortcuts onNewFolder={() => setNewFolderOpen(true)} />
+            <MigrationModal
+              unencryptedFiles={migrationFiles}
+              folderId={currentFolderId}
+              onClose={dismissMigration}
+              onComplete={() => {
+                dismissMigration()
+                void loadFiles()
+              }}
+            />
             <BackupModal isOpen={backupOpen} onClose={() => setBackupOpen(false)} />
             <ActivityModal isOpen={activityOpen} onClose={() => setActivityOpen(false)} />
             <NotificationsModal
