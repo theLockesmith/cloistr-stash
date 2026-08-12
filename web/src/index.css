@@ -1447,7 +1447,6 @@ body {
 .markdown-source code {
   font-family: inherit;
 }
-
 /* ── Generic .btn / .btn-primary (used by EditorModal, FolderCustomizeModal) ── */
 
 .btn {
@@ -1807,6 +1806,109 @@ body {
   flex: 1;
 }
 
+
+
+/* ── Ported feature styles ─────────────────────────────────────────────
+ * Rules from this branch with no equivalent on master. The shared modal
+ * and .btn shell above is MASTER's copy on purpose: the branch also
+ * re-declared it, and keeping both would let the older copy win by
+ * source order and restyle shared components app-wide.
+ * ───────────────────────────────────────────────────────────────────── */
+.comment-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--cloistr-text-muted, #888);
+  cursor: pointer;
+  font-size: 0.875rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.comment-action-btn.delete:hover {
+  color: var(--cloistr-danger, #e06c75);
+}
+
+.comment-action-btn:hover {
+  background-color: var(--cloistr-hover, rgba(255, 255, 255, 0.08));
+  color: var(--cloistr-text, inherit);
+}
+
+.comment-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.comment-date {
+  font-size: 0.75rem;
+  color: var(--cloistr-text-muted, #888);
+}
+
+.comment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.35rem;
+}
+
+.comment-input-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.comment-input-area .btn {
+  align-self: flex-end;
+}
+
+.comment-input-area textarea.input {
+  resize: vertical;
+  min-height: 72px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.comment-item {
+  padding: 0.75rem 1rem;
+  background-color: var(--cloistr-surface-alt, rgba(255, 255, 255, 0.04));
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+}
+
+.comment-text {
+  color: var(--cloistr-text, inherit);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.comments-file-name {
+  font-weight: 500;
+  color: var(--cloistr-text, inherit);
+  font-size: 1.05rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--cloistr-border, #3a3a4a);
+}
+
+.comments-list {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.comments-modal-body {
+  padding: 1rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-y: auto;
+}
+
+.no-comments {
+  text-align: center;
+  color: var(--cloistr-text-muted, #888);
+  padding: 2rem;
+  font-style: italic;
+}
 
 
 /* ── Ported feature styles ─────────────────────────────────────────────
