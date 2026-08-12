@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNostrAuth } from '@cloistr/auth'
-import { Header, Footer } from '@cloistr/ui/components'
+import { Header, Footer, Spinner, useSharedSession } from '@cloistr/ui/components'
 import { updateAuth, type Signer } from './lib/authBridge'
 import { useStash } from './state/useStash'
 import { FileBrowser } from './components/FileBrowser'
@@ -40,6 +40,18 @@ export default function App() {
   const { authState, signer } = useNostrAuth()
   const isConnected = !!authState?.isConnected
   const pubkey = authState?.pubkey ?? null
+  // Auth has THREE states, not two. Rendering the landing page whenever
+  // `isConnected` is false meant that every connect — and every page-to-page
+  // navigation while the shared session re-resolved — flashed the sign-in
+  // screen (and its bunker:// modal) at an already-signed-in user, which reads
+  // as "you got logged out".
+  //
+  // SharedAuthProvider gates its own first render while the silent SSO restore
+  // runs, but that gate ends when `isResolving` clears; the NIP-46 handshake
+  // itself happens afterwards under `isConnecting`. Both windows need the same
+  // affordance, so treat them as one "connecting" state.
+  const { isResolving } = useSharedSession()
+  const isConnecting = !!authState?.isConnecting || !!authState?.isSwitching || isResolving
   const { loadFiles, loadFolderTree, uploadFiles, view, currentFolderId, migrationFiles, dismissMigration } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [newFolderOpen, setNewFolderOpen] = useState(false)
@@ -229,6 +241,40 @@ export default function App() {
               open={notificationsOpen}
               onClose={() => setNotificationsOpen(false)}
             />
+          </div>
+        ) : isConnecting ? (
+          /* Connecting: plain-language status, no protocol jargon. The
+             technical detail (method, key, error) is available behind a
+             disclosure for when something goes wrong. */
+          <div className="stash-connecting" role="status" aria-busy="true">
+            <Spinner size="xl" label="Connecting" />
+            <p className="stash-connecting-title">Connecting to your account…</p>
+            <p className="stash-connecting-hint">
+              Approve the request in your signer if prompted.
+            </p>
+            <details className="stash-connecting-details">
+              <summary>See more</summary>
+              <dl>
+                <dt>Method</dt>
+                <dd>{authState?.method ?? 'resolving shared session'}</dd>
+                <dt>Identity</dt>
+                <dd>{pubkey ? `${pubkey.slice(0, 12)}…${pubkey.slice(-6)}` : 'not resolved yet'}</dd>
+                <dt>Stage</dt>
+                <dd>
+                  {isResolving
+                    ? 'restoring your session across cloistr.xyz'
+                    : authState?.isSwitching
+                      ? 'switching identity'
+                      : 'completing the signer handshake (NIP-46)'}
+                </dd>
+                {authState?.error ? (
+                  <>
+                    <dt>Last error</dt>
+                    <dd>{authState.error}</dd>
+                  </>
+                ) : null}
+              </dl>
+            </details>
           </div>
         ) : (
           <NIP46Dialog />
