@@ -2042,3 +2042,71 @@ body {
   color: var(--cloistr-text, inherit);
   background: var(--cloistr-bg-elevated, rgba(255,255,255,0.08));
 }
+
+/* ── Activity log modal ───────────────────────────────────────────────────────
+ * The Activity port (33db7f9) shipped ActivityModal.tsx, lib/activity.ts and the
+ * sidebar entry, but never added any CSS — the component referenced eight
+ * classes that existed nowhere, so the modal rendered inside the shared shell
+ * with a completely unstyled list. Neither tsc nor vite catches a missing CSS
+ * class, and there is no frontend gate in CI, so nothing flagged it.
+ *
+ * Modelled on the .notification-* rules above: same list/row/icon/timestamp
+ * structure, same tokens with the same literal fallbacks.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+.activity-filters {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.activity-list {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 0;
+  border-bottom: 1px solid var(--cloistr-border, #e5e7eb);
+}
+
+.activity-item:last-child {
+  border-bottom: none;
+}
+
+.activity-icon {
+  font-size: 1.4rem;
+  width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+  padding-top: 0.1rem;
+}
+
+.activity-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.activity-text {
+  color: var(--cloistr-text, inherit);
+  word-break: break-word;
+}
+
+.activity-time {
+  font-size: 0.75rem;
+  color: var(--cloistr-text-secondary, #6b7280);
+}
+
+.no-activity {
+  text-align: center;
+  color: var(--cloistr-text-secondary, #6b7280);
+  padding: 2.5rem 1rem;
+  font-style: italic;
+}
