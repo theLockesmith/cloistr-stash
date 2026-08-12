@@ -2,8 +2,8 @@
 // renderFolderTree / view switching). Folder tree is built from folderTreeData
 // by parent_id, with expand/collapse; clicking navigates by absolute path.
 //
-// The bottom nav section (notifications, etc.) mirrors the legacy
-// #sidebar-nav-item structure so E2E specs targeting those IDs pass.
+// The bottom nav section (notifications, activity, etc.) mirrors the legacy
+// #sidebar-nav-item DOM shape so E2E specs targeting those IDs pass unchanged.
 
 import { useMemo, useState } from 'react'
 import { useStash } from '../state/useStash'
@@ -22,9 +22,10 @@ interface SidebarProps {
   onToggle: () => void
   onClose: () => void
   onOpenNotifications: () => void
+  onOpenActivity: () => void
 }
 
-export function Sidebar({ isOpen, onToggle, onOpenNotifications }: SidebarProps) {
+export function Sidebar({ isOpen, onToggle, onOpenNotifications, onOpenActivity }: SidebarProps) {
   const { view, setView, folderTreeData, currentFolderId, navigateToFolderAbsolute, unreadNotificationCount } = useStash()
 
   // Group folders by parent for tree rendering.
@@ -71,7 +72,10 @@ export function Sidebar({ isOpen, onToggle, onOpenNotifications }: SidebarProps)
         ))}
       </nav>
 
-      {/* Secondary nav items (mirrors legacy sidebar-nav-item structure for E2E compat) */}
+      {/* Secondary nav items (mirrors legacy sidebar-nav-item structure for E2E compat).
+          Notifications and Activity share one <nav>: the two ports each added their
+          own container, and keeping both would give the sidebar two sibling nav
+          landmarks with the same role. */}
       <nav className="sidebar-nav-extra" aria-label="Actions">
         {/* Notifications nav item — matches legacy #nav-notifications */}
         <div
@@ -103,7 +107,27 @@ export function Sidebar({ isOpen, onToggle, onOpenNotifications }: SidebarProps)
               : ''}
           </span>
         </div>
+        {/* Activity log nav item — matches legacy #nav-activity */}
+        <div
+          id="nav-activity"
+          className="sidebar-nav-item"
+          title="Activity log"
+          role="button"
+          tabIndex={0}
+          aria-label="Activity"
+          onClick={onOpenActivity}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              onOpenActivity()
+            }
+          }}
+        >
+          <span className="sidebar-nav-icon" aria-hidden="true">📋</span>
+          <span className="sidebar-nav-name">Activity</span>
+        </div>
       </nav>
+
 
       {folderTreeData.length > 0 && (
         <div className="sidebar-tree" role="tree" aria-label="Folders">
