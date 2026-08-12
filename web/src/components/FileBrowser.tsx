@@ -16,6 +16,7 @@ import { useStash } from '../state/useStash'
 import type { StashFile, StashFolder } from '../state/types'
 import { formatDate, formatFileSize, getFileIcon } from './format'
 import { FileInfoModal } from './FileInfoModal'
+import { EditorModal } from './EditorModal'
 import { EncryptionInfoModal } from './EncryptionInfoModal'
 import { PreviewModal } from './PreviewModal'
 import { SelectionToolbar } from './SelectionToolbar'
@@ -24,6 +25,7 @@ import { MoveModal } from './MoveModal'
 import { ShareModal } from './ShareModal'
 import { ManageSharesModal } from './ManageSharesModal'
 import { VersionHistoryModal } from './VersionHistoryModal'
+import { Collaboration } from '../lib/collaboration'
 import { CommentsModal } from './CommentsModal'
 import { FolderCustomizeModal, useFolderCustomizations } from './FolderCustomizeModal'
 import type { FolderCustomization } from './FolderCustomizeModal'
@@ -100,6 +102,7 @@ export function FileBrowser() {
   const [shareTarget, setShareTarget] = useState<StashFile | null>(null)
   const [manageSharesTarget, setManageSharesTarget] = useState<StashFile | null>(null)
   const [versionTarget, setVersionTarget] = useState<StashFile | null>(null)
+  const [editorTarget, setEditorTarget] = useState<StashFile | null>(null)
   const [commentsTarget, setCommentsTarget] = useState<StashFile | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   // Folder being customized (null = modal closed).
@@ -145,6 +148,7 @@ export function FileBrowser() {
         />
       <EncryptionInfoModal file={encInfoFile} onClose={() => setEncInfoFile(null)} />
       <PreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
+      <EditorModal file={editorTarget} onClose={() => setEditorTarget(null)} />
       <ShareModal file={shareTarget} onClose={() => setShareTarget(null)} />
       <ManageSharesModal
         file={manageSharesTarget}
@@ -205,6 +209,9 @@ export function FileBrowser() {
 
   const fileMenuItems = (file: StashFile): MenuItem[] => [
     { label: 'Info', onClick: () => openInfo(file) },
+    ...(Collaboration.isCollaborativeFileType(file.mime_type)
+      ? [{ label: 'Edit', onClick: () => setEditorTarget(file) }]
+      : []),
     { label: 'Preview', onClick: () => setPreviewFile(file) },
     { label: 'Encryption Info', onClick: () => setEncInfoFile(file) },
     { label: 'Share', onClick: () => setShareTarget(file) },
