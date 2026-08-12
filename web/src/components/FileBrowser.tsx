@@ -26,6 +26,7 @@ import { ShareModal } from './ShareModal'
 import { ManageSharesModal } from './ManageSharesModal'
 import { VersionHistoryModal } from './VersionHistoryModal'
 import { Collaboration } from '../lib/collaboration'
+import { CommentsModal } from './CommentsModal'
 import { FolderCustomizeModal, useFolderCustomizations } from './FolderCustomizeModal'
 import type { FolderCustomization } from './FolderCustomizeModal'
 
@@ -102,6 +103,7 @@ export function FileBrowser() {
   const [manageSharesTarget, setManageSharesTarget] = useState<StashFile | null>(null)
   const [versionTarget, setVersionTarget] = useState<StashFile | null>(null)
   const [editorTarget, setEditorTarget] = useState<StashFile | null>(null)
+  const [commentsTarget, setCommentsTarget] = useState<StashFile | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   // Folder being customized (null = modal closed).
   const [customizeFolder, setCustomizeFolder] = useState<{ id: string; name: string } | null>(null)
@@ -158,6 +160,7 @@ export function FileBrowser() {
         onClose={() => setVersionTarget(null)}
         onRestored={() => void loadFiles()}
       />
+      <CommentsModal file={commentsTarget} onClose={() => setCommentsTarget(null)} />
       <RenameModal
         open={!!renameTarget}
         initialName={renameTarget?.name ?? ''}
@@ -214,6 +217,7 @@ export function FileBrowser() {
     { label: 'Share', onClick: () => setShareTarget(file) },
     { label: 'Manage Shares', onClick: () => setManageSharesTarget(file) },
     { label: 'Versions', onClick: () => setVersionTarget(file) },
+    { label: 'Comments', onClick: () => setCommentsTarget(file) },
     { label: 'Rename', onClick: () => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) }) },
     { label: 'Move to…', onClick: () => setMoveTarget(file) },
     {
