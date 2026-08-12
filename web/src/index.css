@@ -1,5 +1,33 @@
 :root {
   /* color-scheme follows ThemeProvider via @cloistr/ui variables */
+
+  /* ── Legacy token aliases ─────────────────────────────────────────────────
+   * This stylesheet was ported from the legacy app, which used a different
+   * token vocabulary. Eight of the names it references are NOT defined by
+   * @cloistr/ui, so every one silently fell back to its literal — and those
+   * literals are dark-mode colours.
+   *
+   * That is a LIGHT-MODE-ONLY bug and it looks like a theme regression: the
+   * modal painted `background-color: var(--cloistr-surface, #1e1e2e)` (dark
+   * literal, because the token does not exist) while text used
+   * `var(--cloistr-text)` (a real token = #171717 in light mode). Dark text on
+   * a dark panel — unreadable. In dark mode both are dark-appropriate, so it
+   * looked fine and went unnoticed. Reported on mobile light mode when creating
+   * a folder.
+   *
+   * Aliasing to the real tokens fixes the whole class at once: these now follow
+   * [data-theme] and prefers-color-scheme like everything else, instead of being
+   * frozen to a dark literal. Audited 2026-08-12 — stash is the ONLY app in the
+   * fleet with undefined tokens; the other seven are clean.
+   * ───────────────────────────────────────────────────────────────────────── */
+  --cloistr-surface: var(--cloistr-bg-elevated);
+  --cloistr-surface-alt: var(--cloistr-bg);
+  --cloistr-surface-2: var(--cloistr-bg);
+  --cloistr-surface-hover: var(--cloistr-bg-hover);
+  --cloistr-hover: var(--cloistr-bg-hover);
+  --cloistr-accent: var(--cloistr-primary);
+  --cloistr-danger: var(--cloistr-error);
+  --cloistr-text-secondary: var(--cloistr-text-muted);
 }
 
 /* ---- Utility ---- */
@@ -2479,5 +2507,79 @@ body {
 .share-file-name {
   margin: 0 0 0.75rem;
   font-weight: 600;
+  word-break: break-word;
+}
+
+/* ── Connecting state ─────────────────────────────────────────────────────────
+ * Shown while the shared session is resolving or the NIP-46 handshake is in
+ * flight. Previously this window rendered the full sign-in landing page, so a
+ * signed-in user navigating between pages saw the login screen and a bunker://
+ * modal flash past — indistinguishable from being logged out.
+ *
+ * Plain language up front; the protocol detail lives behind "See more" so it is
+ * there when a connection fails without being in the way when it works.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+.stash-connecting {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 2rem;
+  text-align: center;
+}
+
+.stash-connecting-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--cloistr-text);
+}
+
+.stash-connecting-hint {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--cloistr-text-muted);
+}
+
+.stash-connecting-details {
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--cloistr-text-muted);
+  max-width: 32rem;
+  text-align: left;
+}
+
+.stash-connecting-details summary {
+  cursor: pointer;
+  text-align: center;
+  color: var(--cloistr-text-muted);
+}
+
+.stash-connecting-details summary:hover {
+  color: var(--cloistr-text);
+}
+
+.stash-connecting-details dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0.75rem 0 0;
+  padding: 0.75rem;
+  border: 1px solid var(--cloistr-border);
+  border-radius: 6px;
+  background: var(--cloistr-bg-elevated);
+}
+
+.stash-connecting-details dt {
+  font-weight: 600;
+  color: var(--cloistr-text);
+}
+
+.stash-connecting-details dd {
+  margin: 0;
+  font-family: var(--cloistr-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   word-break: break-word;
 }
