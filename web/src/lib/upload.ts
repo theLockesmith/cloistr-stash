@@ -161,3 +161,58 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
   // Strip the File handle from returned items.
   return items.map(({ file: _file, ...rest }) => rest)
 }
+
+/**
+ * Encrypt a raw Uint8Array and upload it as an encrypted file.
+ *
+ * This is the analog of the legacy `Upload.uploadEncryptedFile(data, name, mimeType, folderId)`
+ * that was referenced — but never defined — in the migration flow. The pipeline is the same as
+ * `uploadFiles` but accepts an already-buffered Uint8Array rather than a browser File object.
+ *
+ * Used by the migration flow to re-encrypt plaintext blobs in place.
+ */
+export async function uploadEncryptedBytes(
+  data: Uint8Array,
+  name: string,
+  mimeType: string,
+  folderId?: string | null,
+): Promise<void> {
+  await Crypto.init()
+
+  const fileId = Crypto.generateFileId()
+  const plaintextHash = await Crypto.hash(data)
+
+  const fileKey = folderId
+    ? await Keys.deriveFileKey(folderId, fileId)
+    : await Keys.deriveRootFileKey(fileId)
+
+  const encryptedData = await Crypto.encryptFile(data, fileKey)
+  const encryptedHash = await Crypto.hash(encryptedData)
+
+  let authHeader: string | null = null
+  if (authPort.isConnected) {
+    authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
+  }
+
+  const encryptedFile = new File([encryptedData as BlobPart], name + '.encrypted', {
+    type: 'application/octet-stream',
+  })
+  const result = await API.uploadFile(encryptedFile, authHeader, 'e2e')
+  const sha256 = (result.sha256 as string) || encryptedHash
+
+  if (authPort.isConnected) {
+    const metadataEvent = await Events.createEncryptedFileMetadataEvent({
+      fileId,
+      sha256,
+      plaintextHash,
+      name,
+      size: data.length,
+      encryptedSize: encryptedData.length,
+      mimeType: mimeType || 'application/octet-stream',
+      folderId: folderId ?? undefined,
+    })
+    await authPort.publishEvent(metadataEvent)
+  }
+
+  Crypto.wipeKey(fileKey)
+}

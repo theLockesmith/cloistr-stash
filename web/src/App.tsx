@@ -12,6 +12,7 @@ import { UploadButton, UploadProgress } from './components/UploadBar'
 import { SearchBar } from './components/SearchBar'
 import { NewButton } from './components/NewButton'
 import { NewFolderModal } from './components/NewFolderModal'
+import { MigrationModal } from './components/MigrationModal'
 import { BackupModal } from './components/BackupModal'
 import { ActivityModal } from './components/ActivityModal'
 import { NIP46Dialog } from './components/NIP46Dialog'
@@ -39,7 +40,7 @@ export default function App() {
   const { authState, signer } = useNostrAuth()
   const isConnected = !!authState?.isConnected
   const pubkey = authState?.pubkey ?? null
-  const { loadFiles, loadFolderTree, uploadFiles, view } = useStash()
+  const { loadFiles, loadFolderTree, uploadFiles, view, currentFolderId, migrationFiles, dismissMigration } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [backupOpen, setBackupOpen] = useState(false)
@@ -213,6 +214,15 @@ export default function App() {
               </div>
             </div>
             <KeyboardShortcuts onNewFolder={() => setNewFolderOpen(true)} />
+            <MigrationModal
+              unencryptedFiles={migrationFiles}
+              folderId={currentFolderId}
+              onClose={dismissMigration}
+              onComplete={() => {
+                dismissMigration()
+                void loadFiles()
+              }}
+            />
             <BackupModal isOpen={backupOpen} onClose={() => setBackupOpen(false)} />
             <ActivityModal isOpen={activityOpen} onClose={() => setActivityOpen(false)} />
             <NotificationsModal

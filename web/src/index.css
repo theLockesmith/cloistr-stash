@@ -2050,6 +2050,63 @@ body {
  * re-declared it, and keeping both would let the older copy win by
  * source order and restyle shared components app-wide.
  * ───────────────────────────────────────────────────────────────────── */
+.migration-description {
+  opacity: 0.8;
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+}
+
+.migration-file-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--cloistr-border);
+  border-radius: 6px;
+}
+
+.migration-file-list li {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--cloistr-border);
+}
+
+.migration-file-list li:last-child {
+  border-bottom: none;
+}
+
+.migration-progress {
+  margin-bottom: 0.75rem;
+}
+
+.migration-progress-bar {
+  height: 100%;
+  background: var(--cloistr-primary, #6366f1);
+  border-radius: 3px;
+  transition: width 0.15s ease;
+}
+
+.migration-progress-track {
+  height: 6px;
+  background: var(--cloistr-border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 0.35rem;
+}
+
+.migration-status {
+  font-size: 0.82rem;
+  opacity: 0.75;
+}
+
+
+/* ── Ported feature styles ─────────────────────────────────────────────
+ * Rules from this branch with no equivalent on master. The shared modal
+ * and .btn shell above is MASTER's copy on purpose: the branch also
+ * re-declared it, and keeping both would let the older copy win by
+ * source order and restyle shared components app-wide.
+ * ───────────────────────────────────────────────────────────────────── */
 #breadcrumb-bar {
   /* wrapper required by spec */
 }
