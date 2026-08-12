@@ -11,6 +11,7 @@ import { NotificationsModal } from './components/NotificationsModal'
 import { UploadButton, UploadProgress } from './components/UploadBar'
 import { SearchBar } from './components/SearchBar'
 import { MigrationModal } from './components/MigrationModal'
+import { ActivityModal } from './components/ActivityModal'
 import { NIP46Dialog } from './components/NIP46Dialog'
 import { Search } from './lib/search'
 import { Sharing } from './lib/sharing'
@@ -35,6 +36,7 @@ export default function App() {
   const pubkey = authState?.pubkey ?? null
   const { loadFiles, loadFolderTree, uploadFiles, view, currentFolderId, migrationFiles, dismissMigration } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [activityOpen, setActivityOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
 
   const toggleSidebar = () => setSidebarOpen((o) => !o)
@@ -77,6 +79,7 @@ export default function App() {
               onToggle={toggleSidebar}
               onClose={closeSidebar}
               onOpenNotifications={() => setNotificationsOpen(true)}
+              onOpenActivity={() => setActivityOpen(true)}
             />
             {/* Overlay: always in DOM so tests can find #sidebar-overlay; visible class shows it */}
             <div
@@ -131,6 +134,7 @@ export default function App() {
                 void loadFiles()
               }}
             />
+            <ActivityModal isOpen={activityOpen} onClose={() => setActivityOpen(false)} />
             <NotificationsModal
               open={notificationsOpen}
               onClose={() => setNotificationsOpen(false)}
