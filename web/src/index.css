@@ -2010,6 +2010,46 @@ body {
  * re-declared it, and keeping both would let the older copy win by
  * source order and restyle shared components app-wide.
  * ───────────────────────────────────────────────────────────────────── */
+.backup-section {
+  padding: 1rem;
+  background-color: var(--cloistr-bg-elevated, rgba(255,255,255,0.04));
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.backup-section h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.backup-section:last-of-type {
+  margin-bottom: 0;
+}
+
+.backup-trigger-btn {
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  cursor: pointer;
+  color: var(--cloistr-text-muted, #888);
+  padding: 0.25rem 0.4rem;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.backup-trigger-btn:hover {
+  color: var(--cloistr-text, inherit);
+  background: var(--cloistr-bg-elevated, rgba(255,255,255,0.08));
+}
+
+
+/* ── Ported feature styles ─────────────────────────────────────────────
+ * Rules from this branch with no equivalent on master. The shared modal
+ * and .btn shell above is MASTER's copy on purpose: the branch also
+ * re-declared it, and keeping both would let the older copy win by
+ * source order and restyle shared components app-wide.
+ * ───────────────────────────────────────────────────────────────────── */
 .migration-description {
   opacity: 0.8;
   margin: 0 0 0.75rem;

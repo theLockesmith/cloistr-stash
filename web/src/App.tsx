@@ -11,6 +11,7 @@ import { NotificationsModal } from './components/NotificationsModal'
 import { UploadButton, UploadProgress } from './components/UploadBar'
 import { SearchBar } from './components/SearchBar'
 import { MigrationModal } from './components/MigrationModal'
+import { BackupModal } from './components/BackupModal'
 import { ActivityModal } from './components/ActivityModal'
 import { NIP46Dialog } from './components/NIP46Dialog'
 import { Search } from './lib/search'
@@ -39,6 +40,7 @@ export default function App() {
   const pubkey = authState?.pubkey ?? null
   const { loadFiles, loadFolderTree, uploadFiles, view, currentFolderId, migrationFiles, dismissMigration } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [backupOpen, setBackupOpen] = useState(false)
   const [activityOpen, setActivityOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
 
@@ -162,6 +164,16 @@ export default function App() {
                 <span className="content-header-spacer" />
                 <SearchBar />
                 <UploadButton />
+                <button
+                  type="button"
+                  id="backup-btn"
+                  className="backup-trigger-btn"
+                  title="Key Backup"
+                  aria-label="Key Backup"
+                  onClick={() => setBackupOpen(true)}
+                >
+                  🔑
+                </button>
               </div>
               <FileBrowser />
             </div>
@@ -176,6 +188,7 @@ export default function App() {
                 void loadFiles()
               }}
             />
+            <BackupModal isOpen={backupOpen} onClose={() => setBackupOpen(false)} />
             <ActivityModal isOpen={activityOpen} onClose={() => setActivityOpen(false)} />
             <NotificationsModal
               open={notificationsOpen}
