@@ -345,11 +345,23 @@
   box-sizing: border-box;
 }
 
+/* NO fixed height on the ancestor chain.
+ *
+ * `height: 100%` here makes html/body/#root viewport-height boxes that the app
+ * then overflows out of. That is what defeated `position: sticky` on the shared
+ * header: the CSS was correct and deployed, but the header had no usable
+ * scrollport to stick against, so it scrolled away with the content — reported
+ * on mobile.
+ *
+ * Sizing the shell with dvh instead keeps the full-height layout without the
+ * percentage-height chain, and dvh (not vh) tracks the mobile URL bar so the
+ * shell does not jump as it hides. vh is kept as a fallback for older engines.
+ */
 html,
 body,
 #root {
-  height: 100%;
   margin: 0;
+  min-height: 100%;
 }
 
 body {
@@ -361,7 +373,8 @@ body {
 .stash-app {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .stash-main {
