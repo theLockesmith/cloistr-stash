@@ -131,13 +131,29 @@ func main() {
 		logger.Info("whitelist initialized", "count", whitelist.Count())
 	}
 
-	// Initialize quota manager
+	// Initialize quota manager.
+	//
+	// The configured pubkey list now means UNLIMITED, not "allowed to upload".
+	// Every signed-in user gets the baseline quota; these pubkeys are exempt.
+	// A limit of 0 is what quota.Manager.CheckQuota treats as unlimited.
+	if cfg.Quota.UserLimits == nil {
+		cfg.Quota.UserLimits = make(map[string]int64)
+	}
+	for _, pk := range cfg.Auth.Pubkeys {
+		// An explicit per-user limit in config wins — do not silently promote
+		// someone to unlimited if an operator deliberately capped them.
+		if _, already := cfg.Quota.UserLimits[pk]; !already {
+			cfg.Quota.UserLimits[pk] = 0
+		}
+	}
+
 	quotaManager := quota.NewManager(cfg.Quota, logger)
 	if quotaManager.IsEnabled() {
 		// Use metadata store for stateless quota calculation (survives pod restarts)
 		quotaManager.SetUsageCalculator(metadataStore)
 		logger.Info("quota enforcement enabled",
 			"default_limit", cfg.Quota.DefaultLimit,
+			"unlimited_pubkeys", len(cfg.Auth.Pubkeys),
 			"mode", "relay-based",
 		)
 	}
