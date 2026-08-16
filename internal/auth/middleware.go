@@ -253,16 +253,18 @@ func (m *AuthMiddleware) RequireWhitelist(next http.Handler) http.Handler {
 				return
 			}
 		} else {
-			// Standalone mode: use whitelist
-			authorized = m.whitelist.IsAllowed(pubkey)
-
-			if !authorized {
-				m.logger.Info("access denied - not on whitelist",
-					"pubkey", truncated,
-				)
-				http.Error(w, "Access denied - not authorized", http.StatusForbidden)
-				return
-			}
+			// Standalone mode: ANY authenticated user is authorized.
+			//
+			// The pubkey list is no longer an upload gate. Every signed-in user
+			// now gets a baseline quota, so quota is what limits usage, and the
+			// list identifies who is exempt from that limit (see
+			// quota.Manager.UserLimits, seeded in cmd/server/main.go).
+			//
+			// It used to gate authorization outright: a NON-EMPTY list returned
+			// 403 "Access denied - not authorized" to everyone outside it, which
+			// meant no ordinary signed-up user could upload to a service listed
+			// as LIVE. Only three developer pubkeys could.
+			authorized = true
 		}
 
 		// Add pubkey and authorized status to context
