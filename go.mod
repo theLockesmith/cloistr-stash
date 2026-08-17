@@ -1,6 +1,6 @@
 module git.aegis-hq.xyz/coldforge/cloistr-stash
 
-go 1.25.0
+go 1.26.6
 
 require (
 	git.aegis-hq.xyz/coldforge/cloistr-common v0.3.0
