@@ -636,7 +636,7 @@ body {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
-  z-index: 39;
+  z-index: var(--cloistr-z-drawer-backdrop, 60);
 }
 
 .sidebar-overlay.visible {
@@ -654,7 +654,12 @@ body {
     top: 0;
     left: 0;
     bottom: 0;
-    z-index: 40;
+    /* ABOVE the sticky header (--cloistr-z-header: 50). At 40 the header
+       painted over the top of the open drawer on a phone, hiding the drawer's
+       own header and close button behind it. Same bug shipped in cloistr-email;
+       both now use the shared scale. Literal fallback so this is correct even
+       on an @cloistr/ui that predates the token. */
+    z-index: var(--cloistr-z-drawer, 70);
     background: var(--cloistr-bg);
     transform: translateX(-100%);
     transition: transform 0.2s ease;
@@ -2263,7 +2268,7 @@ body {
   display: none;
   position: fixed;
   inset: 0;
-  z-index: 39;
+  z-index: var(--cloistr-z-drawer-backdrop, 60);
   background: rgba(0, 0, 0, 0.5);
 }
 
