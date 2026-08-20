@@ -28,6 +28,7 @@ import { VersionHistoryModal } from './VersionHistoryModal'
 import { Collaboration } from '../lib/collaboration'
 import { CommentsModal } from './CommentsModal'
 import { FolderCustomizeModal, useFolderCustomizations } from './FolderCustomizeModal'
+import { PublishModal } from './PublishModal'
 import type { FolderCustomization } from './FolderCustomizeModal'
 
 type ViewMode = 'list' | 'grid'
@@ -105,6 +106,8 @@ export function FileBrowser() {
   const [editorTarget, setEditorTarget] = useState<StashFile | null>(null)
   const [commentsTarget, setCommentsTarget] = useState<StashFile | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  // File being published publicly (null = modal closed).
+  const [publishTarget, setPublishTarget] = useState<StashFile | null>(null)
   // Folder being customized (null = modal closed).
   const [customizeFolder, setCustomizeFolder] = useState<{ id: string; name: string } | null>(null)
 
@@ -161,6 +164,7 @@ export function FileBrowser() {
         onRestored={() => void loadFiles()}
       />
       <CommentsModal file={commentsTarget} onClose={() => setCommentsTarget(null)} />
+      <PublishModal file={publishTarget} onClose={() => setPublishTarget(null)} />
       <RenameModal
         open={!!renameTarget}
         initialName={renameTarget?.name ?? ''}
@@ -216,6 +220,10 @@ export function FileBrowser() {
     { label: 'Encryption Info', onClick: () => setEncInfoFile(file) },
     { label: 'Share', onClick: () => setShareTarget(file) },
     { label: 'Manage Shares', onClick: () => setManageSharesTarget(file) },
+    // Distinct from 'Share' directly above: this one publishes an UNENCRYPTED
+    // copy. The label says 'publicly' because the two actions sound alike and
+    // have opposite privacy properties.
+    { label: 'Publish publicly…', onClick: () => setPublishTarget(file) },
     { label: 'Versions', onClick: () => setVersionTarget(file) },
     { label: 'Comments', onClick: () => setCommentsTarget(file) },
     { label: 'Rename', onClick: () => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) }) },
