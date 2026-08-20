@@ -9,14 +9,14 @@ importers:
   .:
     dependencies:
       '@cloistr/auth':
-        specifier: ^0.4.0
-        version: 0.4.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
+        specifier: ^0.5.0
+        version: 0.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
       '@cloistr/collab-common':
         specifier: ^0.2.14
         version: 0.2.14(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
       '@cloistr/ui':
         specifier: ^0.22.0
-        version: 0.22.0(@cloistr/auth@0.4.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.22.0(@cloistr/auth@0.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       libsodium-wrappers:
         specifier: ^0.8.4
         version: 0.8.4
@@ -581,6 +581,12 @@ packages:
 
   '@cloistr/auth@0.4.0':
     resolution: {integrity: sha1-5lDBzPo9yvTZ1Sy9kn1egp6VTUQ=, tarball: https://git.aegis-hq.xyz/api/v4/projects/175/packages/npm/@cloistr/auth/-/@cloistr/auth-0.4.0.tgz}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
+      react-dom: ^18.0.0 || ^19.0.0
+
+  '@cloistr/auth@0.5.0':
+    resolution: {integrity: sha1-CduOAVgqXKGToSbwcJu255EMjm8=, tarball: https://git.aegis-hq.xyz/api/v4/projects/175/packages/npm/@cloistr/auth/-/@cloistr/auth-0.5.0.tgz}
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
       react-dom: ^18.0.0 || ^19.0.0
@@ -1694,6 +1700,14 @@ packages:
 
   nostr-tools@2.24.2:
     resolution: {integrity: sha512-nVf8tvsDPsZvvtT5csRTrMrdrhTId8wl3IgDHt1BWCuL6J+IlmBOW68SCl7SQ6K0PoxenpLPHSKLo4yj49JybA==}
+    peerDependencies:
+      typescript: '>=5.0.0'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
+  nostr-tools@2.24.3:
+    resolution: {integrity: sha512-8vPgdWuje+H0v2bnxo1/hZOi8VLLMqGjfO+Oxqkx+J22r76rIt/iICKZKBoTXWAP2qTYKCQv89M4A3PRc48JYw==}
     peerDependencies:
       typescript: '>=5.0.0'
     peerDependenciesMeta:
@@ -2963,6 +2977,14 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
+  '@cloistr/auth@0.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)':
+    dependencies:
+      nostr-tools: 2.24.3(typescript@5.9.3)
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+    transitivePeerDependencies:
+      - typescript
+
   '@cloistr/collab-common@0.2.14(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)':
     dependencies:
       '@cloistr/auth': 0.4.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
@@ -2979,9 +3001,9 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@cloistr/ui@0.22.0(@cloistr/auth@0.4.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@cloistr/ui@0.22.0(@cloistr/auth@0.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@cloistr/auth': 0.4.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
+      '@cloistr/auth': 0.5.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
       '@types/qrcode': 1.5.6
       qrcode: 1.5.4
       react: 18.3.1
@@ -4025,6 +4047,18 @@ snapshots:
   node-releases@2.0.53: {}
 
   nostr-tools@2.24.2(typescript@5.9.3):
+    dependencies:
+      '@noble/ciphers': 2.1.1
+      '@noble/curves': 2.0.1
+      '@noble/hashes': 2.0.1
+      '@scure/base': 2.0.0
+      '@scure/bip32': 2.0.1
+      '@scure/bip39': 2.0.1
+      nostr-wasm: 0.1.0
+    optionalDependencies:
+      typescript: 5.9.3
+
+  nostr-tools@2.24.3(typescript@5.9.3):
     dependencies:
       '@noble/ciphers': 2.1.1
       '@noble/curves': 2.0.1
