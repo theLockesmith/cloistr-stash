@@ -54,12 +54,35 @@ export default function App() {
   const isConnecting = !!authState?.isConnecting || !!authState?.isSwitching || isResolving
   const { loadFiles, loadFolderTree, uploadFiles, view, currentFolderId, migrationFiles, dismissMigration } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // SEPARATE from sidebarOpen, deliberately. sidebarOpen is the MOBILE drawer
+  // and must default closed; this is the DESKTOP rail collapsing to icons and
+  // is a persisted preference. One boolean drove both, which is why the desktop
+  // toggle only ever showed the backdrop: it flipped the drawer state on a
+  // breakpoint where the drawer does not exist, so the page went dark with
+  // nothing behind it.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('stash:sidebarCollapsed') === '1'
+    } catch {
+      return false
+    }
+  })
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [backupOpen, setBackupOpen] = useState(false)
   const [activityOpen, setActivityOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
 
   const toggleSidebar = () => setSidebarOpen((o) => !o)
+  const toggleCollapsed = () =>
+    setSidebarCollapsed((c) => {
+      const next = !c
+      try {
+        localStorage.setItem('stash:sidebarCollapsed', next ? '1' : '0')
+      } catch {
+        // Preference only — never block the toggle on storage being unavailable.
+      }
+      return next
+    })
   const closeSidebar = () => setSidebarOpen(false)
 
   // Bridge the shared signer into the data layer, then load on connect.
@@ -132,10 +155,15 @@ export default function App() {
       <Header activeServiceId="files" />
       <main className="stash-main">
         {isConnected ? (
-          <div className={`stash-workspace ${sidebarOpen ? 'sidebar-open' : ''}`}>
+          <div
+            className={`stash-workspace ${sidebarOpen ? 'sidebar-open' : ''}${
+              sidebarCollapsed ? ' sidebar-collapsed' : ''
+            }`}
+          >
             <Sidebar
               isOpen={sidebarOpen}
-              onToggle={toggleSidebar}
+              collapsed={sidebarCollapsed}
+              onToggle={toggleCollapsed}
               onClose={closeSidebar}
               onOpenNotifications={() => setNotificationsOpen(true)}
               onOpenActivity={() => setActivityOpen(true)}

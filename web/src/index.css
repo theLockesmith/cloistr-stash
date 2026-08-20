@@ -631,6 +631,20 @@ body {
 }
 
 /* Sidebar overlay: always in DOM for tests; visible class shows it on mobile */
+
+/* Sidebar backdrop — MOBILE ONLY, and the media query is load-bearing.
+ *
+ * This used to be a global rule with no breakpoint, while `.sidebar` only
+ * becomes `position: fixed` + `translateX(-100%)` inside the max-width query
+ * below. On desktop that meant clicking the toggle showed a full-screen dark
+ * backdrop with NOTHING behind it: the sidebar is a static in-flow column there
+ * and never moves, so the page just went dark and stayed that way until the
+ * user clicked the invisible overlay to dismiss it.
+ *
+ * Two show-classes exist because the markup has used both `.visible` (App.tsx,
+ * current) and `.active` (a second, duplicated declaration). Both are honoured
+ * here so the dead one cannot resurface at the wrong breakpoint.
+ */
 .sidebar-overlay {
   display: none;
   position: fixed;
@@ -639,8 +653,11 @@ body {
   z-index: var(--cloistr-z-drawer-backdrop, 60);
 }
 
-.sidebar-overlay.visible {
-  display: block;
+@media (max-width: 768px) {
+  .sidebar-overlay.visible,
+  .sidebar-overlay.active {
+    display: block;
+  }
 }
 
 @media (max-width: 768px) {
@@ -2264,17 +2281,6 @@ body {
   margin-bottom: 0.25rem;
 }
 
-.sidebar-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  z-index: var(--cloistr-z-drawer-backdrop, 60);
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.sidebar-overlay.active {
-  display: block;
-}
 
 .sidebar-section {
   margin-top: 0.75rem;
@@ -2600,6 +2606,44 @@ body {
   margin: 0;
   font-family: var(--cloistr-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   word-break: break-word;
+}
+
+/* Desktop: collapse the rail to icons rather than hiding it.
+ *
+ * Per the client spec (2026-08-19): mobile collapses COMPLETELY, desktop
+ * collapses TO ICONS. A wide screen has room for a persistent affordance, and
+ * losing navigation entirely there is worse than showing it narrow.
+ *
+ * Scoped to min-width so it can never fight the mobile drawer, which is the
+ * mistake that produced the invisible-modal behaviour.
+ */
+@media (min-width: 769px) {
+  .sidebar.collapsed {
+    width: 4rem;
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+  }
+  .sidebar.collapsed .sidebar-title,
+  .sidebar.collapsed .sidebar-nav-name,
+  .sidebar.collapsed .sidebar-view span:not(.sidebar-view-icon),
+  .sidebar.collapsed .sidebar-tree,
+  .sidebar.collapsed .sidebar-section {
+    display: none;
+  }
+  .sidebar.collapsed .sidebar-nav-item,
+  .sidebar.collapsed .sidebar-view {
+    justify-content: center;
+  }
+  /* The badge is a count with no room to sit beside a hidden label; keep it as
+     a dot so an unread state is still visible in the narrow rail. */
+  .sidebar.collapsed .sidebar-nav-badge {
+    position: absolute;
+    transform: translate(0.6rem, -0.6rem);
+    min-width: 0.5rem;
+    height: 0.5rem;
+    padding: 0;
+    font-size: 0;
+  }
 }
 
 /* Publish-publicly modal.
