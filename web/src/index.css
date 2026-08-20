@@ -2672,3 +2672,66 @@ body {
 }
 .publish-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
 .publish-actions button { min-height: 44px; padding: 0.5rem 0.875rem; }
+
+/* ===========================================================================
+   Mobile layout (<= 768px).
+
+   MEASURED, not guessed: at 375x667 authenticated, stash rendered a
+   scrollWidth of 533px against an innerWidth of 375px. The offenders, by
+   bounding box:
+       .search-bar          left 246 -> right 396   (21px past the edge)
+       .upload-btn          left 404 -> right 474   (entirely off-screen)
+       .backup-trigger-btn  left 498 -> right 533   (entirely off-screen)
+   Upload — the primary action of the whole app — was unreachable on a phone.
+
+   Cause: .content-header is a non-wrapping flex row whose .content-header-spacer
+   is flex:1, so once the children exceed the viewport they are pushed out
+   rather than reflowed. Nothing here was ever given a mobile treatment; every
+   pre-existing media query in this file targets the sidebar.
+   =========================================================================== */
+@media (max-width: 768px) {
+  .content-header {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+
+  /* Force a line break instead of eating the remaining width. As flex:1 this
+     spacer is what pushed Upload off the screen; at 100% basis it becomes the
+     wrap point, so the actions land on their own row. */
+  .content-header-spacer {
+    flex-basis: 100%;
+    height: 0;
+    margin: 0;
+  }
+
+  /* Search gets its own full-width row, after the actions. */
+  .search-bar {
+    order: 10;
+    flex: 1 1 100%;
+    margin-top: 0;
+  }
+  .search-input {
+    width: 100%;
+  }
+
+  /* File rows: hide size and date.
+     `auto 1fr 7rem 7rem auto` gives the two fixed tracks 224px of a 375px
+     screen, leaving roughly 100px for the filename — every name ellipsised to
+     uselessness. Nothing overflowed, because grid shrinks the flexible track
+     instead, which is why a scroll-width audit called this fine.
+     Size and date are recoverable from the file's Info panel; the NAME is what
+     makes a row identifiable, so it gets the space. */
+  .fb-row {
+    grid-template-columns: auto 1fr auto;
+  }
+  .fb-size,
+  .fb-date {
+    display: none;
+  }
+
+  /* Toolbar buttons wrap rather than run off the edge. */
+  .fb-toolbar {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+}
