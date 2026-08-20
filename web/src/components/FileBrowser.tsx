@@ -235,6 +235,10 @@ export function FileBrowser() {
   ): MenuItem[] => [
     { label: 'Open', onClick: onOpen },
     { label: 'Rename', onClick: onRename },
+    // Customize was reachable only from the row's kebab menu, so right-clicking
+    // a folder offered strictly less than clicking it. Every action a surface
+    // exposes should be in that surface's context menu too.
+    { label: 'Customize', onClick: () => setCustomizeFolder({ id: folder.id, name: folder.name }) },
     { label: 'Delete', onClick: onDelete, danger: true },
   ]
 
@@ -255,7 +259,12 @@ export function FileBrowser() {
                 encrypted: true,
               }
               return (
-                <div key={r.fileId} className="fb-row fb-file" role="listitem">
+                <div
+                  key={r.fileId}
+                  className="fb-row fb-file"
+                  role="listitem"
+                  onContextMenu={(e) => openContextMenu(e, fileMenuItems(asFile))}
+                >
                   <span className="fb-checkbox" />
                   <button type="button" className="fb-name" onClick={() => openInfo(asFile)}>
                     <span className="fb-icon" aria-hidden="true">
@@ -410,18 +419,31 @@ export function FileBrowser() {
 
       {viewMode === 'grid' && (
         <div className="fb-grid" role="list">
-          {shownFolders.map((folder) => (
-            <FolderCard
-              key={folder.id}
-              folder={folder}
-              customization={getCustomization(folder.id)}
-              onOpen={() => navigateToFolder(folder.id, folder.name)}
-              onCustomize={() => setCustomizeFolder({ id: folder.id, name: folder.name })}
-              onDelete={() => setPendingDelete({ kind: 'folder', folderId: folder.id, name: folder.name })}
-            />
-          ))}
+          {shownFolders.map((folder) => {
+            const onOpen = () => navigateToFolder(folder.id, folder.name)
+            const onRename = () => setRenameTarget({ kind: 'folder', folder, name: folder.name })
+            const onDelete = () => setPendingDelete({ kind: 'folder', folderId: folder.id, name: folder.name })
+            return (
+              <FolderCard
+                key={folder.id}
+                folder={folder}
+                customization={getCustomization(folder.id)}
+                onOpen={onOpen}
+                onCustomize={() => setCustomizeFolder({ id: folder.id, name: folder.name })}
+                onDelete={onDelete}
+                onRename={onRename}
+                onContextMenu={(e) => openContextMenu(e, folderMenuItems(folder, onOpen, onRename, onDelete))}
+              />
+            )
+          })}
           {shownFiles.map((file) => (
-            <FileCard key={file.sha256} file={file} onInfo={() => openInfo(file)} />
+            <FileCard
+              key={file.sha256}
+              file={file}
+              onInfo={() => openInfo(file)}
+              menuItems={fileMenuItems(file)}
+              onContextMenu={(e) => openContextMenu(e, fileMenuItems(file))}
+            />
           ))}
         </div>
       )}
@@ -659,16 +681,20 @@ function FolderCard({
   onOpen,
   onCustomize,
   onDelete,
+  onRename,
+  onContextMenu,
 }: {
   folder: StashFolder
   customization: FolderCustomization
   onOpen: () => void
   onCustomize: () => void
   onDelete: () => void
+  onRename: () => void
+  onContextMenu: (e: React.MouseEvent) => void
 }) {
   const icon = customization.icon ?? '📁'
   return (
-    <div className="fb-card fb-folder" role="listitem">
+    <div className="fb-card fb-folder" role="listitem" onContextMenu={onContextMenu}>
       <button
         type="button"
         className="fb-card-main"
@@ -687,6 +713,8 @@ function FolderCard({
       <RowMenu
         label={`Actions for ${folder.name}`}
         items={[
+          { label: 'Open', onClick: onOpen },
+          { label: 'Rename', onClick: onRename },
           { label: 'Customize', onClick: onCustomize },
           { label: 'Delete', onClick: onDelete, danger: true },
         ]}
@@ -695,16 +723,42 @@ function FolderCard({
   )
 }
 
-function FileCard({ file, onInfo }: { file: StashFile; onInfo: () => void }) {
+/**
+ * Grid-view file tile.
+ *
+ * Previously the whole tile was one <button onClick={onInfo}> with no menu and
+ * no context handler, so a file in grid view had NO actions whatsoever — the
+ * eleven items available on the same file in list view were simply unreachable.
+ * That is the bulk of "most right-click functionality doesn't exist": it depends
+ * entirely on which view you happen to be in.
+ *
+ * The tile stays a button (click still opens info) but is wrapped so the kebab
+ * menu is a sibling rather than a nested button, which is invalid HTML and
+ * swallows the inner click in some browsers.
+ */
+function FileCard({
+  file,
+  onInfo,
+  menuItems,
+  onContextMenu,
+}: {
+  file: StashFile
+  onInfo: () => void
+  menuItems: MenuItem[]
+  onContextMenu: (e: React.MouseEvent) => void
+}) {
   const enc = isEncrypted(file)
   const name = fileDisplayName(file)
   return (
-    <button type="button" className={`fb-card fb-file ${enc ? 'encrypted' : ''}`} role="listitem" onClick={onInfo}>
-      <span className="fb-card-icon" aria-hidden="true">
-        {getFileIcon(file.mime_type, enc)}
-      </span>
-      <span className="fb-card-name">{name}</span>
-      <span className="fb-card-size">{formatFileSize(file.size)}</span>
-    </button>
+    <div className={`fb-card fb-file ${enc ? 'encrypted' : ''}`} role="listitem" onContextMenu={onContextMenu}>
+      <button type="button" className="fb-card-main" onClick={onInfo}>
+        <span className="fb-card-icon" aria-hidden="true">
+          {getFileIcon(file.mime_type, enc)}
+        </span>
+        <span className="fb-card-name">{name}</span>
+        <span className="fb-card-size">{formatFileSize(file.size)}</span>
+      </button>
+      <RowMenu label={`Actions for ${name}`} items={menuItems} />
+    </div>
   )
 }

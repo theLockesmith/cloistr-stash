@@ -19,13 +19,20 @@ const VIEWS: { id: StashView; label: string; icon: string }[] = [
 
 interface SidebarProps {
   isOpen: boolean
+  /**
+   * DESKTOP icons-only state. Separate from isOpen on purpose: isOpen is the
+   * mobile drawer and defaults closed, this is a persisted desktop preference.
+   * Driving both from one boolean is why the desktop toggle only ever produced
+   * a full-screen backdrop with nothing behind it.
+   */
+  collapsed?: boolean
   onToggle: () => void
   onClose: () => void
   onOpenNotifications: () => void
   onOpenActivity: () => void
 }
 
-export function Sidebar({ isOpen, onToggle, onOpenNotifications, onOpenActivity }: SidebarProps) {
+export function Sidebar({ isOpen, collapsed = false, onToggle, onOpenNotifications, onOpenActivity }: SidebarProps) {
   const {
     view,
     setView,
@@ -52,7 +59,12 @@ export function Sidebar({ isOpen, onToggle, onOpenNotifications, onOpenActivity 
   }, [folderTreeData])
 
   return (
-    <aside id="sidebar" className="sidebar" role="navigation" aria-label="File navigation">
+    <aside
+      id="sidebar"
+      className={`sidebar${collapsed ? ' collapsed' : ''}`}
+      role="navigation"
+      aria-label="File navigation"
+    >
       {/* Sidebar header with title and desktop collapse toggle (matches legacy #sidebar-toggle) */}
       <div className="sidebar-header">
         <span id="sidebar-title" className="sidebar-title">Folders</span>
@@ -62,7 +74,7 @@ export function Sidebar({ isOpen, onToggle, onOpenNotifications, onOpenActivity 
           className="btn btn-icon sidebar-toggle"
           title="Toggle sidebar"
           aria-label="Toggle sidebar"
-          aria-expanded={true}
+          aria-expanded={!collapsed}
           onClick={onToggle}
         >
           ☰
