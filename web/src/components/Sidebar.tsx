@@ -1,4 +1,22 @@
-// Sidebar: special-view navigation + folder tree (ported from app.js
+// Sidebar: special-view navigation + folder tree, mounted inside the SHARED
+// @cloistr/ui Sidebar shell.
+//
+// The shell owns the behaviour every app kept re-deriving: off-canvas drawer
+// below md, icons-only rail above it, a z-index above the sticky header, a
+// dismissable backdrop, and Escape-to-close. Four apps previously picked a
+// z-index BELOW the header and painted it over their own open drawer; stash
+// was one of them.
+//
+// Stash could not adopt it until the shell grew a `children` slot: the shared
+// component takes a FLAT SidebarItem[], and this sidebar is a folder TREE with
+// expand/collapse plus special views. The interior below is unchanged — only
+// the outer <aside> is now the shared shell.
+//
+// The legacy ids and classes (#sidebar, .sidebar, #sidebar-toggle, #folder-tree,
+// #nav-notifications) are preserved via the shell's id/className props, so E2E
+// specs and this app's CSS keep working.
+//
+// Original note: special-view navigation + folder tree (ported from app.js
 // renderFolderTree / view switching). Folder tree is built from folderTreeData
 // by parent_id, with expand/collapse; clicking navigates by absolute path.
 //
@@ -6,6 +24,7 @@
 // #sidebar-nav-item DOM shape so E2E specs targeting those IDs pass unchanged.
 
 import { useMemo, useState } from 'react'
+import { Sidebar as SharedSidebar } from '@cloistr/ui/components'
 import { useStash } from '../state/useStash'
 import type { StashFolder, StashView } from '../state/types'
 
@@ -32,7 +51,7 @@ interface SidebarProps {
   onOpenActivity: () => void
 }
 
-export function Sidebar({ isOpen, collapsed = false, onToggle, onOpenNotifications, onOpenActivity }: SidebarProps) {
+export function Sidebar({ isOpen, collapsed = false, onToggle, onClose, onOpenNotifications, onOpenActivity }: SidebarProps) {
   const {
     view,
     setView,
@@ -59,11 +78,17 @@ export function Sidebar({ isOpen, collapsed = false, onToggle, onOpenNotificatio
   }, [folderTreeData])
 
   return (
-    <aside
+    <SharedSidebar
       id="sidebar"
       className={`sidebar${collapsed ? ' collapsed' : ''}`}
-      role="navigation"
-      aria-label="File navigation"
+      ariaLabel="File navigation"
+      /* Flat items are unused here: everything below is a tree or a custom
+         row, so it all arrives as children and the shell skips its own nav. */
+      items={[]}
+      open={isOpen}
+      onOpenChange={(next) => { if (!next) onClose() }}
+      collapsed={collapsed}
+      onCollapsedChange={onToggle}
     >
       {/* Sidebar header with title and desktop collapse toggle (matches legacy #sidebar-toggle) */}
       <div className="sidebar-header">
@@ -180,7 +205,7 @@ export function Sidebar({ isOpen, collapsed = false, onToggle, onOpenNotificatio
           </div>
         )}
       </div>
-    </aside>
+    </SharedSidebar>
   )
 }
 
