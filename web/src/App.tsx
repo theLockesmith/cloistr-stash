@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNostrAuth } from '@cloistr/auth'
 import { Header, Footer, Spinner, useSharedSession } from '@cloistr/ui/components'
 import { updateAuth, type Signer } from './lib/authBridge'
+import { SignerRecovery } from '@cloistr/ui/components'
 import { useStash } from './state/useStash'
 import { FileBrowser } from './components/FileBrowser'
 import { Sidebar } from './components/Sidebar'
@@ -52,6 +53,34 @@ export default function App() {
   // affordance, so treat them as one "connecting" state.
   const { isResolving } = useSharedSession()
   const isConnecting = !!authState?.isConnecting || !!authState?.isSwitching || isResolving
+
+  /**
+   * A connect attempt that STARTED and then ended without connecting.
+   *
+   * Previously a failed or timed-out NIP-46 handshake simply made isConnecting
+   * false while isConnected stayed false, so the app fell through to the
+   * signed-out landing page with no error, no retry and no explanation. Measured
+   * on the deployed app: "Connecting to your account…" at 8s and 16s, then the
+   * Sign In page at 26s, on a session that was perfectly valid. That is the
+   * reported "it stops accepting my login" — the session was never invalid, the
+   * handshake just gave up and the UI called it logged out.
+   *
+   * A signing or connection failure is NOT an authentication failure, so it must
+   * not be presented as one.
+   */
+  const [connectFailed, setConnectFailed] = useState(false)
+  const wasConnecting = useRef(false)
+  useEffect(() => {
+    if (isConnecting) {
+      wasConnecting.current = true
+      setConnectFailed(false)
+      return
+    }
+    if (wasConnecting.current && !isConnected) {
+      wasConnecting.current = false
+      setConnectFailed(true)
+    }
+  }, [isConnecting, isConnected])
   const { loadFiles, loadFolderTree, uploadFiles, view, currentFolderId, migrationFiles, dismissMigration } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   // SEPARATE from sidebarOpen, deliberately. sidebarOpen is the MOBILE drawer
@@ -338,6 +367,20 @@ export default function App() {
               </dl>
             </details>
           </div>
+        ) : connectFailed ? (
+          /* Reaching your signer failed. Offer a way forward and a way back,
+             and NEVER a credential prompt: the session is still valid, so
+             sending the user to sign in again would be both wrong and the exact
+             habit a key-based product must not build. */
+          <SignerRecovery
+            error={authState?.error ?? { code: 'CONNECTION_FAILED' }}
+            retrying={isConnecting}
+            onRetry={() => {
+              setConnectFailed(false)
+              window.location.reload()
+            }}
+            onGoBack={() => setConnectFailed(false)}
+          />
         ) : (
           <NIP46Dialog />
         )}
