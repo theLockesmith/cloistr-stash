@@ -223,6 +223,21 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [notifications, setNotifications] = useState<StashNotification[]>(() => loadStoredNotifications())
   const [quota, setQuota] = useState<StashContextValue['quota']>(null)
+  /**
+   * Retry ticker for the quota fetch.
+   *
+   * The quota effect bails when auth is not ready yet, and authPort is a module
+   * singleton rather than React state, so nothing re-renders this provider when
+   * the connection later comes up. With an empty dependency array the effect
+   * therefore ran exactly once, lost the race on a cold load, and the storage
+   * bar simply never appeared — silently, because the guard returns rather than
+   * throwing.
+   *
+   * Bumping this on an interval while unresolved gives the effect a reason to
+   * run again. It stops as soon as quota is set, so a settled app is not
+   * polling the API forever.
+   */
+  const [quotaAttempt, setQuotaAttempt] = useState(0)
 
   const folderIdRef = useRef('')
   const treeRef = useRef<StashFolder[]>([])
@@ -844,7 +859,15 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
   // ── End notifications ──────────────────────────────────────────────────────
 
-  // Fetch storage quota once when connected. Mirrors legacy App.displayStorageUsage
+  // Give the quota fetch below another chance while it has no result yet.
+  // Bounded: it clears the moment quota resolves.
+  useEffect(() => {
+    if (quota) return
+    const id = setInterval(() => setQuotaAttempt((n) => n + 1), 3000)
+    return () => clearInterval(id)
+  }, [quota])
+
+  // Fetch storage quota when connected. Mirrors legacy App.displayStorageUsage
   // at app.js:6069, which drives the #storage-bar-fill / #storage-details DOM.
   useEffect(() => {
     const pubkey = authPort.pubkey
@@ -866,7 +889,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
         console.warn('Failed to fetch quota:', err)
       })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // runs once on mount — StashProvider mounts after auth
+  }, [quotaAttempt])
 
   const value = useMemo<StashContextValue>(
     () => ({
