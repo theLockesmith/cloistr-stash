@@ -71,6 +71,8 @@ export default function App() {
   const [backupOpen, setBackupOpen] = useState(false)
   const [activityOpen, setActivityOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  // Non-null while a "folder drop not supported" notice is showing.
+  const [folderDropNotice, setFolderDropNotice] = useState(false)
 
   const toggleSidebar = () => setSidebarOpen((o) => !o)
   const toggleCollapsed = () =>
@@ -186,6 +188,18 @@ export default function App() {
               onDrop={(e) => {
                 if (view !== 'my-files') return
                 e.preventDefault()
+                // Detect folder entries via the FileSystem API before falling back
+                // to e.dataTransfer.files. A folder drop produces an empty FileList
+                // from the File API — the items API is the only way to see them.
+                const items = Array.from(e.dataTransfer.items)
+                const hasDirectory = items.some((item) => {
+                  const entry = item.webkitGetAsEntry?.()
+                  return entry?.isDirectory === true
+                })
+                if (hasDirectory) {
+                  setFolderDropNotice(true)
+                  return
+                }
                 const dropped = Array.from(e.dataTransfer.files)
                 if (dropped.length > 0) void uploadFiles(dropped)
               }}
@@ -221,6 +235,26 @@ export default function App() {
                   🔑
                 </button>
               </div>
+              {folderDropNotice && (
+                <div
+                  role="alert"
+                  className="folder-drop-notice"
+                  onClick={() => setFolderDropNotice(false)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setFolderDropNotice(false) }}
+                  tabIndex={0}
+                  aria-label="Dismiss notice"
+                >
+                  Folder upload is not yet supported. Drag individual files instead.
+                  <button
+                    type="button"
+                    className="folder-drop-notice-close"
+                    aria-label="Dismiss"
+                    onClick={(e) => { e.stopPropagation(); setFolderDropNotice(false) }}
+                  >
+                    &times;
+                  </button>
+                </div>
+              )}
               <FileBrowser />
             </div>
             <UploadProgress />

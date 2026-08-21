@@ -24,9 +24,12 @@ import { authPort } from '../lib/authBridge'
 import {
   delay,
   deleteFolders,
+  fileIdOf,
   moveFile as opMoveFile,
+  permanentDeleteFile as opPermanentDeleteFile,
   renameFile as opRenameFile,
   renameFolder as opRenameFolder,
+  restoreFile as opRestoreFile,
   RELAY_THROTTLE_MS,
   softDeleteFile,
 } from '../lib/operations'
@@ -106,6 +109,12 @@ export interface StashContextValue {
   deleteFile: (file: StashFile) => Promise<void>
   deleteFolder: (folderId: string) => Promise<void>
   deleteSelected: () => Promise<void>
+  /** Restore a file from trash (re-publish without deletedAt). */
+  restoreFile: (file: StashFile) => Promise<void>
+  /** Permanently delete a file via NIP-09 kind:5 event. */
+  permanentDeleteFile: (file: StashFile) => Promise<void>
+  /** Permanently delete every file in the trash via a single batch kind:5 event. */
+  emptyTrash: () => Promise<void>
   renameFile: (file: StashFile, newName: string) => Promise<void>
   renameFolder: (folder: StashFolder, newName: string) => Promise<void>
   moveFile: (file: StashFile, targetFolderId: string) => Promise<void>
@@ -125,6 +134,17 @@ export interface StashContextValue {
   markAllNotificationsRead: () => void
   acceptNotification: (id: string) => void
   declineNotification: (id: string) => void
+  /**
+   * Storage quota from the server. null while loading or when the server
+   * returns no quota. Fields mirror the legacy quota API response.
+   */
+  quota: {
+    enabled: boolean
+    usedHuman: string
+    limitHuman: string
+    percent: number
+    unlimited: boolean
+  } | null
 }
 
 export const StashContext = createContext<StashContextValue | null>(null)
@@ -202,6 +222,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notifications, setNotifications] = useState<StashNotification[]>(() => loadStoredNotifications())
+  const [quota, setQuota] = useState<StashContextValue['quota']>(null)
 
   const folderIdRef = useRef('')
   const treeRef = useRef<StashFolder[]>([])
@@ -497,6 +518,62 @@ export function StashProvider({ children }: { children: ReactNode }) {
     }
   }, [selectedFiles, selectedFolders, files, specialFiles, clearSelection, reloadCurrentView, loadFolderTree])
 
+  const restoreFile = useCallback(
+    async (file: StashFile) => {
+      setLoading(true)
+      setError(null)
+      try {
+        await opRestoreFile(file)
+        await loadSpecialView('trash')
+      } catch (err) {
+        console.error('restoreFile failed', err)
+        setError('Failed to restore file')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [loadSpecialView],
+  )
+
+  const permanentDeleteFile = useCallback(
+    async (file: StashFile) => {
+      setLoading(true)
+      setError(null)
+      try {
+        await opPermanentDeleteFile(file)
+        await loadSpecialView('trash')
+      } catch (err) {
+        console.error('permanentDeleteFile failed', err)
+        setError('Failed to permanently delete file')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [loadSpecialView],
+  )
+
+  // Permanently delete every file in the trash with one batch kind:5 event.
+  // Mirrors legacy emptyTrash() at app.js:3089.
+  const emptyTrash = useCallback(async () => {
+    const trashFiles = specialFiles.filter((f) => f.deleted_at || f.deletedAt)
+    if (trashFiles.length === 0) return
+    setLoading(true)
+    setError(null)
+    try {
+      const fileIds = trashFiles.map((f) => fileIdOf(f)).filter(Boolean)
+      if (fileIds.length > 0) {
+        const event = await Events.createBatchDeleteEvent(fileIds, [])
+        await authPort.publishEvent(event)
+      }
+      await loadSpecialView('trash')
+    } catch (err) {
+      console.error('emptyTrash failed', err)
+      setError('Failed to empty trash')
+    } finally {
+      setLoading(false)
+    }
+  }, [specialFiles, loadSpecialView])
+
   const renameFile = useCallback(
     async (file: StashFile, newName: string) => {
       setError(null)
@@ -767,6 +844,30 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
   // ── End notifications ──────────────────────────────────────────────────────
 
+  // Fetch storage quota once when connected. Mirrors legacy App.displayStorageUsage
+  // at app.js:6069, which drives the #storage-bar-fill / #storage-details DOM.
+  useEffect(() => {
+    const pubkey = authPort.pubkey
+    if (!authPort.isConnected || !pubkey) return
+    API.getQuota(pubkey)
+      .then((q) => {
+        const raw = q as Record<string, unknown>
+        const enabled = !!raw.enabled
+        const limitBytes = Number(raw.limit ?? 0)
+        setQuota({
+          enabled,
+          usedHuman: String(raw.used_human ?? '0 B'),
+          limitHuman: String(raw.limit_human ?? ''),
+          percent: Math.min(100, Math.max(0, Number(raw.percent ?? 0))),
+          unlimited: !enabled || limitBytes === 0,
+        })
+      })
+      .catch((err) => {
+        console.warn('Failed to fetch quota:', err)
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // runs once on mount — StashProvider mounts after auth
+
   const value = useMemo<StashContextValue>(
     () => ({
       files,
@@ -800,6 +901,9 @@ export function StashProvider({ children }: { children: ReactNode }) {
       deleteFile,
       deleteFolder,
       deleteSelected,
+      restoreFile,
+      permanentDeleteFile,
+      emptyTrash,
       renameFile,
       renameFolder,
       moveFile,
@@ -819,6 +923,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       markAllNotificationsRead,
       acceptNotification,
       declineNotification,
+      quota,
     }),
     [
       files,
@@ -850,6 +955,9 @@ export function StashProvider({ children }: { children: ReactNode }) {
       deleteFile,
       deleteFolder,
       deleteSelected,
+      restoreFile,
+      permanentDeleteFile,
+      emptyTrash,
       renameFile,
       renameFolder,
       moveFile,
@@ -869,6 +977,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       markAllNotificationsRead,
       acceptNotification,
       declineNotification,
+      quota,
     ],
   )
 

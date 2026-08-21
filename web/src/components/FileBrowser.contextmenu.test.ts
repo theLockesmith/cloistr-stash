@@ -80,4 +80,40 @@ describe('FileBrowser context menus', () => {
       expect(builder, `folderMenuItems is missing ${action}`).toContain(`'${action}'`)
     }
   })
+
+  it('search results do not expose raw score values in the date column', () => {
+    // Regression guard: the date column showed "score 8.3" — an internal debug
+    // value that exposed implementation details in a column users expect to hold
+    // a date or nothing.
+    const searchBlock = SOURCE.slice(
+      SOURCE.indexOf('searchResults.map('),
+      SOURCE.indexOf('searchResults.map(') + 2000,
+    )
+    expect(searchBlock, 'raw score still present in search results').not.toContain('r.score')
+  })
+
+  it('trash view menu includes Restore and Delete permanently', () => {
+    // Guard: the old fileMenuItems() was view-blind. Trash files had the same
+    // menu as live files — Delete was a no-op (re-published the same deletedAt),
+    // and neither Restore nor permanent delete was reachable at all.
+    const menuFn = SOURCE.slice(
+      SOURCE.indexOf('const fileMenuItems'),
+      SOURCE.indexOf('const folderMenuItems'),
+    )
+    expect(menuFn, 'Restore missing from trash menu').toContain("'Restore'")
+    expect(menuFn, 'Delete permanently missing from trash menu').toContain("'Delete permanently'")
+  })
+
+  it('trash view has an Empty Trash button', () => {
+    // Guard: the trash toolbar should have an Empty Trash action.
+    expect(SOURCE, 'Empty Trash button missing').toContain('Empty Trash')
+  })
+
+  it('operations.ts exports restoreFile and permanentDeleteFile', () => {
+    const { readFileSync: rfs } = require('node:fs')
+    const { join: pjoin } = require('node:path')
+    const ops = rfs(pjoin(__dirname, '../lib/operations.ts'), 'utf8')
+    expect(ops, 'restoreFile not exported').toMatch(/export async function restoreFile/)
+    expect(ops, 'permanentDeleteFile not exported').toMatch(/export async function permanentDeleteFile/)
+  })
 })

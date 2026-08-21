@@ -86,6 +86,9 @@ export function FileBrowser() {
     recordFileAccess,
     deleteFile,
     deleteFolder,
+    restoreFile,
+    permanentDeleteFile,
+    emptyTrash,
     renameFile,
     renameFolder,
     moveFile,
@@ -110,6 +113,10 @@ export function FileBrowser() {
   const [publishTarget, setPublishTarget] = useState<StashFile | null>(null)
   // Folder being customized (null = modal closed).
   const [customizeFolder, setCustomizeFolder] = useState<{ id: string; name: string } | null>(null)
+  // Permanent delete confirmation in trash view.
+  const [pendingPermDelete, setPendingPermDelete] = useState<StashFile | null>(null)
+  // Empty trash confirmation.
+  const [emptyTrashPending, setEmptyTrashPending] = useState(false)
 
   const { getCustomization, setCustomization } = useFolderCustomizations()
 
@@ -203,6 +210,29 @@ export function FileBrowser() {
         }
         confirmText="Delete"
       />
+      <ConfirmModal
+        isOpen={!!pendingPermDelete}
+        onClose={() => setPendingPermDelete(null)}
+        onConfirm={() => {
+          const f = pendingPermDelete
+          setPendingPermDelete(null)
+          if (f) void permanentDeleteFile(f)
+        }}
+        title="Delete permanently"
+        message={`Permanently delete "${pendingPermDelete?.name}"? This cannot be undone.`}
+        confirmText="Delete permanently"
+      />
+      <ConfirmModal
+        isOpen={emptyTrashPending}
+        onClose={() => setEmptyTrashPending(false)}
+        onConfirm={() => {
+          setEmptyTrashPending(false)
+          void emptyTrash()
+        }}
+        title="Empty Trash"
+        message="Permanently delete all files in Trash? This cannot be undone."
+        confirmText="Empty Trash"
+      />
       <FolderCustomizeModal
         folder={customizeFolder}
         onClose={() => setCustomizeFolder(null)}
@@ -211,29 +241,49 @@ export function FileBrowser() {
     </>
   )
 
-  const fileMenuItems = (file: StashFile): MenuItem[] => [
-    { label: 'Info', onClick: () => openInfo(file) },
-    ...(Collaboration.isCollaborativeFileType(file.mime_type)
-      ? [{ label: 'Edit', onClick: () => setEditorTarget(file) }]
-      : []),
-    { label: 'Preview', onClick: () => setPreviewFile(file) },
-    { label: 'Encryption Info', onClick: () => setEncInfoFile(file) },
-    { label: 'Share', onClick: () => setShareTarget(file) },
-    { label: 'Manage Shares', onClick: () => setManageSharesTarget(file) },
-    // Distinct from 'Share' directly above: this one publishes an UNENCRYPTED
-    // copy. The label says 'publicly' because the two actions sound alike and
-    // have opposite privacy properties.
-    { label: 'Publish publicly…', onClick: () => setPublishTarget(file) },
-    { label: 'Versions', onClick: () => setVersionTarget(file) },
-    { label: 'Comments', onClick: () => setCommentsTarget(file) },
-    { label: 'Rename', onClick: () => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) }) },
-    { label: 'Move to…', onClick: () => setMoveTarget(file) },
-    {
-      label: 'Delete',
-      onClick: () => setPendingDelete({ kind: 'file', file, name: fileDisplayName(file) }),
-      danger: true,
-    },
-  ]
+  // Trash view gets a focused menu: Restore and Permanently Delete only.
+  // The standard menu's Delete action was a no-op in trash (it re-published the
+  // same deletedAt value), and Rename/Move/Share make no sense for trashed files.
+  const fileMenuItems = (file: StashFile): MenuItem[] => {
+    if (view === 'trash') {
+      return [
+        { label: 'Info', onClick: () => openInfo(file) },
+        { label: 'Preview', onClick: () => setPreviewFile(file) },
+        {
+          label: 'Restore',
+          onClick: () => void restoreFile(file),
+        },
+        {
+          label: 'Delete permanently',
+          onClick: () => setPendingPermDelete(file),
+          danger: true,
+        },
+      ]
+    }
+    return [
+      { label: 'Info', onClick: () => openInfo(file) },
+      ...(Collaboration.isCollaborativeFileType(file.mime_type)
+        ? [{ label: 'Edit', onClick: () => setEditorTarget(file) }]
+        : []),
+      { label: 'Preview', onClick: () => setPreviewFile(file) },
+      { label: 'Encryption Info', onClick: () => setEncInfoFile(file) },
+      { label: 'Share', onClick: () => setShareTarget(file) },
+      { label: 'Manage Shares', onClick: () => setManageSharesTarget(file) },
+      // Distinct from 'Share' directly above: this one publishes an UNENCRYPTED
+      // copy. The label says 'publicly' because the two actions sound alike and
+      // have opposite privacy properties.
+      { label: 'Publish publicly…', onClick: () => setPublishTarget(file) },
+      { label: 'Versions', onClick: () => setVersionTarget(file) },
+      { label: 'Comments', onClick: () => setCommentsTarget(file) },
+      { label: 'Rename', onClick: () => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) }) },
+      { label: 'Move to…', onClick: () => setMoveTarget(file) },
+      {
+        label: 'Delete',
+        onClick: () => setPendingDelete({ kind: 'file', file, name: fileDisplayName(file) }),
+        danger: true,
+      },
+    ]
+  }
 
   const folderMenuItems = (
     folder: StashFolder,
@@ -281,7 +331,7 @@ export function FileBrowser() {
                     <span className="fb-name-text">{r.name}</span>
                   </button>
                   <span className="fb-size">{formatFileSize(r.size)}</span>
-                  <span className="fb-date">score {r.score.toFixed(1)}</span>
+                  <span className="fb-date" />
                   <RowMenu label={`Actions for ${r.name}`} items={fileMenuItems(asFile)} />
                 </div>
               )
@@ -376,6 +426,15 @@ export function FileBrowser() {
         >
           ▦ Grid
         </button>
+        {view === 'trash' && shownFiles.length > 0 && (
+          <button
+            type="button"
+            className="fb-view-btn fb-empty-trash-btn"
+            onClick={() => setEmptyTrashPending(true)}
+          >
+            🗑️ Empty Trash
+          </button>
+        )}
       </div>
 
       {empty && <div className="fb-status fb-empty">{emptyMessage}</div>}

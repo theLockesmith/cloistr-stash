@@ -60,6 +60,7 @@ export function Sidebar({ isOpen, collapsed = false, onToggle, onClose, onOpenNo
     navigateToFolderAbsolute,
     navigateToRoot,
     unreadNotificationCount,
+    quota,
   } = useStash()
 
   // "My Stash" root row is highlighted only at the top of the my-files view.
@@ -205,6 +206,31 @@ export function Sidebar({ isOpen, collapsed = false, onToggle, onClose, onOpenNo
           </div>
         )}
       </div>
+
+      {/* Storage quota bar — mirrors legacy #storage-value / #storage-bar-fill / #storage-details.
+          Only rendered when the server returns an enabled quota. */}
+      {quota?.enabled && (
+        <div id="storage-quota" className="sidebar-quota">
+          <div
+            id="storage-bar"
+            className="quota-bar"
+            role="progressbar"
+            aria-valuenow={quota.percent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Storage used"
+          >
+            <div
+              id="storage-bar-fill"
+              className={`quota-bar-fill${quota.percent > 90 ? ' quota-danger' : quota.percent > 70 ? ' quota-warn' : ''}`}
+              style={{ width: `${quota.percent}%` }}
+            />
+          </div>
+          <p id="storage-details" className="quota-details">
+            {quota.unlimited ? 'Unlimited storage' : `${quota.usedHuman} of ${quota.limitHuman} used`}
+          </p>
+        </div>
+      )}
     </SharedSidebar>
   )
 }
