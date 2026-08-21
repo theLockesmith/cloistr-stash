@@ -189,8 +189,26 @@ export function PreviewModal({ file, onClose }: { file: StashFile | null; onClos
             blobUrl: url,
             errorMessage: null,
           })
+        } else if (pType === 'pdf') {
+          // Create a blob URL for the decrypted PDF and let the browser render
+          // it in an <iframe>. No external library needed — all modern browsers
+          // have a built-in PDF viewer they surface through iframes with blob: URLs.
+          if (prevBlobUrl.current) URL.revokeObjectURL(prevBlobUrl.current)
+          const blob = new Blob([data.buffer as ArrayBuffer], { type: 'application/pdf' })
+          const url = URL.createObjectURL(blob)
+          prevBlobUrl.current = url
+          if (cancelled) { URL.revokeObjectURL(url); prevBlobUrl.current = null; return }
+          setState({
+            status: 'ready',
+            previewType: 'pdf',
+            markdownRaw: null,
+            markdownHtml: null,
+            textContent: null,
+            blobUrl: url,
+            errorMessage: null,
+          })
         } else {
-          // pdf / unsupported
+          // unsupported
           if (cancelled) return
           setState({
             status: 'ready',
@@ -291,12 +309,15 @@ export function PreviewModal({ file, onClose }: { file: StashFile | null; onClos
                 </div>
               )}
 
-              {/* PDF – no pdf.js in the React port; offer download fallback */}
-              {state.previewType === 'pdf' && (
+              {/* PDF – render decrypted blob in the browser's built-in PDF viewer */}
+              {state.previewType === 'pdf' && state.blobUrl && (
                 <div id="preview-pdf-container" className="preview-pdf-container">
-                  <div id="preview-unsupported" className="preview-unsupported">
-                    <p>PDF preview is not yet available in the React UI.</p>
-                  </div>
+                  <iframe
+                    src={state.blobUrl}
+                    title={`PDF preview: ${file?.name ?? ''}`}
+                    className="preview-pdf-iframe"
+                    style={{ width: '100%', height: '70vh', border: 'none' }}
+                  />
                 </div>
               )}
 

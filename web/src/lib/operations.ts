@@ -11,7 +11,7 @@ export const delay = (ms: number): Promise<void> => new Promise((r) => setTimeou
 /** Throttle between relay publishes (relay rate-limits unknown pubkeys ~5/s). */
 export const RELAY_THROTTLE_MS = 250
 
-function fileIdOf(file: StashFile): string {
+export function fileIdOf(file: StashFile): string {
   return (file.id ||
     (file.file_id as string) ||
     (file.fileId as string) ||
@@ -74,6 +74,30 @@ export async function moveFile(file: StashFile, targetFolderId: string): Promise
     ...fileMetaBase(file),
     folderId: targetFolderId,
   })
+  await authPort.publishEvent(event)
+}
+
+/**
+ * Restore a file from trash: re-publish its encrypted metadata WITHOUT deletedAt,
+ * so the file reappears in My Files. Mirrors the legacy restoreFromTrash() at
+ * app.js:3150.
+ */
+export async function restoreFile(file: StashFile): Promise<void> {
+  const event = await Events.createEncryptedFileMetadataEvent({
+    ...fileMetaBase(file),
+    deletedAt: undefined,
+  })
+  await authPort.publishEvent(event)
+}
+
+/**
+ * Permanently delete a file: publish a kind:5 NIP-09 deletion event for its
+ * metadata event. Mirrors the legacy permanentDelete() at app.js:3178.
+ */
+export async function permanentDeleteFile(file: StashFile): Promise<void> {
+  const fileId = fileIdOf(file)
+  if (!fileId) throw new Error('Cannot permanently delete: file has no ID')
+  const event = await Events.createBatchDeleteEvent([fileId], [])
   await authPort.publishEvent(event)
 }
 
