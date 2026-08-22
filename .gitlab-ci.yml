@@ -30,6 +30,31 @@ include:
 build:
   extends: .kaniko-build
   stage: build
+  # Measured on pipeline 19075: `vite build` began transforming at 17:20:41 and
+  # the job was Terminated at 18:20:12 — a flat 60 minute ceiling hit mid-build,
+  # with no error of its own. Nothing was wrong with the code; the dependency
+  # bump that triggered it was a single patch version.
+  #
+  # kaniko has no BuildKit cache mounts, so every image build is a COLD install
+  # plus a cold Vite transform of a large dependency graph (libsodium alone is
+  # substantial). cloistr-space hit the same wall and raised its ceiling for the
+  # same reason.
+  #
+  # The retries cover the fetch flakes that plague these jobs: apk mirrors
+  # aborting mid-download and npm registry timeouts. script_failure is included
+  # deliberately — here it nearly always means a fetch died rather than the
+  # build being wrong, and a genuinely broken build fails fast.
+  timeout: 90 minutes
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+      - job_execution_timeout
+      - api_failure
+      - scheduler_failure
+      - unknown_failure
+      - script_failure
   variables:
     KANIKO_EXTRA_FLAGS: "--build-arg=NPM_TOKEN=${CI_JOB_TOKEN}"
 
