@@ -92,6 +92,7 @@ export function FileBrowser() {
     renameFile,
     renameFolder,
     moveFile,
+    copyFile,
     loadFiles,
     sharedItems,
     acceptShare,
@@ -103,6 +104,7 @@ export function FileBrowser() {
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
   const [moveTarget, setMoveTarget] = useState<StashFile | null>(null)
+  const [copyTarget, setCopyTarget] = useState<StashFile | null>(null)
   const [shareTarget, setShareTarget] = useState<StashFile | null>(null)
   const [manageSharesTarget, setManageSharesTarget] = useState<StashFile | null>(null)
   const [versionTarget, setVersionTarget] = useState<StashFile | null>(null)
@@ -193,6 +195,16 @@ export function FileBrowser() {
           if (f) void moveFile(f, targetFolderId)
         }}
       />
+      <MoveModal
+        title="Copy to folder"
+        open={!!copyTarget}
+        onClose={() => setCopyTarget(null)}
+        onMove={(targetFolderId) => {
+          const f = copyTarget
+          setCopyTarget(null)
+          if (f) void copyFile(f, targetFolderId || null)
+        }}
+      />
       <ConfirmModal
         isOpen={!!pendingDelete}
         onClose={() => setPendingDelete(null)}
@@ -277,6 +289,7 @@ export function FileBrowser() {
       { label: 'Comments', onClick: () => setCommentsTarget(file) },
       { label: 'Rename', onClick: () => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) }) },
       { label: 'Move to…', onClick: () => setMoveTarget(file) },
+      { label: 'Copy to…', onClick: () => setCopyTarget(file) },
       {
         label: 'Delete',
         onClick: () => setPendingDelete({ kind: 'file', file, name: fileDisplayName(file) }),

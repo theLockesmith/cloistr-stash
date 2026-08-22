@@ -216,3 +216,53 @@ export async function uploadEncryptedBytes(
 
   Crypto.wipeKey(fileKey)
 }
+
+/**
+ * Copy a file to a different folder.
+ *
+ * Because every file is encrypted with a key derived from (root-or-folder-key,
+ * fileId), a copy is not a metadata-only operation: the ciphertext produced by
+ * the source key cannot be decrypted with the destination key. The pipeline is:
+ *   1. Fetch the encrypted blob via the Blossom download URL.
+ *   2. Derive the source file key (source folderId + fileId).
+ *   3. Decrypt to plaintext.
+ *   4. Call uploadEncryptedBytes, which assigns a new fileId, re-encrypts under
+ *      the destination key, uploads, and publishes a new metadata event.
+ *   5. Wipe both keys.
+ *
+ * The original file is not modified.
+ */
+export async function copyFile(
+  file: StashFile,
+  targetFolderId: string | null,
+): Promise<void> {
+  await Crypto.init()
+
+  // Extract source file identity using the same multi-alias pattern as the
+  // rest of the codebase (server returns various field names).
+  const f = file as Record<string, unknown>
+  const fileId = (file.id ?? f.file_id ?? f.fileId ?? f.d) as string | undefined
+  const sourceFolderId = (f.folder_id ?? f.folderId ?? file.folder ?? null) as string | null
+
+  if (!fileId) throw new Error('Cannot copy: file has no ID')
+  if (!file.sha256) throw new Error('Cannot copy: file has no sha256')
+
+  // 1. Fetch the encrypted blob.
+  const downloadUrl = API.getDownloadURL(file.sha256)
+  const response = await fetch(downloadUrl)
+  if (!response.ok) throw new Error(`Download failed: ${response.status}`)
+  const encryptedBuffer = await response.arrayBuffer()
+
+  // 2. Derive source key and decrypt.
+  const sourceKey = sourceFolderId
+    ? await Keys.deriveFileKey(sourceFolderId, fileId)
+    : await Keys.deriveRootFileKey(fileId)
+
+  const plaintext = await Crypto.decryptFile(encryptedBuffer, sourceKey)
+  Crypto.wipeKey(sourceKey)
+
+  // 3. Re-encrypt under a fresh fileId in the target folder and upload.
+  const name = file.name
+  const mimeType = (file.mime_type ?? 'application/octet-stream') as string
+  await uploadEncryptedBytes(plaintext, name, mimeType, targetFolderId)
+}
