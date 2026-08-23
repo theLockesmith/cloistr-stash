@@ -58,6 +58,7 @@ function fileMetaBase(file: StashFile) {
     mimeType: file.mime_type,
     folderId: (file.folder_id || file.folderId || file.folder) as string | undefined,
     deletedAt: (file.deleted_at || file.deletedAt) as number | undefined,
+    userTags: file.tags ?? [],
   }
 }
 
@@ -98,6 +99,18 @@ export async function permanentDeleteFile(file: StashFile): Promise<void> {
   const fileId = fileIdOf(file)
   if (!fileId) throw new Error('Cannot permanently delete: file has no ID')
   const event = await Events.createBatchDeleteEvent([fileId], [])
+  await authPort.publishEvent(event)
+}
+
+/**
+ * Set tags on a file: re-publish its encrypted metadata with the new tag list.
+ * Existing tags are replaced entirely. Pass [] to clear all tags.
+ */
+export async function setFileTags(file: StashFile, tags: string[]): Promise<void> {
+  const event = await Events.createEncryptedFileMetadataEvent({
+    ...fileMetaBase(file),
+    userTags: tags,
+  })
   await authPort.publishEvent(event)
 }
 

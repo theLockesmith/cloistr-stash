@@ -59,6 +59,10 @@ type FileMetadata struct {
 	// DeletedAt is set when the file is moved to trash (soft delete)
 	// Zero value means the file is not deleted
 	DeletedAt int64 `json:"deleted_at,omitempty"`
+
+	// Tags are user-defined labels stored as Nostr 't' tags on the event.
+	// Used for filtering/organisation in the UI.
+	Tags []string `json:"tags,omitempty"`
 }
 
 // FolderMetadata represents a folder for organizing files

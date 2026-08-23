@@ -293,6 +293,13 @@ func CreateFileEvent(file *FileMetadata) *nostr.Event {
 		event.Tags = append(event.Tags, nostr.Tag{"folder", file.FolderID})
 	}
 
+	// Add user-defined tags ('t' in Nostr convention).
+	for _, t := range file.Tags {
+		if t != "" {
+			event.Tags = append(event.Tags, nostr.Tag{"t", t})
+		}
+	}
+
 	return event
 }
 
@@ -336,6 +343,8 @@ func ParseFileEvent(event *nostr.Event) (*FileMetadata, error) {
 			var deletedAt int64
 			_, _ = fmt.Sscanf(tag[1], "%d", &deletedAt)
 			file.DeletedAt = deletedAt
+		case "t":
+			file.Tags = append(file.Tags, tag[1])
 		}
 	}
 

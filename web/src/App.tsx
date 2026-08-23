@@ -81,7 +81,7 @@ export default function App() {
       setConnectFailed(true)
     }
   }, [isConnecting, isConnected])
-  const { loadFiles, loadFolderTree, uploadFiles, view, currentFolderId, migrationFiles, dismissMigration } = useStash()
+  const { loadFiles, loadFolderTree, uploadFiles, uploadDirectory, view, currentFolderId, migrationFiles, dismissMigration } = useStash()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   // SEPARATE from sidebarOpen, deliberately. sidebarOpen is the MOBILE drawer
   // and must default closed; this is the DESKTOP rail collapsing to icons and
@@ -100,8 +100,8 @@ export default function App() {
   const [backupOpen, setBackupOpen] = useState(false)
   const [activityOpen, setActivityOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
-  // Non-null while a "folder drop not supported" notice is showing.
-  const [folderDropNotice, setFolderDropNotice] = useState(false)
+  // Folder-upload error notice (e.g. auth not ready when a folder is dropped).
+  const [folderUploadError, setFolderUploadError] = useState<string | null>(null)
 
   const toggleSidebar = () => setSidebarOpen((o) => !o)
   const toggleCollapsed = () =>
@@ -217,20 +217,36 @@ export default function App() {
               onDrop={(e) => {
                 if (view !== 'my-files') return
                 e.preventDefault()
-                // Detect folder entries via the FileSystem API before falling back
-                // to e.dataTransfer.files. A folder drop produces an empty FileList
-                // from the File API — the items API is the only way to see them.
+                // Use the FileSystem API (webkitGetAsEntry) to distinguish files
+                // from directories. A plain File API drop produces an empty FileList
+                // for folders, so the items API is mandatory here.
                 const items = Array.from(e.dataTransfer.items)
-                const hasDirectory = items.some((item) => {
-                  const entry = item.webkitGetAsEntry?.()
-                  return entry?.isDirectory === true
-                })
-                if (hasDirectory) {
-                  setFolderDropNotice(true)
+                const entries = items
+                  .map((item) => item.webkitGetAsEntry?.())
+                  .filter((entry): entry is FileSystemEntry => entry !== null && entry !== undefined)
+
+                if (entries.length === 0) {
+                  // Fallback: no FileSystem API support (very old browsers).
+                  const dropped = Array.from(e.dataTransfer.files)
+                  if (dropped.length > 0) void uploadFiles(dropped)
                   return
                 }
-                const dropped = Array.from(e.dataTransfer.files)
-                if (dropped.length > 0) void uploadFiles(dropped)
+
+                const hasDirectory = entries.some((e) => e.isDirectory)
+                if (hasDirectory) {
+                  // Hand the entire entry list to uploadDirectory, which will
+                  // recursively create sub-folders and upload files.
+                  void uploadDirectory(entries)
+                  return
+                }
+
+                // All entries are files — unwrap them via getFile() for consistency.
+                const filePromises = entries
+                  .filter((entry) => entry.isFile)
+                  .map((entry) => new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej)))
+                void Promise.all(filePromises).then((files) => {
+                  if (files.length > 0) void uploadFiles(files)
+                })
               }}
             >
               <div className="content-header">
@@ -264,21 +280,21 @@ export default function App() {
                   🔑
                 </button>
               </div>
-              {folderDropNotice && (
+              {folderUploadError && (
                 <div
                   role="alert"
                   className="folder-drop-notice"
-                  onClick={() => setFolderDropNotice(false)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setFolderDropNotice(false) }}
+                  onClick={() => setFolderUploadError(null)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setFolderUploadError(null) }}
                   tabIndex={0}
                   aria-label="Dismiss notice"
                 >
-                  Folder upload is not yet supported. Drag individual files instead.
+                  {folderUploadError}
                   <button
                     type="button"
                     className="folder-drop-notice-close"
                     aria-label="Dismiss"
-                    onClick={(e) => { e.stopPropagation(); setFolderDropNotice(false) }}
+                    onClick={(e) => { e.stopPropagation(); setFolderUploadError(null) }}
                   >
                     &times;
                   </button>
