@@ -595,7 +595,10 @@ body {
   color: var(--cloistr-error);
 }
 
-/* Desktop sidebar toggle button (inside sidebar header). Always visible. */
+/* Desktop sidebar toggle button (inside sidebar header).
+   Hidden on mobile: the sidebar is off-canvas when closed (transform: translateX(-100%)),
+   so this button sits ~56px off the left edge of a 390px viewport — unreachable.
+   The #mobile-menu-btn in the content header is the correct mobile opener. */
 .sidebar-toggle {
   background: none;
   border: 1px solid var(--cloistr-border);
@@ -604,6 +607,15 @@ body {
   font-size: 1.1rem;
   padding: 0.2rem 0.55rem;
   cursor: pointer;
+}
+
+@media (max-width: 767px) {
+  /* The collapse toggle lives inside the off-canvas sidebar; hide it on mobile
+     so only the #mobile-menu-btn (in the content area, always on-screen) opens
+     the drawer. */
+  .sidebar-toggle {
+    display: none;
+  }
 }
 
 .sidebar-header {
@@ -620,15 +632,18 @@ body {
   font-size: 0.9rem;
 }
 
-/* Mobile hamburger: inline display:none is overridden by !important on ≤768px */
+/* Mobile hamburger: hidden on desktop, shown in the mobile media query below.
+   No inline style; no !important needed.  Positioned in normal flow so it can
+   never land off-canvas regardless of the sidebar's off-canvas state. */
 .mobile-menu-btn {
+  display: none;
   background: none;
   border: 1px solid var(--cloistr-border);
   border-radius: 6px;
   color: var(--cloistr-text);
   font-size: 1.1rem;
   padding: 0.2rem 0.55rem;
-  margin: 0.75rem 0 0 1rem;
+  margin: 0 0 0 0;
   cursor: pointer;
 }
 
@@ -663,9 +678,9 @@ body {
 }
 
 @media (max-width: 768px) {
-  /* Show the mobile hamburger button; !important overrides inline display:none */
+  /* Show the mobile hamburger; base rule has display:none so no !important needed. */
   .mobile-menu-btn {
-    display: flex !important;
+    display: flex;
   }
 
   /* The off-canvas drawer is the shared shell's job now
@@ -2923,10 +2938,14 @@ body {
   justify-content: center;
 }
 
+/* 44-px touch target sizing for the mobile hamburger.  No display override here:
+   the base rule has display:none (desktop hidden) and the mobile media query
+   has display:flex.  Adding display:flex here unconditionally used to create a
+   specificity fight with the inline style={{ display:'none' }} that was
+   previously on the element — that anti-pattern is gone, this rule is clean. */
 .mobile-menu-btn {
   min-height: 44px;
   min-width: 44px;
-  display: flex;
   align-items: center;
   justify-content: center;
 }

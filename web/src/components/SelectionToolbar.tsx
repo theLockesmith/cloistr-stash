@@ -3,10 +3,10 @@
 // files + batch-deletes folders via the store. Move opens a folder picker and
 // moves all selected files (folders cannot be moved; no folder-move operation).
 
-import { useState } from "react"
-import { ConfirmModal } from "@cloistr/ui/components"
-import { MoveModal } from "./MoveModal"
-import { useStash } from "../state/useStash"
+import { useState } from 'react'
+import { ConfirmModal } from '@cloistr/ui/components'
+import { MoveModal } from './MoveModal'
+import { useStash } from '../state/useStash'
 
 export function SelectionToolbar() {
   const { selectedFiles, selectedFolders, clearSelection, deleteSelected, moveSelected } = useStash()

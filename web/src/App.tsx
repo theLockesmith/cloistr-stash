@@ -250,14 +250,15 @@ export default function App() {
               }}
             >
               <div className="content-header">
-                {/* Mobile-only hamburger: inline display:none overridden by CSS on ≤768px */}
+                {/* Mobile-only hamburger: CSS .mobile-menu-btn has display:none by
+                    default and display:flex inside @media (max-width:768px).
+                    No inline style needed — eliminates the previous !important fight. */}
                 <button
                   id="mobile-menu-btn"
                   type="button"
                   className="mobile-menu-btn"
                   title="Menu"
                   aria-label="Open navigation"
-                  style={{ display: 'none' }}
                   onClick={toggleSidebar}
                 >
                   ☰
