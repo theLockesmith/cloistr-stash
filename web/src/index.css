@@ -229,6 +229,10 @@
   font-size: 1.05rem;
   font-weight: 600;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .modal-close {
@@ -2697,6 +2701,7 @@ body {
   .content-header {
     flex-wrap: wrap;
     row-gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
   }
 
   /* Force a line break instead of eating the remaining width. As flex:1 this
@@ -2727,6 +2732,7 @@ body {
      makes a row identifiable, so it gets the space. */
   .fb-row {
     grid-template-columns: auto 1fr auto;
+    min-height: 44px;
   }
   .fb-size,
   .fb-date {
@@ -2737,6 +2743,12 @@ body {
   .fb-toolbar {
     flex-wrap: wrap;
     row-gap: 0.5rem;
+  }
+
+  /* Selection toolbar: wraps when many items are selected on narrow screens. */
+  .selection-toolbar {
+    flex-wrap: wrap;
+    row-gap: 0.4rem;
   }
 }
 
@@ -2991,9 +3003,16 @@ body {
   .content-header {
     flex-wrap: wrap;
     gap: 0.3rem;
+    padding: 0.3rem 0.5rem;
   }
 
   .fb-toolbar-sep {
     display: none;
+  }
+
+  /* Tighter file-browser padding at narrowest screens, giving the file list
+     more horizontal room without losing the visual indent. */
+  .file-browser {
+    padding: 0.5rem 0.75rem;
   }
 }
