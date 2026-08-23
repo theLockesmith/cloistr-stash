@@ -1,7 +1,7 @@
 // Batch-selection toolbar (ported from app.js bulkDelete UX). Appears when
 // files/folders are selected; Delete opens a ConfirmModal, then soft-deletes
 // files + batch-deletes folders via the store. Move opens a folder picker and
-// moves all selected files (not folders — no folder-move operation exists).
+// moves all selected files (folders cannot be moved; no folder-move operation).
 
 import { useState } from 'react'
 import { ConfirmModal } from '@cloistr/ui/components'
@@ -19,9 +19,9 @@ export function SelectionToolbar() {
   if (total === 0) return null
 
   const parts: string[] = []
-  if (fileCount > 0) parts.push(`${fileCount} file${fileCount > 1 ? 's' : ''}`)
-  if (folderCount > 0) parts.push(`${folderCount} folder${folderCount > 1 ? 's' : ''}`)
-  const description = parts.join(' and ')
+  if (fileCount > 0) parts.push(`${fileCount} file${fileCount > 1 ? "s" : ""}`)
+  if (folderCount > 0) parts.push(`${folderCount} folder${folderCount > 1 ? "s" : ""}`)
+  const description = parts.join(" and ")
 
   return (
     <div className="selection-toolbar" role="region" aria-label="Selection actions">

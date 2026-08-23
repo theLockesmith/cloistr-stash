@@ -1,19 +1,16 @@
 // File/folder browser surface (4b/4c/4d + #5 UI): list/grid views, per-row
-// actions menu (info/share/versions/rename/move/delete), file-info/share/
-// version-history/rename/move modals, batch selection toolbar, and the
+// actions menu (info/share/versions/rename/move/copy/tags/delete), file-info/share/
+// version-history/rename/move/copy/tags modals, batch selection toolbar, and the
 // encrypted-search results view.
 //
 // Context menu: right-click (or ⋮ button) on file/folder rows opens a fixed-position
 // menu (#context-menu) that mirrors the legacy vanilla-JS UI's showFileContextMenu /
-// showContextMenu behaviour.  Items are the same set as the inline RowMenu.
-// Touch long-press and the extended legacy items (Tags, Comments, Public Link,
-// Manage Shares, Encryption Info, Collaborative Edit) are not ported — each is a
-// separate feature tracked independently.
+// showContextMenu behaviour.  Long-press (500ms) triggers the same menu on touch.
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { ConfirmModal } from '@cloistr/ui/components'
 import { useStash } from '../state/useStash'
-import type { StashFile, StashFolder } from '../state/types'
+import type { StashFile, StashFolder, SortField } from '../state/types'
 import { formatDate, formatFileSize, getFileIcon } from './format'
 import { FileInfoModal } from './FileInfoModal'
 import { EditorModal } from './EditorModal'
@@ -93,9 +90,14 @@ export function FileBrowser() {
     renameFolder,
     moveFile,
     copyFile,
-    loadFiles,
+    setFileTags,    loadFiles,
     sharedItems,
     acceptShare,
+    activeTagFilter,
+    setTagFilter,
+    allTags,
+    sortPrefs,
+    setSortPrefs,
   } = useStash()
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [infoFile, setInfoFile] = useState<StashFile | null>(null)
@@ -105,6 +107,7 @@ export function FileBrowser() {
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
   const [moveTarget, setMoveTarget] = useState<StashFile | null>(null)
   const [copyTarget, setCopyTarget] = useState<StashFile | null>(null)
+  const [tagsTarget, setTagsTarget] = useState<StashFile | null>(null)
   const [shareTarget, setShareTarget] = useState<StashFile | null>(null)
   const [manageSharesTarget, setManageSharesTarget] = useState<StashFile | null>(null)
   const [versionTarget, setVersionTarget] = useState<StashFile | null>(null)
@@ -205,7 +208,15 @@ export function FileBrowser() {
           if (f) void copyFile(f, targetFolderId || null)
         }}
       />
-      <ConfirmModal
+      <TagsModal
+        file={tagsTarget}
+        onClose={() => setTagsTarget(null)}
+        onSave={(tags) => {
+          const f = tagsTarget
+          setTagsTarget(null)
+          if (f) void setFileTags(f, tags)
+        }}
+      />      <ConfirmModal
         isOpen={!!pendingDelete}
         onClose={() => setPendingDelete(null)}
         onConfirm={() => {
@@ -287,6 +298,7 @@ export function FileBrowser() {
       { label: 'Publish publicly…', onClick: () => setPublishTarget(file) },
       { label: 'Versions', onClick: () => setVersionTarget(file) },
       { label: 'Comments', onClick: () => setCommentsTarget(file) },
+      { label: 'Tags…', onClick: () => setTagsTarget(file) },
       { label: 'Rename', onClick: () => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) }) },
       { label: 'Move to…', onClick: () => setMoveTarget(file) },
       { label: 'Copy to…', onClick: () => setCopyTarget(file) },
@@ -406,7 +418,32 @@ export function FileBrowser() {
 
   const isMyFiles = view === 'my-files'
   const shownFolders = isMyFiles ? folders : []
-  const shownFiles = isMyFiles ? files : specialFiles
+  const rawFiles = isMyFiles ? files : specialFiles
+
+  // Tag filter: applied before sort
+  const tagFilteredFiles = useMemo(() => {
+    if (!activeTagFilter) return rawFiles
+    return rawFiles.filter((f) => (f.tags ?? []).includes(activeTagFilter))
+  }, [rawFiles, activeTagFilter])
+
+  // Sort files according to sortPrefs (folders are always shown first, unsorted)
+  const shownFiles = useMemo(() => {
+    const sorted = [...tagFilteredFiles]
+    const { field, dir } = sortPrefs
+    sorted.sort((a, b) => {
+      let cmp = 0
+      if (field === 'name') {
+        cmp = (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' })
+      } else if (field === 'date') {
+        cmp = Number(a.created_at ?? 0) - Number(b.created_at ?? 0)
+      } else if (field === 'size') {
+        cmp = Number(a.size ?? 0) - Number(b.size ?? 0)
+      }
+      return dir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [tagFilteredFiles, sortPrefs])
+
   const empty = shownFolders.length === 0 && shownFiles.length === 0
 
   const emptyMessage =
@@ -416,18 +453,21 @@ export function FileBrowser() {
         ? 'No starred files.'
         : view === 'recent'
           ? 'No recent files.'
-          : 'This folder is empty.'
+          : activeTagFilter
+            ? `No files tagged "${activeTagFilter}".`
+            : 'This folder is empty.'
 
   return (
     <div className="file-browser">
       <SelectionToolbar />
 
-      <div className="fb-toolbar" role="group" aria-label="View mode">
+      <div className="fb-toolbar" role="group" aria-label="View and sort controls">
         <button
           type="button"
           className={`fb-view-btn ${viewMode === 'list' ? 'active' : ''}`}
           aria-pressed={viewMode === 'list'}
           onClick={() => setViewMode('list')}
+          aria-label="List view"
         >
           ☰ List
         </button>
@@ -436,17 +476,77 @@ export function FileBrowser() {
           className={`fb-view-btn ${viewMode === 'grid' ? 'active' : ''}`}
           aria-pressed={viewMode === 'grid'}
           onClick={() => setViewMode('grid')}
+          aria-label="Grid view"
         >
           ▦ Grid
         </button>
+
+        <div className="fb-toolbar-sep" role="separator" aria-hidden="true" />
+
+        {/* Sort field selector */}
+        <label htmlFor="fb-sort-field" className="sr-only">Sort by</label>
+        <select
+          id="fb-sort-field"
+          className="fb-sort-select"
+          value={sortPrefs.field}
+          onChange={(e) => setSortPrefs({ ...sortPrefs, field: e.target.value as SortField })}
+          aria-label="Sort by"
+        >
+          <option value="name">Name</option>
+          <option value="date">Date</option>
+          <option value="size">Size</option>
+        </select>
+
+        <button
+          type="button"
+          className="fb-view-btn fb-sort-dir-btn"
+          aria-label={sortPrefs.dir === 'asc' ? 'Ascending — click to sort descending' : 'Descending — click to sort ascending'}
+          onClick={() => setSortPrefs({ ...sortPrefs, dir: sortPrefs.dir === 'asc' ? 'desc' : 'asc' })}
+        >
+          {sortPrefs.dir === 'asc' ? '↑' : '↓'}
+        </button>
+
+        {/* Tag filter (only when tags exist in the current view) */}
+        {allTags.length > 0 && (
+          <>
+            <div className="fb-toolbar-sep" role="separator" aria-hidden="true" />
+            <label htmlFor="fb-tag-filter" className="sr-only">Filter by tag</label>
+            <select
+              id="fb-tag-filter"
+              className="fb-sort-select"
+              value={activeTagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+              aria-label="Filter by tag"
+            >
+              <option value="">All tags</option>
+              {allTags.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+            {activeTagFilter && (
+              <button
+                type="button"
+                className="fb-view-btn fb-tag-clear-btn"
+                aria-label="Clear tag filter"
+                onClick={() => setTagFilter('')}
+              >
+                ✕
+              </button>
+            )}
+          </>
+        )}
+
         {view === 'trash' && shownFiles.length > 0 && (
-          <button
-            type="button"
-            className="fb-view-btn fb-empty-trash-btn"
-            onClick={() => setEmptyTrashPending(true)}
-          >
-            🗑️ Empty Trash
-          </button>
+          <>
+            <div className="fb-toolbar-sep" role="separator" aria-hidden="true" />
+            <button
+              type="button"
+              className="fb-view-btn fb-empty-trash-btn"
+              onClick={() => setEmptyTrashPending(true)}
+            >
+              🗑️ Empty Trash
+            </button>
+          </>
         )}
       </div>
 
@@ -649,11 +749,13 @@ function FolderRow({
   onContextMenu: (e: React.MouseEvent) => void
 }) {
   const icon = customization.icon ?? '📁'
+  const lp = useLongPress(onContextMenu as Parameters<typeof useLongPress>[0])
   return (
     <div
       className={`fb-row fb-folder ${selected ? 'selected' : ''}`}
       role="listitem"
       onContextMenu={onContextMenu}
+      {...lp}
     >
       <input
         type="checkbox"
@@ -707,12 +809,14 @@ function FileRow({
 }) {
   const enc = isEncrypted(file)
   const name = fileDisplayName(file)
+  const lp = useLongPress(onContextMenu as Parameters<typeof useLongPress>[0])
   return (
     <div
       className={`fb-row fb-file ${selected ? 'selected' : ''} ${enc ? 'encrypted' : ''}`}
       role="listitem"
       aria-label={`${name}, ${formatFileSize(file.size)}${enc ? ', encrypted' : ''}${starred ? ', starred' : ''}`}
       onContextMenu={onContextMenu}
+      {...lp}
     >
       <input
         type="checkbox"
@@ -773,8 +877,9 @@ function FolderCard({
   onContextMenu: (e: React.MouseEvent) => void
 }) {
   const icon = customization.icon ?? '📁'
+  const lp = useLongPress(onContextMenu as Parameters<typeof useLongPress>[0])
   return (
-    <div className="fb-card fb-folder" role="listitem" onContextMenu={onContextMenu}>
+    <div className="fb-card fb-folder" role="listitem" onContextMenu={onContextMenu} {...lp}>
       <button
         type="button"
         className="fb-card-main"
@@ -829,8 +934,9 @@ function FileCard({
 }) {
   const enc = isEncrypted(file)
   const name = fileDisplayName(file)
+  const lp = useLongPress(onContextMenu as Parameters<typeof useLongPress>[0])
   return (
-    <div className={`fb-card fb-file ${enc ? 'encrypted' : ''}`} role="listitem" onContextMenu={onContextMenu}>
+    <div className={`fb-card fb-file ${enc ? 'encrypted' : ''}`} role="listitem" onContextMenu={onContextMenu} {...lp}>
       <button type="button" className="fb-card-main" onClick={onInfo}>
         <span className="fb-card-icon" aria-hidden="true">
           {getFileIcon(file.mime_type, enc)}
@@ -839,6 +945,127 @@ function FileCard({
         <span className="fb-card-size">{formatFileSize(file.size)}</span>
       </button>
       <RowMenu label={`Actions for ${name}`} items={menuItems} />
+    </div>
+  )
+}
+
+/**
+ * useLongPress: returns touch event handlers that fire onLongPress after 500 ms
+ * with a synthetic MouseEvent-compatible object at the touch coordinates.
+ *
+ * This is the touch equivalent for right-click context menus. A 500 ms press
+ * is the de-facto mobile standard for "secondary action".
+ */
+function useLongPress(onLongPress: (e: { clientX: number; clientY: number; preventDefault: () => void; stopPropagation: () => void }) => void) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fired = useRef(false)
+
+  const start = useCallback((e: React.TouchEvent) => {
+    fired.current = false
+    const touch = e.touches[0]
+    if (!touch) return
+    const { clientX, clientY } = touch
+    timer.current = setTimeout(() => {
+      fired.current = true
+      onLongPress({ clientX, clientY, preventDefault: () => {}, stopPropagation: () => {} })
+    }, 500)
+  }, [onLongPress])
+
+  const cancel = useCallback(() => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current)
+      timer.current = null
+    }
+  }, [])
+
+  return { onTouchStart: start, onTouchEnd: cancel, onTouchMove: cancel }
+}
+
+/**
+ * TagsModal: inline tag editor. Allows the user to add/remove comma-separated
+ * tags on a file. Tags are stored as Nostr 't' tags on the kind:30078 event.
+ */
+function TagsModal({
+  file,
+  onClose,
+  onSave,
+}: {
+  file: StashFile | null
+  onClose: () => void
+  onSave: (tags: string[]) => void
+}) {
+  const [input, setInput] = useState('')
+  const [tags, setTags] = useState<string[]>([])
+
+  // Sync with the file's current tags whenever it changes.
+  useEffect(() => {
+    setTags(file?.tags ?? [])
+    setInput('')
+  }, [file])
+
+  if (!file) return null
+
+  const addTag = () => {
+    const raw = input.trim().toLowerCase()
+    if (!raw) return
+    const newTags = raw
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t && !tags.includes(t))
+    if (newTags.length) setTags((prev) => [...prev, ...newTags])
+    setInput('')
+  }
+
+  const removeTag = (t: string) => setTags((prev) => prev.filter((x) => x !== t))
+
+  return (
+    <div
+      className={`modal-overlay${file ? '' : ' hidden'}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Edit file tags"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="modal-content modal-small">
+        <div className="modal-header">
+          <h2>Tags for &ldquo;{file.name}&rdquo;</h2>
+          <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>&times;</button>
+        </div>
+        <div className="modal-body">
+          <div className="tags-current">
+            {tags.length === 0 && <span className="tags-empty">No tags yet.</span>}
+            {tags.map((t) => (
+              <span key={t} className="tag-chip">
+                {t}
+                <button
+                  type="button"
+                  className="tag-chip-remove"
+                  aria-label={`Remove tag ${t}`}
+                  onClick={() => removeTag(t)}
+                >
+                  &times;
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="tags-input-row">
+            <input
+              className="modal-input"
+              placeholder="Add tag(s), comma-separated"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag() } }}
+            />
+            <button type="button" className="selection-btn primary" onClick={addTag}>
+              Add
+            </button>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="selection-btn" onClick={onClose}>Cancel</button>
+          <button type="button" className="selection-btn primary" onClick={() => onSave(tags)}>Save</button>
+        </div>
+      </div>
     </div>
   )
 }

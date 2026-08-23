@@ -30,13 +30,14 @@ import {
   renameFile as opRenameFile,
   renameFolder as opRenameFolder,
   restoreFile as opRestoreFile,
+  setFileTags as opSetFileTags,
   RELAY_THROTTLE_MS,
   softDeleteFile,
 } from '../lib/operations'
 import { uploadFiles as libUploadFiles, copyFile as libCopyFile, type UploadItem } from '../lib/upload'
 import { Search, type SearchResult } from '../lib/search'
 import { Sharing, type DecryptedIncomingShare } from '../lib/sharing'
-import type { FolderPathItem, StashFile, StashFolder, StashNotification, StashView } from './types'
+import type { FolderPathItem, StashFile, StashFolder, StashNotification, StashView, SortField, SortDir, SortPrefs } from './types'
 
 interface RecentEntry {
   sha256: string
@@ -119,13 +120,14 @@ export interface StashContextValue {
   emptyTrash: () => Promise<void>
   renameFile: (file: StashFile, newName: string) => Promise<void>
   renameFolder: (folder: StashFolder, newName: string) => Promise<void>
-  moveFile: (file: StashFile, targetFolderId: string) => Promise<void>
-  /**
+  moveFile: (file: StashFile, targetFolderId: string) => Promise<void>  /**
    * Copy a file to a folder. Downloads the encrypted blob, decrypts it with
    * the source key, re-encrypts under a new fileId in the target folder, and
-   * uploads. The original is not modified. targetFolderId '' = root.
+   * uploads. The original is not modified. targetFolderId null/'' = root.
    */
   copyFile: (file: StashFile, targetFolderId: string | null) => Promise<void>
+  /** Set the user-defined tags on a file (replaces current set). */
+  setFileTags: (file: StashFile, tags: string[]) => Promise<void>
   uploadItems: UploadItem[]
   uploadFiles: (files: File[]) => Promise<void>
   searchResults: SearchResult[] | null
@@ -135,6 +137,20 @@ export interface StashContextValue {
   acceptShare: (share: DecryptedIncomingShare) => Promise<void>
   /** Create a new encrypted folder in the current directory. */
   createFolder: (name: string) => Promise<void>
+  /**
+   * Upload an entire directory tree dropped by the user.
+   * Recursively creates encrypted sub-folders and uploads files into them.
+   * Uses the FileSystem Access API (webkitGetAsEntry) entries.
+   */
+  uploadDirectory: (entries: FileSystemEntry[], parentFolderId?: string) => Promise<void>
+  /** Active tag filter string; '' = show all. */
+  activeTagFilter: string
+  setTagFilter: (tag: string) => void
+  /** All distinct tags across the visible file set. */
+  allTags: string[]
+  /** Current sort preferences. */
+  sortPrefs: SortPrefs
+  setSortPrefs: (prefs: SortPrefs) => void
   // Notifications (ported from app.js notifications subsystem)
   notifications: StashNotification[]
   unreadNotificationCount: number
@@ -231,6 +247,15 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [notifications, setNotifications] = useState<StashNotification[]>(() => loadStoredNotifications())
   const [quota, setQuota] = useState<StashContextValue['quota']>(null)
+  const [activeTagFilter, setTagFilterState] = useState<string>('')
+  const [sortPrefs, setSortPrefsState] = useState<SortPrefs>(() => {
+    try {
+      const raw = localStorage.getItem('stash:sortPrefs')
+      if (raw) return JSON.parse(raw) as SortPrefs
+    } catch { /* ignore */ }
+    return { field: 'name', dir: 'asc' }
+  })
+
   /**
    * Retry ticker for the quota fetch.
    *
@@ -670,6 +695,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
     [reloadCurrentView],
   )
 
+
   const copyFile = useCallback(
     async (file: StashFile, targetFolderId: string | null) => {
       setLoading(true)
@@ -687,6 +713,30 @@ export function StashProvider({ children }: { children: ReactNode }) {
     [reloadCurrentView],
   )
 
+  const setFileTags = useCallback(
+    async (file: StashFile, tags: string[]) => {
+      setError(null)
+      try {
+        await opSetFileTags(file, tags)
+        await reloadCurrentView()
+      } catch (err) {
+        console.error('setFileTags failed', err)
+        setError('Failed to update tags')
+      }
+    },
+    [reloadCurrentView],
+  )
+
+  const setTagFilter = useCallback((tag: string) => {
+    setTagFilterState(tag)
+  }, [])
+
+  const setSortPrefs = useCallback((prefs: SortPrefs) => {
+    setSortPrefsState(prefs)
+    try {
+      localStorage.setItem('stash:sortPrefs', JSON.stringify(prefs))
+    } catch { /* ignore */ }
+  }, [])
   const uploadFiles = useCallback(
     async (fileList: File[]) => {
       const list = Array.from(fileList)
@@ -764,6 +814,85 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
       await authPort.publishEvent(signedEvent)
       await Promise.all([loadFilesFor(folderIdRef.current), loadFolderTree()])
+    },
+    [loadFilesFor, loadFolderTree],
+  )
+
+  /**
+   * Recursively upload a directory tree from DataTransferItem FileSystem API entries.
+   *
+   * For each FileSystemDirectoryEntry: create an encrypted folder, then recurse.
+   * For each FileSystemFileEntry: read the File and upload it into the target folder.
+   * Mirrors the pattern from the legacy folder upload spec.
+   */
+  const uploadDirectory = useCallback(
+    async (entries: FileSystemEntry[], parentFolderId?: string) => {
+      const pubkey = authPort.pubkey
+      if (!authPort.isConnected || !pubkey) throw new Error('Not connected')
+
+      const readFile = (fe: FileSystemFileEntry): Promise<File> =>
+        new Promise((res, rej) => fe.file(res, rej))
+
+      const readDirEntries = (reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> =>
+        new Promise((res, rej) => reader.readEntries(res, rej))
+
+      const readAllEntries = async (dir: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> => {
+        const reader = dir.createReader()
+        const all: FileSystemEntry[] = []
+        for (;;) {
+          const batch = await readDirEntries(reader)
+          if (batch.length === 0) break
+          all.push(...batch)
+        }
+        return all
+      }
+
+      const createFolderIn = async (name: string, parentId: string | undefined): Promise<string> => {
+        const folderId = Events.generateFolderId()
+        const folderKey = await Keys.generateFolderKey(folderId)
+        const folderKeyHex = Crypto.bytesToHex(folderKey)
+        const encryptedFolderKey = await Keys.selfEncrypt(pubkey, folderKeyHex)
+        const signedEvent = await Events.createEncryptedFolderEvent({
+          id: folderId,
+          name: name.trim(),
+          parentId: parentId || undefined,
+          encryptedFolderKey,
+        })
+        await authPort.publishEvent(signedEvent)
+        return folderId
+      }
+
+      const processEntries = async (ents: FileSystemEntry[], folderId: string | undefined) => {
+        const files: File[] = []
+        for (const entry of ents) {
+          if (entry.isFile) {
+            try {
+              files.push(await readFile(entry as FileSystemFileEntry))
+            } catch (err) {
+              console.warn('uploadDirectory: skipping file', entry.name, err)
+            }
+          } else if (entry.isDirectory) {
+            const newId = await createFolderIn(entry.name, folderId)
+            const children = await readAllEntries(entry as FileSystemDirectoryEntry)
+            await processEntries(children, newId)
+          }
+        }
+        if (files.length > 0) {
+          await libUploadFiles(files, { folderId: folderId || null })
+        }
+      }
+
+      setLoading(true)
+      setError(null)
+      try {
+        await processEntries(entries, (parentFolderId ?? folderIdRef.current) || undefined)
+        await Promise.all([loadFilesFor(folderIdRef.current), loadFolderTree()])
+      } catch (err) {
+        console.error('uploadDirectory failed', err)
+        setError('Folder upload failed')
+      } finally {
+        setLoading(false)
+      }
     },
     [loadFilesFor, loadFolderTree],
   )
@@ -947,6 +1076,15 @@ export function StashProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quotaAttempt])
 
+  // Compute allTags from the current file set (my-files view + specialFiles).
+  const allTags = useMemo<string[]>(() => {
+    const set = new Set<string>()
+    for (const f of [...files, ...specialFiles]) {
+      for (const t of f.tags ?? []) set.add(t)
+    }
+    return [...set].sort()
+  }, [files, specialFiles])
+
   const value = useMemo<StashContextValue>(
     () => ({
       files,
@@ -988,6 +1126,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       moveFile,
       moveSelected,
       copyFile,
+      setFileTags,
       uploadItems,
       uploadFiles,
       searchResults,
@@ -996,6 +1135,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       sharedItems,
       acceptShare,
       createFolder,
+      uploadDirectory,
       migrationFiles,
       dismissMigration,
       notifications,
@@ -1005,6 +1145,11 @@ export function StashProvider({ children }: { children: ReactNode }) {
       acceptNotification,
       declineNotification,
       quota,
+      activeTagFilter,
+      setTagFilter,
+      allTags,
+      sortPrefs,
+      setSortPrefs,
     }),
     [
       files,
@@ -1044,6 +1189,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       moveFile,
       moveSelected,
       copyFile,
+      setFileTags,
       uploadItems,
       uploadFiles,
       searchResults,
@@ -1052,6 +1198,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       sharedItems,
       acceptShare,
       createFolder,
+      uploadDirectory,
       migrationFiles,
       dismissMigration,
       notifications,
@@ -1061,6 +1208,11 @@ export function StashProvider({ children }: { children: ReactNode }) {
       acceptNotification,
       declineNotification,
       quota,
+      activeTagFilter,
+      setTagFilter,
+      allTags,
+      sortPrefs,
+      setSortPrefs,
     ],
   )
 

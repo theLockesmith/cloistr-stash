@@ -229,6 +229,10 @@
   font-size: 1.05rem;
   font-weight: 600;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .modal-close {
@@ -595,7 +599,10 @@ body {
   color: var(--cloistr-error);
 }
 
-/* Desktop sidebar toggle button (inside sidebar header). Always visible. */
+/* Desktop sidebar toggle button (inside sidebar header).
+   Hidden on mobile: the sidebar is off-canvas when closed (transform: translateX(-100%)),
+   so this button sits ~56px off the left edge of a 390px viewport — unreachable.
+   The #mobile-menu-btn in the content header is the correct mobile opener. */
 .sidebar-toggle {
   background: none;
   border: 1px solid var(--cloistr-border);
@@ -604,6 +611,15 @@ body {
   font-size: 1.1rem;
   padding: 0.2rem 0.55rem;
   cursor: pointer;
+}
+
+@media (max-width: 767px) {
+  /* The collapse toggle lives inside the off-canvas sidebar; hide it on mobile
+     so only the #mobile-menu-btn (in the content area, always on-screen) opens
+     the drawer. */
+  .sidebar-toggle {
+    display: none;
+  }
 }
 
 .sidebar-header {
@@ -620,15 +636,18 @@ body {
   font-size: 0.9rem;
 }
 
-/* Mobile hamburger: inline display:none is overridden by !important on ≤768px */
+/* Mobile hamburger: hidden on desktop, shown in the mobile media query below.
+   No inline style; no !important needed.  Positioned in normal flow so it can
+   never land off-canvas regardless of the sidebar's off-canvas state. */
 .mobile-menu-btn {
+  display: none;
   background: none;
   border: 1px solid var(--cloistr-border);
   border-radius: 6px;
   color: var(--cloistr-text);
   font-size: 1.1rem;
   padding: 0.2rem 0.55rem;
-  margin: 0.75rem 0 0 1rem;
+  margin: 0 0 0 0;
   cursor: pointer;
 }
 
@@ -663,9 +682,9 @@ body {
 }
 
 @media (max-width: 768px) {
-  /* Show the mobile hamburger button; !important overrides inline display:none */
+  /* Show the mobile hamburger; base rule has display:none so no !important needed. */
   .mobile-menu-btn {
-    display: flex !important;
+    display: flex;
   }
 
   /* The off-canvas drawer is the shared shell's job now
@@ -2682,6 +2701,7 @@ body {
   .content-header {
     flex-wrap: wrap;
     row-gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
   }
 
   /* Force a line break instead of eating the remaining width. As flex:1 this
@@ -2712,6 +2732,7 @@ body {
      makes a row identifiable, so it gets the space. */
   .fb-row {
     grid-template-columns: auto 1fr auto;
+    min-height: 44px;
   }
   .fb-size,
   .fb-date {
@@ -2722,6 +2743,12 @@ body {
   .fb-toolbar {
     flex-wrap: wrap;
     row-gap: 0.5rem;
+  }
+
+  /* Selection toolbar: wraps when many items are selected on narrow screens. */
+  .selection-toolbar {
+    flex-wrap: wrap;
+    row-gap: 0.4rem;
   }
 }
 
@@ -2790,4 +2817,202 @@ body {
 .fb-empty-trash-btn {
   margin-left: auto;
   color: var(--color-danger, #d0021b);
+}
+
+/* ─── Sort / filter controls in the fb-toolbar ─────────────────────────── */
+.fb-sort-select {
+  background: var(--cloistr-bg-elevated);
+  color: var(--cloistr-text);
+  border: 1px solid var(--cloistr-border);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.fb-sort-dir-btn {
+  font-size: 0.9rem;
+  font-weight: 600;
+  min-width: 2rem;
+}
+
+.fb-toolbar-sep {
+  width: 1px;
+  background: var(--cloistr-border);
+  align-self: stretch;
+  margin: 0 0.25rem;
+}
+
+.fb-tag-clear-btn {
+  color: var(--cloistr-text-muted);
+  font-size: 0.8rem;
+}
+
+/* ─── Tags modal ─────────────────────────────────────────────────────────── */
+.tags-current {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
+  min-height: 2rem;
+}
+
+.tags-empty {
+  opacity: 0.55;
+  font-size: 0.875rem;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--cloistr-bg-hover);
+  border: 1px solid var(--cloistr-border);
+  border-radius: 12px;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.tag-chip-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--cloistr-text-muted);
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0;
+  min-height: 20px;
+  min-width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tags-input-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.tags-input-row .modal-input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/* Tag chips on file rows */
+.fb-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  margin-top: 0.2rem;
+}
+
+.fb-tag {
+  background: var(--cloistr-bg-hover);
+  border: 1px solid var(--cloistr-border);
+  border-radius: 8px;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.7rem;
+  color: var(--cloistr-text-muted);
+}
+
+/* ─── Mobile tap-target enforcement ─────────────────────────────────────── */
+/* WCAG 2.5.5 / Apple HIG: interactive targets must be at least 44x44px.     */
+
+.fb-menu-btn {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fb-star {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fb-view-btn {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.selection-btn {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 44-px touch target sizing for the mobile hamburger.  No display override here:
+   the base rule has display:none (desktop hidden) and the mobile media query
+   has display:flex.  Adding display:flex here unconditionally used to create a
+   specificity fight with the inline style={{ display:'none' }} that was
+   previously on the element — that anti-pattern is gone, this rule is clean. */
+.mobile-menu-btn {
+  min-height: 44px;
+  min-width: 44px;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Modal close buttons */
+.modal-close {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Move / copy targets */
+.move-target {
+  min-height: 44px;
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+}
+
+/* Screen-reader only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Ensure no horizontal overflow at 390px */
+@media (max-width: 430px) {
+  .fb-toolbar {
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .content-header {
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    padding: 0.3rem 0.5rem;
+  }
+
+  .fb-toolbar-sep {
+    display: none;
+  }
+
+  /* Tighter file-browser padding at narrowest screens, giving the file list
+     more horizontal room without losing the visual indent. */
+  .file-browser {
+    padding: 0.5rem 0.75rem;
+  }
 }

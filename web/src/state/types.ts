@@ -46,6 +46,8 @@ export interface StashFile {
   folder?: string
   deleted_at?: number
   deletedAt?: number
+  /** User-defined tags for filtering/organisation (stored as Nostr 't' tags). */
+  tags?: string[]
   [key: string]: unknown
 }
 
@@ -57,4 +59,12 @@ export interface StashFolder {
   /** Folder key, encrypted to the owner's pubkey (self-encryption). */
   encrypted_key?: string
   [key: string]: unknown
+}
+
+export type SortField = 'name' | 'date' | 'size'
+export type SortDir = 'asc' | 'desc'
+
+export interface SortPrefs {
+  field: SortField
+  dir: SortDir
 }

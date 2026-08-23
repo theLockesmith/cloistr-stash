@@ -43,6 +43,8 @@ export interface EncryptedFileMetadataInput {
   folderId?: string
   deletedAt?: number
   version?: number
+  /** User-defined tags stored as Nostr 't' tags on the kind:30078 event. */
+  userTags?: string[]
 }
 
 export interface FolderMetadataInput {
@@ -101,6 +103,10 @@ export const Events = {
     if (fileInfo.plaintextHash) tags.push(['ox', fileInfo.plaintextHash])
     if (fileInfo.folderId) tags.push(['folder', fileInfo.folderId])
     if (fileInfo.deletedAt) tags.push(['deleted_at', fileInfo.deletedAt.toString()])
+    // User-defined tags ('t' in Nostr convention) for filtering.
+    for (const t of fileInfo.userTags ?? []) {
+      if (t.trim()) tags.push(['t', t.trim().toLowerCase()])
+    }
 
     if (fileInfo.version) {
       const pubkey = requirePubkey()

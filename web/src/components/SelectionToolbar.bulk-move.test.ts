@@ -11,6 +11,12 @@
  *  - MoveModal is imported and used by the toolbar.
  *  - StashProvider exports moveSelected in the context value interface.
  *  - upload.ts exports copyFile.
+ *  - upload.ts copyFile downloads, decrypts, and re-encrypts.
+ *
+ * This is a SOURCE test, not a render test. It checks the wiring exists in the
+ * source files, not that the UI behaves correctly at runtime. The limitation is
+ * stated here rather than dressed up: a render test would be stronger, but the
+ * package has no DOM environment (no jsdom/happy-dom, no @testing-library/react).
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -30,19 +36,14 @@ describe('SelectionToolbar bulk move', () => {
   })
 
   it('renders a Move button that opens the move modal', () => {
-    // The button's onClick calls setMoveOpen(true). That's the observable
-    // claim: the button exists and opens the modal.
     expect(TOOLBAR).toContain('setMoveOpen(true)')
   })
 
   it('guards the Move button behind fileCount > 0', () => {
-    // The button must only appear when files are selected, not just folders.
-    // The guard is the conditional render `{fileCount > 0 && ...}`.
     expect(TOOLBAR).toContain('fileCount > 0')
   })
 
   it('passes moveSelected into MoveModal onMove', () => {
-    // The onMove handler calls moveSelected with the chosen folder id.
     expect(TOOLBAR).toContain('moveSelected(targetFolderId)')
   })
 })
@@ -53,8 +54,6 @@ describe('StashProvider context value', () => {
   })
 
   it('includes moveSelected in the useMemo value object', () => {
-    // The value object passed to the context must include moveSelected so
-    // consumers can destructure it from useStash().
     const valueBlock = PROVIDER.slice(PROVIDER.lastIndexOf('useMemo<StashContextValue>'))
     expect(valueBlock).toContain('moveSelected,')
   })
@@ -66,6 +65,27 @@ describe('StashProvider context value', () => {
   it('includes copyFile in the useMemo value object', () => {
     const valueBlock = PROVIDER.slice(PROVIDER.lastIndexOf('useMemo<StashContextValue>'))
     expect(valueBlock).toContain('copyFile,')
+  })
+
+  it('declares setFileTags in the interface', () => {
+    expect(PROVIDER).toContain('setFileTags:')
+  })
+
+  it('declares uploadDirectory in the interface', () => {
+    expect(PROVIDER).toContain('uploadDirectory:')
+  })
+
+  it('includes uploadDirectory in the useMemo value object', () => {
+    const valueBlock = PROVIDER.slice(PROVIDER.lastIndexOf('useMemo<StashContextValue>'))
+    expect(valueBlock).toContain('uploadDirectory,')
+  })
+
+  it('declares activeTagFilter in the interface', () => {
+    expect(PROVIDER).toContain('activeTagFilter')
+  })
+
+  it('declares sortPrefs in the interface', () => {
+    expect(PROVIDER).toContain('sortPrefs')
   })
 })
 
