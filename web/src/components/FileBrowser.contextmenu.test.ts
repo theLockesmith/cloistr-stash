@@ -116,4 +116,20 @@ describe('FileBrowser context menus', () => {
     expect(ops, 'restoreFile not exported').toMatch(/export async function restoreFile/)
     expect(ops, 'permanentDeleteFile not exported').toMatch(/export async function permanentDeleteFile/)
   })
+
+  it('file context menu includes Copy to action', () => {
+    // Guard: "Copy to..." must be present in fileMenuItems so it is reachable
+    // from both list-view row menus and grid-view cards.
+    const menuFn = SOURCE.slice(
+      SOURCE.indexOf('const fileMenuItems'),
+      SOURCE.indexOf('const folderMenuItems'),
+    )
+    expect(menuFn, "'Copy to...' missing from file menu").toContain("'Copy to…'")
+  })
+
+  it('CopyModal (MoveModal with copy title) is rendered in FileBrowser', () => {
+    // Guard: the MoveModal instance used as a copy picker must supply
+    // title="Copy to folder" so users see the right heading.
+    expect(SOURCE, 'CopyModal missing from FileBrowser').toContain('Copy to folder')
+  })
 })

@@ -33,7 +33,7 @@ import {
   RELAY_THROTTLE_MS,
   softDeleteFile,
 } from '../lib/operations'
-import { uploadFiles as libUploadFiles, type UploadItem } from '../lib/upload'
+import { uploadFiles as libUploadFiles, copyFile as libCopyFile, type UploadItem } from '../lib/upload'
 import { Search, type SearchResult } from '../lib/search'
 import { Sharing, type DecryptedIncomingShare } from '../lib/sharing'
 import type { FolderPathItem, StashFile, StashFolder, StashNotification, StashView } from './types'
@@ -109,6 +109,8 @@ export interface StashContextValue {
   deleteFile: (file: StashFile) => Promise<void>
   deleteFolder: (folderId: string) => Promise<void>
   deleteSelected: () => Promise<void>
+  /** Move every selected file to targetFolderId ('' = root). Folders in the selection are not moved. */
+  moveSelected: (targetFolderId: string) => Promise<void>
   /** Restore a file from trash (re-publish without deletedAt). */
   restoreFile: (file: StashFile) => Promise<void>
   /** Permanently delete a file via NIP-09 kind:5 event. */
@@ -118,6 +120,12 @@ export interface StashContextValue {
   renameFile: (file: StashFile, newName: string) => Promise<void>
   renameFolder: (folder: StashFolder, newName: string) => Promise<void>
   moveFile: (file: StashFile, targetFolderId: string) => Promise<void>
+  /**
+   * Copy a file to a folder. Downloads the encrypted blob, decrypts it with
+   * the source key, re-encrypts under a new fileId in the target folder, and
+   * uploads. The original is not modified. targetFolderId '' = root.
+   */
+  copyFile: (file: StashFile, targetFolderId: string | null) => Promise<void>
   uploadItems: UploadItem[]
   uploadFiles: (files: File[]) => Promise<void>
   searchResults: SearchResult[] | null
@@ -533,6 +541,37 @@ export function StashProvider({ children }: { children: ReactNode }) {
     }
   }, [selectedFiles, selectedFolders, files, specialFiles, clearSelection, reloadCurrentView, loadFolderTree])
 
+  // Move every selected file to targetFolderId. Folders in the selection are
+  // not moved (no folder-move operation exists). Mirrors deleteSelected's
+  // throttling pattern to respect relay rate limits.
+  const moveSelected = useCallback(
+    async (targetFolderId: string) => {
+      const shas = [...selectedFiles]
+      if (shas.length === 0) return
+
+      setLoading(true)
+      setError(null)
+      try {
+        const pool = [...files, ...specialFiles]
+        for (const sha of shas) {
+          const file = pool.find((f) => f.sha256 === sha)
+          if (file) {
+            await opMoveFile(file, targetFolderId)
+            await delay(RELAY_THROTTLE_MS)
+          }
+        }
+        clearSelection()
+        await reloadCurrentView()
+      } catch (err) {
+        console.error('moveSelected failed', err)
+        setError('Failed to move selection')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [selectedFiles, files, specialFiles, clearSelection, reloadCurrentView],
+  )
+
   const restoreFile = useCallback(
     async (file: StashFile) => {
       setLoading(true)
@@ -626,6 +665,23 @@ export function StashProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.error('moveFile failed', err)
         setError('Failed to move file')
+      }
+    },
+    [reloadCurrentView],
+  )
+
+  const copyFile = useCallback(
+    async (file: StashFile, targetFolderId: string | null) => {
+      setLoading(true)
+      setError(null)
+      try {
+        await libCopyFile(file, targetFolderId)
+        await reloadCurrentView()
+      } catch (err) {
+        console.error('copyFile failed', err)
+        setError('Failed to copy file')
+      } finally {
+        setLoading(false)
       }
     },
     [reloadCurrentView],
@@ -930,6 +986,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
       renameFile,
       renameFolder,
       moveFile,
+      moveSelected,
+      copyFile,
       uploadItems,
       uploadFiles,
       searchResults,
@@ -984,6 +1042,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
       renameFile,
       renameFolder,
       moveFile,
+      moveSelected,
+      copyFile,
       uploadItems,
       uploadFiles,
       searchResults,
