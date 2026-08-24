@@ -150,6 +150,49 @@ export function FileBrowser() {
     [],
   )
 
+  // HOISTED ABOVE EVERY EARLY RETURN. Do not move these back down.
+  //
+  // These two useMemo calls used to sit at line ~424, BELOW three early
+  // returns (loading, error, and the 'shared' view). That made FileBrowser
+  // render a different NUMBER of hooks depending on its state, which React
+  // rejects outright:
+  //
+  //     Minified React error #300 — "Rendered fewer hooks than expected."
+  //
+  // React then unmounted the whole tree, so stash showed a WHITE SCREEN after
+  // the login splash on mobile. It only reproduced authenticated, because
+  // FileBrowser never mounts otherwise.
+  //
+  // Hooks must run unconditionally, in the same order, on every render. Any
+  // new hook belongs ABOVE the early returns below.
+  const isMyFiles = view === 'my-files'
+  const shownFolders = isMyFiles ? folders : []
+  const rawFiles = isMyFiles ? files : specialFiles
+
+  // Tag filter: applied before sort
+  const tagFilteredFiles = useMemo(() => {
+    if (!activeTagFilter) return rawFiles
+    return rawFiles.filter((f) => (f.tags ?? []).includes(activeTagFilter))
+  }, [rawFiles, activeTagFilter])
+
+  // Sort files according to sortPrefs (folders are always shown first, unsorted)
+  const shownFiles = useMemo(() => {
+    const sorted = [...tagFilteredFiles]
+    const { field, dir } = sortPrefs
+    sorted.sort((a, b) => {
+      let cmp = 0
+      if (field === 'name') {
+        cmp = (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' })
+      } else if (field === 'date') {
+        cmp = Number(a.created_at ?? 0) - Number(b.created_at ?? 0)
+      } else if (field === 'size') {
+        cmp = Number(a.size ?? 0) - Number(b.size ?? 0)
+      }
+      return dir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [tagFilteredFiles, sortPrefs])
+
   // Modals are always mounted so they render regardless of the early returns below.
   const modals = (
     <>
@@ -415,34 +458,6 @@ export function FileBrowser() {
       </div>
     )
   }
-
-  const isMyFiles = view === 'my-files'
-  const shownFolders = isMyFiles ? folders : []
-  const rawFiles = isMyFiles ? files : specialFiles
-
-  // Tag filter: applied before sort
-  const tagFilteredFiles = useMemo(() => {
-    if (!activeTagFilter) return rawFiles
-    return rawFiles.filter((f) => (f.tags ?? []).includes(activeTagFilter))
-  }, [rawFiles, activeTagFilter])
-
-  // Sort files according to sortPrefs (folders are always shown first, unsorted)
-  const shownFiles = useMemo(() => {
-    const sorted = [...tagFilteredFiles]
-    const { field, dir } = sortPrefs
-    sorted.sort((a, b) => {
-      let cmp = 0
-      if (field === 'name') {
-        cmp = (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' })
-      } else if (field === 'date') {
-        cmp = Number(a.created_at ?? 0) - Number(b.created_at ?? 0)
-      } else if (field === 'size') {
-        cmp = Number(a.size ?? 0) - Number(b.size ?? 0)
-      }
-      return dir === 'asc' ? cmp : -cmp
-    })
-    return sorted
-  }, [tagFilteredFiles, sortPrefs])
 
   const empty = shownFolders.length === 0 && shownFiles.length === 0
 
