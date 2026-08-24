@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef } from 'react'
 import { useNostrAuth } from '@cloistr/auth'
 import { Header, Footer, Spinner, useSharedSession } from '@cloistr/ui/components'
+import { AppShell } from '@cloistr/ui/components'
+import type { MenuSection } from '@cloistr/ui/components'
 import { updateAuth, type Signer } from './lib/authBridge'
 import { SignerRecovery } from '@cloistr/ui/components'
 import { useStash } from './state/useStash'
@@ -36,7 +38,44 @@ import { Crypto } from './lib/crypto'
  *
  * The unauthenticated state now renders NIP46Dialog — the ported landing page +
  * NIP-46 remote-signer connect flow — replacing the static LoginPrompt placeholder.
+ *
+ * Navigation: AppShell owns the single mobile hamburger. The sidebar nav (views
+ * + folder tree) goes into AppShell's `nav` prop. Actions go into `menu`. On
+ * mobile, one drawer contains both. On desktop, the sidebar is in-flow and the
+ * menu is a horizontal bar — no hamburger.
  */
+
+/**
+ * Build the AppShell menu for a given state.
+ *
+ * All callbacks come from App state so they reach the mobile drawer and the
+ * desktop menu bar from the same definition. Menu items that depend on state
+ * (e.g. New Folder only makes sense in my-files) map to disabled items with
+ * `disabledReason` rather than hidden items or enabled no-ops.
+ */
+export function buildStashMenu(opts: {
+  view: string
+  onNewFolder: () => void
+  onBackup: () => void
+  onNotifications: () => void
+  onActivity: () => void
+}): MenuSection[] {
+  return [
+    {
+      label: 'Actions',
+      items: [
+        opts.view === 'my-files'
+          ? { label: 'New Folder', onSelect: opts.onNewFolder }
+          : { label: 'New Folder', disabledReason: 'Only available in My Files' },
+        { label: 'Key Backup', onSelect: opts.onBackup },
+        { separator: true } as const,
+        { label: 'Notifications', onSelect: opts.onNotifications },
+        { label: 'Activity Log', onSelect: opts.onActivity },
+      ],
+    },
+  ]
+}
+
 export default function App() {
   const { authState, signer } = useNostrAuth()
   const isConnected = !!authState?.isConnected
@@ -82,13 +121,8 @@ export default function App() {
     }
   }, [isConnecting, isConnected])
   const { loadFiles, loadFolderTree, uploadFiles, uploadDirectory, view, currentFolderId, migrationFiles, dismissMigration } = useStash()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  // SEPARATE from sidebarOpen, deliberately. sidebarOpen is the MOBILE drawer
-  // and must default closed; this is the DESKTOP rail collapsing to icons and
-  // is a persisted preference. One boolean drove both, which is why the desktop
-  // toggle only ever showed the backdrop: it flipped the drawer state on a
-  // breakpoint where the drawer does not exist, so the page went dark with
-  // nothing behind it.
+  // DESKTOP only: persisted preference for the sidebar rail width.
+  // AppShell owns the mobile drawer; this controls the desktop aside only.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
       return localStorage.getItem('stash:sidebarCollapsed') === '1'
@@ -103,7 +137,6 @@ export default function App() {
   // Folder-upload error notice (e.g. auth not ready when a folder is dropped).
   const [folderUploadError, setFolderUploadError] = useState<string | null>(null)
 
-  const toggleSidebar = () => setSidebarOpen((o) => !o)
   const toggleCollapsed = () =>
     setSidebarCollapsed((c) => {
       const next = !c
@@ -114,7 +147,6 @@ export default function App() {
       }
       return next
     })
-  const closeSidebar = () => setSidebarOpen(false)
 
   // Bridge the shared signer into the data layer, then load on connect.
   useEffect(() => {
@@ -181,34 +213,35 @@ export default function App() {
     }
   }, [signer, isConnected, pubkey, loadFiles, loadFolderTree])
 
+  // Menu sections built from live state so both the desktop menu bar and the
+  // mobile drawer sections reflect the same callbacks and disabled states.
+  const menu = isConnected
+    ? buildStashMenu({
+        view,
+        onNewFolder: () => setNewFolderOpen(true),
+        onBackup: () => setBackupOpen(true),
+        onNotifications: () => setNotificationsOpen(true),
+        onActivity: () => setActivityOpen(true),
+      })
+    : undefined
+
   return (
     <div className="stash-app">
       <Header activeServiceId="files" />
       <main className="stash-main">
         {isConnected ? (
-          <div
-            className={`stash-workspace ${sidebarOpen ? 'sidebar-open' : ''}${
-              sidebarCollapsed ? ' sidebar-collapsed' : ''
-            }`}
+          <AppShell
+            serviceId="stash"
+            nav={
+              <Sidebar
+                collapsed={sidebarCollapsed}
+                onToggle={toggleCollapsed}
+                onOpenNotifications={() => setNotificationsOpen(true)}
+                onOpenActivity={() => setActivityOpen(true)}
+              />
+            }
+            menu={menu}
           >
-            <Sidebar
-              isOpen={sidebarOpen}
-              collapsed={sidebarCollapsed}
-              onToggle={toggleCollapsed}
-              onClose={closeSidebar}
-              onOpenNotifications={() => setNotificationsOpen(true)}
-              onOpenActivity={() => setActivityOpen(true)}
-            />
-            {/* Overlay: always in DOM so tests can find #sidebar-overlay; visible class shows it */}
-            <div
-              id="sidebar-overlay"
-              className={`sidebar-overlay${sidebarOpen ? ' visible' : ''}`}
-              role="button"
-              tabIndex={-1}
-              aria-label="Close navigation"
-              onClick={closeSidebar}
-              onKeyDown={(e) => { if (e.key === 'Escape') closeSidebar() }}
-            />
             <div
               className="stash-content"
               onDragOver={(e) => {
@@ -250,19 +283,6 @@ export default function App() {
               }}
             >
               <div className="content-header">
-                {/* Mobile-only hamburger: CSS .mobile-menu-btn has display:none by
-                    default and display:flex inside @media (max-width:768px).
-                    No inline style needed — eliminates the previous !important fight. */}
-                <button
-                  id="mobile-menu-btn"
-                  type="button"
-                  className="mobile-menu-btn"
-                  title="Menu"
-                  aria-label="Open navigation"
-                  onClick={toggleSidebar}
-                >
-                  ☰
-                </button>
                 <Breadcrumbs />
                 <span className="content-header-spacer" />
                 {view === 'my-files' && (
@@ -349,7 +369,7 @@ export default function App() {
               open={notificationsOpen}
               onClose={() => setNotificationsOpen(false)}
             />
-          </div>
+          </AppShell>
         ) : isConnecting ? (
           /* Connecting: plain-language status, no protocol jargon. The
              technical detail (method, key, error) is available behind a
