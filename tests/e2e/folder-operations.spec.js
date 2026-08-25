@@ -87,10 +87,11 @@ test.describe('Folder Operations - UI Structure', () => {
       const title = page.locator('#sidebar-title');
       await expect(title).toContainText('Folders');
 
-      const toggle = page.locator('#sidebar-toggle');
+      // The collapse control lives in the shared header now, not in here.
+      await expect(page.locator('#sidebar #sidebar-toggle')).toHaveCount(0);
+      const toggle = page.locator('header .cloistr-sidebar-toggle');
       await expect(toggle).toBeAttached();
-      await expect(toggle).toHaveAttribute('title', 'Toggle sidebar');
-      await expect(toggle).toHaveAttribute('aria-label', 'Toggle sidebar');
+      await expect(toggle).toHaveAttribute('aria-label', /navigation/i);
       await expect(toggle).toHaveAttribute('aria-expanded');
     });
 
@@ -329,8 +330,8 @@ test.describe('Folder Operations - Accessibility Structure', () => {
   });
 
   test('buttons have proper accessibility attributes', async ({ page }) => {
-    const sidebarToggle = page.locator('#sidebar-toggle');
-    await expect(sidebarToggle).toHaveAttribute('aria-label', 'Toggle sidebar');
+    const sidebarToggle = page.locator('header .cloistr-sidebar-toggle');
+    await expect(sidebarToggle).toHaveAttribute('aria-label', /navigation/i);
     await expect(sidebarToggle).toHaveAttribute('aria-expanded');
 
     const newBtn = page.locator('#new-btn');

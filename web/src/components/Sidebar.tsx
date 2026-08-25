@@ -4,11 +4,17 @@
 // desktop. This component renders the nav content only (views, folder tree,
 // bottom actions) without re-deriving the drawer shell.
 //
-// `collapsed` / `onToggle` are desktop-only: on mobile AppShell's drawer is
-// either fully open or fully closed, so these props are irrelevant there.
+// `collapsed` is desktop-only: on mobile AppShell's drawer is either fully open
+// or fully closed, so it is irrelevant there.
 //
-// The legacy ids and classes (#sidebar-toggle, #folder-tree, #nav-notifications,
-// #nav-activity) are preserved so E2E specs pass unchanged.
+// There is deliberately NO toggle button in here. This component used to render
+// its own `#sidebar-toggle`, which meant stash had two controls for one state —
+// and after the header control landed, two visible hamburgers on desktop. The
+// single control lives in the shared Header (<AppShellToggle /> in App.tsx) and
+// drives this via AppShell's controlled `collapsed`.
+//
+// The legacy ids and classes (#folder-tree, #nav-notifications, #nav-activity)
+// are preserved so E2E specs pass unchanged.
 
 import { useMemo, useState } from 'react'
 import { useStash } from '../state/useStash'
@@ -28,12 +34,11 @@ interface SidebarProps {
    * mobile because AppShell's drawer is all-or-nothing.
    */
   collapsed?: boolean
-  onToggle: () => void
   onOpenNotifications: () => void
   onOpenActivity: () => void
 }
 
-export function Sidebar({ collapsed = false, onToggle, onOpenNotifications, onOpenActivity }: SidebarProps) {
+export function Sidebar({ collapsed = false, onOpenNotifications, onOpenActivity }: SidebarProps) {
   const {
     view,
     setView,
@@ -62,20 +67,9 @@ export function Sidebar({ collapsed = false, onToggle, onOpenNotifications, onOp
 
   return (
     <div id="sidebar" className={`sidebar${collapsed ? ' collapsed' : ''}`} aria-label="File navigation">
-      {/* Sidebar header with title and desktop collapse toggle */}
+      {/* Title only. The collapse control is the shared header's. */}
       <div className="sidebar-header">
         <span id="sidebar-title" className="sidebar-title">Folders</span>
-        <button
-          id="sidebar-toggle"
-          type="button"
-          className="btn btn-icon sidebar-toggle"
-          title="Toggle sidebar"
-          aria-label="Toggle sidebar"
-          aria-expanded={!collapsed}
-          onClick={onToggle}
-        >
-          ☰
-        </button>
       </div>
 
       <nav className="sidebar-views">

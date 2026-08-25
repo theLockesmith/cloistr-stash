@@ -12,8 +12,9 @@
  *   2. AppShell is imported and used in App.tsx.
  *   3. buildStashMenu (the pure menu-data function) is exported and returns
  *      non-empty sections.
- *   4. The desktop collapse toggle (.sidebar-toggle) is hidden below 768px
- *      — it lives in the sidebar aside which AppShell hides on mobile.
+ *   4. Sidebar.tsx renders NO toggle of its own. It used to render
+ *      #sidebar-toggle, so once the shared header control landed there were two
+ *      hamburgers on desktop driving one state.
  *   5. .sidebar-overlay is absent from index.css — AppShell provides its
  *      own scrim; the app-level one is dead code.
  */
@@ -149,15 +150,28 @@ describe('AppShell migration: menu data is valid', () => {
   })
 })
 
-describe('AppShell migration: desktop collapse toggle hidden on mobile', () => {
-  it('.sidebar-toggle is hidden via a max-width media query', () => {
-    // The toggle lives inside the sidebar aside that AppShell does not render
-    // below 768px. Hiding it in the drawer context prevents it from showing up
-    // as an in-drawer control that does nothing meaningful on mobile.
-    const mobileText = mobileMediaSegmentsFor('.sidebar-toggle').join('\n')
-    expect(
-      mobileText,
-      '.sidebar-toggle must be hidden (display:none) in a max-width media query',
-    ).toMatch(/\.sidebar-toggle\s*\{[^}]*display\s*:\s*none/)
+describe('AppShell migration: one collapse control, and it is the header\'s', () => {
+  const SIDEBAR = readFileSync(join(__dirname, './Sidebar.tsx'), 'utf8')
+
+  it('Sidebar.tsx renders no toggle button of its own', () => {
+    // Asserting on the RENDERED markers, not the word "toggle": the file's
+    // comment explains why the button is gone, and matching that comment would
+    // fail for the wrong reason.
+    expect(SIDEBAR, 'Sidebar must not render id="sidebar-toggle"').not.toMatch(/id="sidebar-toggle"/)
+    expect(SIDEBAR, 'Sidebar must not render its own Toggle sidebar button').not.toMatch(
+      /aria-label="Toggle sidebar"/,
+    )
+  })
+
+  it('App.tsx places the single control in the header and drives its own state', () => {
+    // Without `collapsed`/`onCollapsedChange`, AppShell keeps a SECOND collapse
+    // state that stash's <Sidebar collapsed={...}> never reads — which is how
+    // the desktop hamburger came to move but do nothing.
+    expect(APP, 'AppShellToggle must be rendered').toMatch(/<AppShellToggle\s*\/>/)
+    expect(APP, 'toggleInHeader must be set, or the trigger renders above the content').toMatch(
+      /toggleInHeader/,
+    )
+    expect(APP, "AppShell must be told stash's collapsed state").toMatch(/collapsed=\{sidebarCollapsed\}/)
+    expect(APP, 'AppShell must report collapse changes back').toMatch(/onCollapsedChange=/)
   })
 })

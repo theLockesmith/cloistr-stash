@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useNostrAuth } from '@cloistr/auth'
 import { Header, Footer, Spinner, useSharedSession } from '@cloistr/ui/components'
-import { AppShell } from '@cloistr/ui/components'
+import { AppShell, AppShellToggle } from '@cloistr/ui/components'
 import type { MenuSection } from '@cloistr/ui/components'
 import { updateAuth, type Signer } from './lib/authBridge'
 import { SignerRecovery } from '@cloistr/ui/components'
@@ -232,16 +232,27 @@ export default function App() {
         {isConnected ? (
           <AppShell
             serviceId="stash"
+            // The shell's toggle drives STASH's collapse state, not a second
+            // one of its own. Without these the shell flipped an internal flag
+            // that the visible <Sidebar> never read, so the desktop hamburger
+            // appeared to do nothing at all.
+            collapsed={sidebarCollapsed}
+            onCollapsedChange={(next) => {
+              if (next !== sidebarCollapsed) toggleCollapsed()
+            }}
+            // Portals the single control into the shared Header instead of
+            // rendering it as its own row above the content.
+            toggleInHeader
             nav={
               <Sidebar
                 collapsed={sidebarCollapsed}
-                onToggle={toggleCollapsed}
                 onOpenNotifications={() => setNotificationsOpen(true)}
                 onOpenActivity={() => setActivityOpen(true)}
               />
             }
             menu={menu}
           >
+            <AppShellToggle />
             <div
               className="stash-content"
               onDragOver={(e) => {
