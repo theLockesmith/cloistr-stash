@@ -442,14 +442,18 @@ test.describe('File Operations', () => {
     });
 
     test('sidebar can be toggled on desktop', async ({ page }) => {
-      const sidebarToggle = page.locator('#sidebar-toggle');
+      // The control is the SHARED header's, not one stash renders itself.
+      // #sidebar-toggle was removed: with the header control in place it was a
+      // second hamburger for the same state.
+      const sidebarToggle = page.locator('header .cloistr-sidebar-toggle');
       await expect(sidebarToggle).toBeVisible();
-      await expect(sidebarToggle).toHaveAttribute('title', 'Toggle sidebar');
       await expect(sidebarToggle).toHaveAttribute('aria-expanded', 'true');
 
-      // Click to toggle
+      // Toggling must actually collapse the rail — the previous version clicked
+      // and asserted nothing, which is why a dead toggle shipped.
       await sidebarToggle.click();
-      // Note: The actual hiding behavior would need JS to be fully tested
+      await expect(page.locator('#sidebar')).toHaveClass(/collapsed/);
+      await expect(sidebarToggle).toHaveAttribute('aria-expanded', 'false');
     });
   });
 

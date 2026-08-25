@@ -382,16 +382,16 @@ test.describe('Views & Navigation', () => {
 
     test('sidebar should have toggle functionality', async ({ page }) => {
       const sidebar = page.locator('#sidebar');
-      const sidebarToggle = page.locator('#sidebar-toggle');
+      // One control, and it is the shared header's.
+      const sidebarToggle = page.locator('header .cloistr-sidebar-toggle');
 
       // Sidebar should be visible initially
       await expect(sidebar).toBeVisible();
       await expect(sidebarToggle).toHaveAttribute('aria-expanded', 'true');
 
-      // Toggle button should exist
       await expect(sidebarToggle).toBeVisible();
-      await expect(sidebarToggle).toHaveAttribute('title', 'Toggle sidebar');
-      await expect(sidebarToggle).toHaveAttribute('aria-label', 'Toggle sidebar');
+      await expect(sidebarToggle).toHaveAttribute('aria-label', /navigation/i);
+      await expect(page.locator('#sidebar-toggle')).toHaveCount(0);
     });
   });
 

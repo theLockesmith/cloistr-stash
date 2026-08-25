@@ -246,7 +246,6 @@ export default function App() {
             nav={
               <Sidebar
                 collapsed={sidebarCollapsed}
-                onToggle={toggleCollapsed}
                 onOpenNotifications={() => setNotificationsOpen(true)}
                 onOpenActivity={() => setActivityOpen(true)}
               />
