@@ -120,13 +120,38 @@ export async function unpublish(sha256: string): Promise<void> {
   await API.deleteFile(sha256, authHeader)
 }
 
-/** Current kind-0 for a pubkey, or null when the relay has none. */
-export async function readProfile(pubkey: string): Promise<string | null> {
-  const events = await Relay.subscribe({ kinds: [0], authors: [pubkey], limit: 1 })
-  if (!events.length) return null
+/**
+ * The current kind-0 for a pubkey.
+ *
+ * THREE outcomes, not two. Returning `null` for both "the relay has no profile
+ * for you" and "we could not reach the relay" is what made setProfilePicture
+ * refuse for a user who simply has no profile yet: there is nothing to
+ * overwrite, so publishing is safe, but the guard could not tell the cases
+ * apart. Verified 2026-08-25 — neither the operator's pubkey nor the test
+ * account has any kind-0 on relay.cloistr.xyz, so "Use as Nostr profile
+ * picture" could never succeed for either.
+ *
+ *   found      — a kind-0 exists; merge into it
+ *   absent     — the relay answered, and there is none; safe to create one
+ *   unreadable — the query failed; refuse, because we cannot know
+ */
+export type ProfileRead =
+  | { status: 'found'; content: string }
+  | { status: 'absent' }
+  | { status: 'unreadable'; reason: string }
+
+export async function readProfile(pubkey: string): Promise<ProfileRead> {
+  let events
+  try {
+    events = await Relay.subscribe({ kinds: [0], authors: [pubkey], limit: 1 })
+  } catch (err) {
+    // A failed query is NOT an empty profile.
+    return { status: 'unreadable', reason: err instanceof Error ? err.message : String(err) }
+  }
+  if (!events || !events.length) return { status: 'absent' }
   // Newest wins if a relay hands back more than one.
   const newest = events.reduce((a, b) => ((b.created_at ?? 0) > (a.created_at ?? 0) ? b : a))
-  return typeof newest.content === 'string' ? newest.content : ''
+  return { status: 'found', content: typeof newest.content === 'string' ? newest.content : '' }
 }
 
 export interface SetProfilePictureDeps {
@@ -159,11 +184,13 @@ function defaultProfileDeps(): SetProfilePictureDeps {
 /**
  * Point the user's Nostr profile at a published URL.
  *
- * REFUSES when the current profile cannot be read. Publishing a kind-0 built
- * from nothing would wipe the user's existing profile everywhere, which is far
- * worse than the picture not updating. `allowEmptyProfile` exists for the
- * genuine case of a user who has never published a kind-0 at all, and the
- * caller must decide that deliberately.
+ * REFUSES when the current profile cannot be READ (relay unreachable), because
+ * publishing a kind-0 built from nothing would wipe the user's existing profile
+ * everywhere — far worse than the picture not updating.
+ *
+ * Does NOT refuse when the relay answers and there is simply no profile yet:
+ * nothing exists to overwrite, so creating one is safe. Conflating those two
+ * was a bug; a user with no kind-0 could never set a picture at all.
  */
 export async function setProfilePicture(
   pictureUrl: string,
@@ -172,13 +199,19 @@ export async function setProfilePicture(
 ): Promise<void> {
   const existing = await readProfile(deps.pubkey)
 
-  if (existing === null && !allowEmptyProfile) {
+  // Refuse ONLY when we genuinely could not look. An absent profile has nothing
+  // to overwrite, so creating one is safe and is the common case for a new user.
+  if (existing.status === 'unreadable' && !allowEmptyProfile) {
     throw new Error(
-      'Could not read your current Nostr profile. Refusing to publish, because doing so would replace your existing profile fields.',
+      'Could not reach a relay to read your current Nostr profile. Refusing to publish, ' +
+        'because doing so would replace your existing profile fields. Please try again.',
     )
   }
 
-  const content = mergeProfilePicture(existing ?? '', pictureUrl)
+  const content = mergeProfilePicture(
+    existing.status === 'found' ? existing.content : '',
+    pictureUrl,
+  )
   const signed = await deps.signEvent({
     kind: 0,
     created_at: Math.floor(Date.now() / 1000),

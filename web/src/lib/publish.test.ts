@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mergeProfilePicture, publicBlobUrl, PUBLIC_BLOB_HOST } from './publish'
+import type { ProfileRead } from './publish'
 
 describe('publicBlobUrl', () => {
   it('builds a plain hash URL with no fragment', () => {
@@ -84,5 +85,35 @@ describe('mergeProfilePicture', () => {
     // Swallowing a parse error and writing a fresh profile is exactly the data
     // loss this module exists to avoid.
     expect(() => mergeProfilePicture('{ broken', 'https://h/1')).toThrow()
+  })
+})
+
+describe('readProfile / setProfilePicture — absent vs unreadable', () => {
+  // The operator hit this: "Use as Nostr profile picture" refused with
+  // "Could not read your current Nostr profile". Verified 2026-08-25 that
+  // neither their pubkey nor the test account has ANY kind-0 on
+  // relay.cloistr.xyz — so there was nothing to overwrite and the refusal was
+  // wrong. readProfile returned null for both "none exists" and "query
+  // failed", and the guard could not tell them apart.
+  it('an absent profile is not the same as an unreadable one', () => {
+    const absent: ProfileRead = { status: 'absent' }
+    const unreadable: ProfileRead = { status: 'unreadable', reason: 'relay timeout' }
+    expect(absent.status).not.toBe(unreadable.status)
+  })
+
+  it('merges into nothing when the profile is absent, without discarding the picture', () => {
+    // The safe-create case: no existing fields to lose.
+    const merged = mergeProfilePicture('', 'https://blossom.cloistr.xyz/abc')
+    expect(JSON.parse(merged).picture).toBe('https://blossom.cloistr.xyz/abc')
+  })
+
+  it('preserves existing fields when a profile IS found', () => {
+    // The case the guard exists to protect: name/about must survive.
+    const existing = JSON.stringify({ name: 'ccoleman', about: 'builder', nip05: 'a@b.c' })
+    const merged = JSON.parse(mergeProfilePicture(existing, 'https://blossom.cloistr.xyz/xyz'))
+    expect(merged.name).toBe('ccoleman')
+    expect(merged.about).toBe('builder')
+    expect(merged.nip05).toBe('a@b.c')
+    expect(merged.picture).toBe('https://blossom.cloistr.xyz/xyz')
   })
 })
