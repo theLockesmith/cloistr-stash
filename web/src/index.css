@@ -411,14 +411,17 @@ body {
   flex-direction: column;
 }
 
-/* Interior padding only.
-   Width, flex behaviour, scrolling, the mobile drawer and the desktop collapse
-   all come from @cloistr/ui's .cloistr-sidebar now. This rule previously
-   redeclared all of that and, because app CSS loads AFTER package CSS, it won
-   at equal specificity — so adopting the shared shell changed the markup while
-   the old look and behaviour stayed exactly as before. */
+/* Sidebar nav content — interior padding and fixed width.
+   Width is needed because AppShell's .cloistr-appshell-sidebar uses
+   flex:0 0 auto without a fixed width; without an explicit value the sidebar
+   would collapse to content width on desktop. 16rem matches the shared
+   .cloistr-sidebar width. On mobile the content goes into the AppShell drawer
+   which does not use this sidebar rule for sizing. */
 .sidebar {
   padding: 0.75rem;
+  width: 16rem;
+  min-width: 16rem;
+  flex-shrink: 0;
 }
 
 .content-header {
@@ -599,10 +602,10 @@ body {
   color: var(--cloistr-error);
 }
 
-/* Desktop sidebar toggle button (inside sidebar header).
-   Hidden on mobile: the sidebar is off-canvas when closed (transform: translateX(-100%)),
-   so this button sits ~56px off the left edge of a 390px viewport — unreachable.
-   The #mobile-menu-btn in the content header is the correct mobile opener. */
+/* Desktop sidebar toggle button (inside the sidebar nav content).
+   AppShell owns the mobile hamburger. This toggle is for the desktop
+   icons-only rail preference and is only reachable when the sidebar aside
+   is visible (>=768px). */
 .sidebar-toggle {
   background: none;
   border: 1px solid var(--cloistr-border);
@@ -614,9 +617,9 @@ body {
 }
 
 @media (max-width: 767px) {
-  /* The collapse toggle lives inside the off-canvas sidebar; hide it on mobile
-     so only the #mobile-menu-btn (in the content area, always on-screen) opens
-     the drawer. */
+  /* AppShell does not render the sidebar aside below 768px — it goes into the
+     drawer instead. Hide the desktop collapse toggle there; it is irrelevant
+     in the drawer context (AppShell's drawer is all-or-nothing). */
   .sidebar-toggle {
     display: none;
   }
@@ -634,64 +637,6 @@ body {
 .sidebar-title {
   font-weight: 600;
   font-size: 0.9rem;
-}
-
-/* Mobile hamburger: hidden on desktop, shown in the mobile media query below.
-   No inline style; no !important needed.  Positioned in normal flow so it can
-   never land off-canvas regardless of the sidebar's off-canvas state. */
-.mobile-menu-btn {
-  display: none;
-  background: none;
-  border: 1px solid var(--cloistr-border);
-  border-radius: 6px;
-  color: var(--cloistr-text);
-  font-size: 1.1rem;
-  padding: 0.2rem 0.55rem;
-  margin: 0 0 0 0;
-  cursor: pointer;
-}
-
-/* Sidebar overlay: always in DOM for tests; visible class shows it on mobile */
-
-/* Sidebar backdrop — MOBILE ONLY, and the media query is load-bearing.
- *
- * This used to be a global rule with no breakpoint, while `.sidebar` only
- * becomes `position: fixed` + `translateX(-100%)` inside the max-width query
- * below. On desktop that meant clicking the toggle showed a full-screen dark
- * backdrop with NOTHING behind it: the sidebar is a static in-flow column there
- * and never moves, so the page just went dark and stayed that way until the
- * user clicked the invisible overlay to dismiss it.
- *
- * Two show-classes exist because the markup has used both `.visible` (App.tsx,
- * current) and `.active` (a second, duplicated declaration). Both are honoured
- * here so the dead one cannot resurface at the wrong breakpoint.
- */
-.sidebar-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: var(--cloistr-z-drawer-backdrop, 60);
-}
-
-@media (max-width: 768px) {
-  .sidebar-overlay.visible,
-  .sidebar-overlay.active {
-    display: block;
-  }
-}
-
-@media (max-width: 768px) {
-  /* Show the mobile hamburger; base rule has display:none so no !important needed. */
-  .mobile-menu-btn {
-    display: flex;
-  }
-
-  /* The off-canvas drawer is the shared shell's job now
-     (.cloistr-sidebar / .cloistr-sidebar--open in @cloistr/ui). This block used
-     to redeclare it here, keyed on .stash-workspace.sidebar-open, and because
-     app CSS loads after package CSS it won — so the shared open/close state was
-     rendered inert and stash kept its old behaviour. */
 }
 
 /* Keyboard shortcuts help */
@@ -2946,18 +2891,6 @@ body {
 .selection-btn {
   min-height: 44px;
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* 44-px touch target sizing for the mobile hamburger.  No display override here:
-   the base rule has display:none (desktop hidden) and the mobile media query
-   has display:flex.  Adding display:flex here unconditionally used to create a
-   specificity fight with the inline style={{ display:'none' }} that was
-   previously on the element — that anti-pattern is gone, this rule is clean. */
-.mobile-menu-btn {
-  min-height: 44px;
-  min-width: 44px;
   align-items: center;
   justify-content: center;
 }

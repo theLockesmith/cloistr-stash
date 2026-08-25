@@ -1,30 +1,16 @@
-// Sidebar: special-view navigation + folder tree, mounted inside the SHARED
-// @cloistr/ui Sidebar shell.
+// Sidebar nav content — rendered by AppShell as the `nav` prop.
 //
-// The shell owns the behaviour every app kept re-deriving: off-canvas drawer
-// below md, icons-only rail above it, a z-index above the sticky header, a
-// dismissable backdrop, and Escape-to-close. Four apps previously picked a
-// z-index BELOW the header and painted it over their own open drawer; stash
-// was one of them.
+// AppShell owns the off-canvas drawer on mobile and the in-flow aside on
+// desktop. This component renders the nav content only (views, folder tree,
+// bottom actions) without re-deriving the drawer shell.
 //
-// Stash could not adopt it until the shell grew a `children` slot: the shared
-// component takes a FLAT SidebarItem[], and this sidebar is a folder TREE with
-// expand/collapse plus special views. The interior below is unchanged — only
-// the outer <aside> is now the shared shell.
+// `collapsed` / `onToggle` are desktop-only: on mobile AppShell's drawer is
+// either fully open or fully closed, so these props are irrelevant there.
 //
-// The legacy ids and classes (#sidebar, .sidebar, #sidebar-toggle, #folder-tree,
-// #nav-notifications) are preserved via the shell's id/className props, so E2E
-// specs and this app's CSS keep working.
-//
-// Original note: special-view navigation + folder tree (ported from app.js
-// renderFolderTree / view switching). Folder tree is built from folderTreeData
-// by parent_id, with expand/collapse; clicking navigates by absolute path.
-//
-// The bottom nav section (notifications, activity, etc.) mirrors the legacy
-// #sidebar-nav-item DOM shape so E2E specs targeting those IDs pass unchanged.
+// The legacy ids and classes (#sidebar-toggle, #folder-tree, #nav-notifications,
+// #nav-activity) are preserved so E2E specs pass unchanged.
 
 import { useMemo, useState } from 'react'
-import { Sidebar as SharedSidebar } from '@cloistr/ui/components'
 import { useStash } from '../state/useStash'
 import type { StashFolder, StashView } from '../state/types'
 
@@ -37,21 +23,17 @@ const VIEWS: { id: StashView; label: string; icon: string }[] = [
 ]
 
 interface SidebarProps {
-  isOpen: boolean
   /**
-   * DESKTOP icons-only state. Separate from isOpen on purpose: isOpen is the
-   * mobile drawer and defaults closed, this is a persisted desktop preference.
-   * Driving both from one boolean is why the desktop toggle only ever produced
-   * a full-screen backdrop with nothing behind it.
+   * DESKTOP icons-only state — a persisted user preference. Not relevant on
+   * mobile because AppShell's drawer is all-or-nothing.
    */
   collapsed?: boolean
   onToggle: () => void
-  onClose: () => void
   onOpenNotifications: () => void
   onOpenActivity: () => void
 }
 
-export function Sidebar({ isOpen, collapsed = false, onToggle, onClose, onOpenNotifications, onOpenActivity }: SidebarProps) {
+export function Sidebar({ collapsed = false, onToggle, onOpenNotifications, onOpenActivity }: SidebarProps) {
   const {
     view,
     setView,
@@ -79,19 +61,8 @@ export function Sidebar({ isOpen, collapsed = false, onToggle, onClose, onOpenNo
   }, [folderTreeData])
 
   return (
-    <SharedSidebar
-      id="sidebar"
-      className={`sidebar${collapsed ? ' collapsed' : ''}`}
-      ariaLabel="File navigation"
-      /* Flat items are unused here: everything below is a tree or a custom
-         row, so it all arrives as children and the shell skips its own nav. */
-      items={[]}
-      open={isOpen}
-      onOpenChange={(next) => { if (!next) onClose() }}
-      collapsed={collapsed}
-      onCollapsedChange={onToggle}
-    >
-      {/* Sidebar header with title and desktop collapse toggle (matches legacy #sidebar-toggle) */}
+    <div id="sidebar" className={`sidebar${collapsed ? ' collapsed' : ''}`} aria-label="File navigation">
+      {/* Sidebar header with title and desktop collapse toggle */}
       <div className="sidebar-header">
         <span id="sidebar-title" className="sidebar-title">Folders</span>
         <button
@@ -231,7 +202,7 @@ export function Sidebar({ isOpen, collapsed = false, onToggle, onClose, onOpenNo
           </p>
         </div>
       )}
-    </SharedSidebar>
+    </div>
   )
 }
 
