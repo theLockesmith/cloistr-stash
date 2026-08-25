@@ -4,8 +4,10 @@
 //   • showFileInfo() populated five metadata fields: name, size, MIME type,
 //     created_at timestamp, encrypted flag, truncated sha256 hash.
 //   • Modal footer had six action buttons: Preview, Download, Share, Public
-//     Link, Version History, Delete. Public Link is not yet ported (the feature
-//     does not exist in the React codebase) and is intentionally omitted.
+//     Link, Version History, Delete. Public Link IS now ported (see the
+//     "Public link" row below): the operator asked how to retrieve a published
+//     file's link without re-running the whole "Share publicly" flow, and the
+//     answer was that you could not.
 //   • Clicking any filename text in the file list opened the info modal.
 //
 // DOM structure intentionally matches the Playwright spec
@@ -16,12 +18,13 @@
 // The download action fetches and decrypts (when needed) the blob and triggers
 // a browser anchor-click download – the same pipeline as the legacy downloadFile().
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { StashFile } from '../state/types'
 import { formatFileSize } from './format'
 import { API } from '../lib/api'
 import { Keys } from '../lib/keys'
 import { Crypto } from '../lib/crypto'
+import { publicUrlForFile, checkPublished, type PublicState } from '../lib/publish'
 
 // ─── download helper ─────────────────────────────────────────────────────────
 
@@ -104,6 +107,26 @@ export function FileInfoModal({ file, onClose, onPreview, onShare, onVersions, o
     }
   }
 
+  // Public link. The URL is DERIVED from the stored plaintext hash rather than
+  // stored separately, and whether it is currently served is asked of the
+  // server rather than cached — a stale "published" flag would hand the user a
+  // link that 404s, which is worse than showing nothing.
+  const publicUrl = file ? publicUrlForFile(file) : null
+  const [publicState, setPublicState] = useState<PublicState>('unknown')
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!isOpen || !publicUrl) return
+    let cancelled = false
+    setPublicState('unknown')
+    void checkPublished(publicUrl).then((s) => {
+      if (!cancelled) setPublicState(s)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, publicUrl])
+
   // The modal is ALWAYS rendered so #file-info-modal is always attached to the
   // DOM. Playwright spec checks toBeAttached() + toHaveClass(/hidden/).
   return (
@@ -138,6 +161,43 @@ export function FileInfoModal({ file, onClose, onPreview, onShare, onVersions, o
             <dd title={hash}>
               <code>{hashShort}</code>
             </dd>
+            {publicUrl && (
+              <>
+                <dt>Public link</dt>
+                <dd>
+                  {publicState === 'published' ? (
+                    <span className="file-info-public">
+                      <code
+                        className="file-info-public-url"
+                        id="file-info-public-url"
+                        title={publicUrl}
+                      >
+                        {publicUrl}
+                      </code>
+                      <button
+                        type="button"
+                        className="selection-btn"
+                        id="file-info-copy-public"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(publicUrl).then(() => {
+                            setCopied(true)
+                            setTimeout(() => setCopied(false), 2000)
+                          })
+                        }}
+                      >
+                        {copied ? 'Copied' : 'Copy'}
+                      </button>
+                    </span>
+                  ) : publicState === 'not-published' ? (
+                    <span className="file-info-muted">Not shared publicly</span>
+                  ) : (
+                    // NOT "not published": we could not ask. Saying otherwise
+                    // would tell the user a public file is private.
+                    <span className="file-info-muted">Checking…</span>
+                  )}
+                </dd>
+              </>
+            )}
           </dl>
         </div>
 
