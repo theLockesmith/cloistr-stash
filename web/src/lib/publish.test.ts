@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mergeProfilePicture, publicBlobUrl, PUBLIC_BLOB_HOST } from './publish'
+import { mergeProfilePicture, publicBlobUrl, publicUrlForFile, checkPublished, PUBLIC_BLOB_HOST } from './publish'
 import type { ProfileRead } from './publish'
 
 describe('publicBlobUrl', () => {
@@ -115,5 +115,60 @@ describe('readProfile / setProfilePicture — absent vs unreadable', () => {
     expect(merged.about).toBe('builder')
     expect(merged.nip05).toBe('a@b.c')
     expect(merged.picture).toBe('https://blossom.cloistr.xyz/xyz')
+  })
+})
+
+describe('publicUrlForFile / checkPublished', () => {
+  // The operator asked: once a file has been shared publicly, how do I get the
+  // link again WITHOUT re-running the whole "Share publicly" flow? Previously
+  // you could not — nothing surfaced it, and FileInfoModal even carries a note
+  // saying Public Link "does not exist in the React codebase".
+  //
+  // Nothing new needs storing: publishing keys the blob by the hash of the
+  // PLAINTEXT bytes, and that hash is already on the file's metadata as the
+  // `ox` tag, written at upload.
+  it('derives the URL from the stored plaintext hash', () => {
+    const file = { sha256: 'encrypted-hash', name: 'cat.png', plaintext_hash: 'abc123' }
+    expect(publicUrlForFile(file as never)).toBe(`${PUBLIC_BLOB_HOST}/abc123`)
+  })
+
+  it('accepts the camelCase spelling too', () => {
+    // Both spellings exist in the record; operations.ts reads either.
+    const file = { sha256: 'x', name: 'y', plaintextHash: 'def456' }
+    expect(publicUrlForFile(file as never)).toBe(`${PUBLIC_BLOB_HOST}/def456`)
+  })
+
+  it('returns null when there is no plaintext hash, rather than a broken URL', () => {
+    // A URL built from undefined would 404 and look like a server fault.
+    expect(publicUrlForFile({ sha256: 'x', name: 'y' } as never)).toBeNull()
+  })
+
+  it('does NOT use the encrypted sha256 — that blob is not the public one', () => {
+    const file = { sha256: 'ENCRYPTED', name: 'y', plaintext_hash: 'PLAIN' }
+    const url = publicUrlForFile(file as never)
+    expect(url).toContain('PLAIN')
+    expect(url).not.toContain('ENCRYPTED')
+  })
+
+  it('reports published on 200', async () => {
+    const ok = (async () => ({ ok: true, status: 200 })) as unknown as typeof fetch
+    expect(await checkPublished('u', ok)).toBe('published')
+  })
+
+  it('reports not-published on 404', async () => {
+    const nf = (async () => ({ ok: false, status: 404 })) as unknown as typeof fetch
+    expect(await checkPublished('u', nf)).toBe('not-published')
+  })
+
+  it('reports unknown on a network error, NOT not-published', async () => {
+    // Showing "not published" for a network failure would tell the user their
+    // file is private when it may well be public. Three states, not two.
+    const boom = (async () => { throw new Error('offline') }) as unknown as typeof fetch
+    expect(await checkPublished('u', boom)).toBe('unknown')
+  })
+
+  it('reports unknown on a 500, NOT not-published', async () => {
+    const err = (async () => ({ ok: false, status: 500 })) as unknown as typeof fetch
+    expect(await checkPublished('u', err)).toBe('unknown')
   })
 })

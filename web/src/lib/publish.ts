@@ -264,3 +264,52 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string> {
     .map(b => b.toString(16).padStart(2, '0'))
     .join('')
 }
+
+/**
+ * The public URL for a file that has been published, or null when the file
+ * cannot have one.
+ *
+ * NOTHING NEW IS STORED. Publishing uploads an unencrypted copy keyed by the
+ * hash of the PLAINTEXT bytes, and that hash is already persisted on the file's
+ * kind-30078 metadata as the `ox` tag (NIP-94's "original file hash"), written
+ * at upload time. So the link is derivable from the file record; it was simply
+ * never surfaced, which is why the only way to see it again was to re-run the
+ * whole "Share publicly" flow.
+ *
+ * Deriving beats storing a second copy of the URL: there is no way for it to
+ * drift from the bytes it names.
+ */
+export function publicUrlForFile(file: StashFile): string | null {
+  const f = file as unknown as Record<string, unknown>
+  const plaintextHash = (f.plaintext_hash || f.plaintextHash) as string | undefined
+  if (!plaintextHash) return null
+  return publicBlobUrl(plaintextHash)
+}
+
+/**
+ * Is the public copy actually being served right now?
+ *
+ * Deliberately a live check rather than a stored flag. A flag would go stale
+ * the moment the file is unpublished from another device, and would then hand
+ * the user a link that 404s — worse than showing nothing. This asks the server,
+ * so the answer is always about reality.
+ *
+ * THREE outcomes, not two: "we could not ask" is not the same as "it is not
+ * published", and the UI must not present a network failure as an unpublished
+ * file.
+ */
+export type PublicState = 'published' | 'not-published' | 'unknown'
+
+export async function checkPublished(
+  url: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<PublicState> {
+  try {
+    const res = await fetchImpl(url, { method: 'HEAD' })
+    if (res.ok) return 'published'
+    if (res.status === 404) return 'not-published'
+    return 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
