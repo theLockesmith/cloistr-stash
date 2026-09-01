@@ -12,8 +12,8 @@ importers:
         specifier: ^0.6.0
         version: 0.6.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
       '@cloistr/collab-common':
-        specifier: ^0.2.14
-        version: 0.2.14(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
+        specifier: ^0.2.15
+        version: 0.2.15(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
       '@cloistr/ui':
         specifier: ^0.40.0
         version: 0.40.0(@cloistr/auth@0.6.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -591,11 +591,11 @@ packages:
       react: ^18.0.0 || ^19.0.0
       react-dom: ^18.0.0 || ^19.0.0
 
-  '@cloistr/collab-common@0.2.14':
-    resolution: {integrity: sha1-r+z4g8c9NQbyaMCsQTFI0u92vf8=, tarball: https://git.aegis-hq.xyz/api/v4/projects/44/packages/npm/@cloistr/collab-common/-/@cloistr/collab-common-0.2.14.tgz}
+  '@cloistr/collab-common@0.2.15':
+    resolution: {integrity: sha1-J5mPiYnfACH5/wlK4K/vuHIMFDg=, tarball: https://git.aegis-hq.xyz/api/v4/projects/44/packages/npm/@cloistr/collab-common/-/@cloistr/collab-common-0.2.15.tgz}
     peerDependencies:
-      react: ^18.0.0
-      react-dom: ^18.0.0
+      react: ^18.3.1
+      react-dom: ^18.3.1
 
   '@cloistr/ui@0.40.0':
     resolution: {integrity: sha1-NS+lC00/Ho+vKGk8MyA+lWPEhFc=, tarball: https://git.aegis-hq.xyz/api/v4/projects/59/packages/npm/@cloistr/ui/-/@cloistr/ui-0.40.0.tgz}
@@ -1011,9 +1011,6 @@ packages:
 
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
-
-  '@types/libsodium-wrappers@0.7.14':
-    resolution: {integrity: sha512-5Kv68fXuXK0iDuUir1WPGw2R9fOZUlYlSAa0ztMcL0s0BfIDTqg9GXz8K30VJpPP3sxWhbolnQma2x+/TfkzDQ==}
 
   '@types/libsodium-wrappers@0.8.2':
     resolution: {integrity: sha512-+2IDfSULPUskSjIYfZl9suIUsIE5PXwoKZiE/j0MZWd+M9nEGvJDsk/ztMZKNhL1lBL+1CaypW0dQSjqPW2dMg==}
@@ -1700,6 +1697,14 @@ packages:
 
   nostr-tools@2.25.0:
     resolution: {integrity: sha512-AFdf2jv7F5CtLTwZ0JlQS+Ms+Mo7a8w3pASikHEA2dr4M2Mk5eCDZGaOYfDXlauVzx5b7c5H0F6WQsEFiKlW3Q==}
+    peerDependencies:
+      typescript: '>=5.0.0'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
+  nostr-tools@2.25.1:
+    resolution: {integrity: sha512-k/yCjpjHR18n9E6kCh1MdlP+fGZnP9UkuIDt1cHF87jqAE6ohOnZGFuQXPfWhDaRzNj9TQgJZPAPkCqOylqtAg==}
     peerDependencies:
       typescript: '>=5.0.0'
     peerDependenciesMeta:
@@ -2977,14 +2982,14 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@cloistr/collab-common@0.2.14(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)':
+  '@cloistr/collab-common@0.2.15(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)':
     dependencies:
       '@cloistr/auth': 0.4.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
       '@noble/hashes': 2.4.0
-      '@types/libsodium-wrappers': 0.7.14
+      '@types/libsodium-wrappers': 0.8.2
       lib0: 0.2.117
       libsodium-wrappers: 0.8.4
-      nostr-tools: 2.25.0(typescript@5.9.3)
+      nostr-tools: 2.25.1(typescript@5.9.3)
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
       y-indexeddb: 9.0.12(yjs@13.6.32)
@@ -3279,8 +3284,6 @@ snapshots:
   '@types/deep-eql@4.0.2': {}
 
   '@types/estree@1.0.9': {}
-
-  '@types/libsodium-wrappers@0.7.14': {}
 
   '@types/libsodium-wrappers@0.8.2':
     dependencies:
@@ -4039,6 +4042,18 @@ snapshots:
   node-releases@2.0.54: {}
 
   nostr-tools@2.25.0(typescript@5.9.3):
+    dependencies:
+      '@noble/ciphers': 2.1.1
+      '@noble/curves': 2.0.1
+      '@noble/hashes': 2.0.1
+      '@scure/base': 2.0.0
+      '@scure/bip32': 2.0.1
+      '@scure/bip39': 2.0.1
+      nostr-wasm: 0.1.0
+    optionalDependencies:
+      typescript: 5.9.3
+
+  nostr-tools@2.25.1(typescript@5.9.3):
     dependencies:
       '@noble/ciphers': 2.1.1
       '@noble/curves': 2.0.1
