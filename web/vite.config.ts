@@ -16,7 +16,16 @@ const proxyEntry = { target: apiTarget, changeOrigin: true, secure: true }
 
 // Stash frontend (React + @cloistr/ui). Go backend serves the built `dist/`
 // in production (`server --web web/dist`); in dev we proxy API calls to it.
+// Build identity, stamped into the bundle so a browser can be asked what it is
+// actually running. Today that question took a screenshot, a DOM probe and a
+// registry digest lookup to answer; `window.__CLOISTR_BUILD__` answers it in the
+// console. Falls back to "dev" outside CI.
+const buildSha = process.env.CI_COMMIT_SHORT_SHA || 'dev'
+
 export default defineConfig({
+  define: {
+    __CLOISTR_BUILD__: JSON.stringify(buildSha),
+  },
   plugins: [
     react(),
     // PWA: Workbox precache of the hashed Vite assets + installable manifest.
