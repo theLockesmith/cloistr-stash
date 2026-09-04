@@ -90,7 +90,7 @@ export default function App() {
   // runs, but that gate ends when `isResolving` clears; the NIP-46 handshake
   // itself happens afterwards under `isConnecting`. Both windows need the same
   // affordance, so treat them as one "connecting" state.
-  const { isResolving } = useSharedSession()
+  const { isResolving, hasSharedSession } = useSharedSession()
   const isConnecting = !!authState?.isConnecting || !!authState?.isSwitching || isResolving
 
   /**
@@ -117,9 +117,20 @@ export default function App() {
     }
     if (wasConnecting.current && !isConnected) {
       wasConnecting.current = false
-      setConnectFailed(true)
+      // Only a reconnect to a session that actually existed counts as a
+      // "failure" worth a recovery screen. On a non-cloistr.xyz origin (local
+      // dev, Playwright's localhost baseURL, previews) SharedAuthProvider's
+      // AuthRestoreGate does not gate the first render (it only gates on
+      // isCloistrDomain()), so this component mounts WHILE the routine,
+      // no-op SSO bootstrap is still resolving. A visitor with no shared
+      // session at all then flips isConnecting true→false exactly like a
+      // failed reconnect would, even though nothing was ever attempted.
+      // Gating on hasSharedSession distinguishes "we had a session and
+      // couldn't restore it" (real failure, show SignerRecovery) from
+      // "there was never a session" (normal first visit, show sign-in).
+      if (hasSharedSession) setConnectFailed(true)
     }
-  }, [isConnecting, isConnected])
+  }, [isConnecting, isConnected, hasSharedSession])
   const { loadFiles, loadFolderTree, uploadFiles, uploadDirectory, view, currentFolderId, migrationFiles, dismissMigration } = useStash()
   // DESKTOP only: persisted preference for the sidebar rail width.
   // AppShell owns the mobile drawer; this controls the desktop aside only.
