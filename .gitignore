@@ -59,3 +59,8 @@ API_TEST_SUMMARY.md
 FOLDER_OPERATIONS_TEST_SUMMARY.md
 CLAUDE.md
 .claude/
+
+# Playwright run artifacts. 133 of these -- screenshots, videos and traces of a
+# FAILING run -- were tracked in this repo until 2026-09-04.
+test-results/
+playwright-report/

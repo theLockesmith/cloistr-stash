@@ -48,10 +48,19 @@ module.exports = defineConfig({
     },
   ],
 
+  // The server's -web flag defaults to `web`, which is the Vite SOURCE tree, not
+  // the build. Serving it returns web/index.html verbatim -- `<div id="root">`
+  // plus `<script type="module" src="/src/main.tsx">` -- and the Go static
+  // handler hands /src/main.tsx back as `application/x-tiled-tsx`, a MIME type a
+  // browser will not execute as a module. Measured 2026-09-04: the app never
+  // mounted, so every spec ran against an empty #root and the whole suite failed
+  // on locators that could not possibly exist. Dockerfile line 47 copies
+  // /web/dist to /app/web and line 54 passes `-web /app/web`, so production has
+  // always served the BUILD. Test what ships.
   webServer: {
-    command: `DRIVE_PORT=${TEST_PORT} go run ./cmd/server`,
+    command: `npm --prefix web run build && DRIVE_PORT=${TEST_PORT} go run ./cmd/server -web web/dist`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
+    timeout: 300 * 1000,
   },
 });
