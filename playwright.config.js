@@ -58,7 +58,7 @@ module.exports = defineConfig({
   // /web/dist to /app/web and line 54 passes `-web /app/web`, so production has
   // always served the BUILD. Test what ships.
   webServer: {
-    command: `npm --prefix web run build && DRIVE_PORT=${TEST_PORT} go run ./cmd/server -web web/dist`,
+    command: `npm --prefix web run build && GOWORK=off DRIVE_PORT=${TEST_PORT} go run ./cmd/server -web web/dist`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 300 * 1000,

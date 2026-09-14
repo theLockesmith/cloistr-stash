@@ -73,6 +73,32 @@ export const Keys = {
   // real user data exists. See docs/migration-nip04-to-nip44-root-key.md.
   nip44Writes: true as boolean,
 
+  // True when the root key exists locally but has NOT been confirmed published to
+  // a relay. This means the key lives only in this browser's IndexedDB, and files
+  // encrypted under it are unrecoverable from any other device. The UI should
+  // surface this as a persistent warning and offer a retry.
+  rootKeyLocalOnly: false as boolean,
+  // The error message from the most recent publish failure, or null when the
+  // last attempt succeeded. Shown to the user so they can distinguish "relay
+  // down" from "auth-required" from "rate limit" without opening devtools.
+  lastPublishError: null as string | null,
+  // Listeners notified when rootKeyLocalOnly changes.
+  _localOnlyListeners: new Set<(localOnly: boolean) => void>(),
+
+  onRootKeyLocalOnlyChange(listener: (localOnly: boolean) => void): () => void {
+    this._localOnlyListeners.add(listener)
+    return () => { this._localOnlyListeners.delete(listener) }
+  },
+
+  _setRootKeyLocalOnly(localOnly: boolean): void {
+    if (this.rootKeyLocalOnly !== localOnly) {
+      this.rootKeyLocalOnly = localOnly
+      for (const fn of this._localOnlyListeners) {
+        try { fn(localOnly) } catch { /* listener errors are non-fatal */ }
+      }
+    }
+  },
+
   configure(deps: { auth?: AuthPort | null; api?: ApiPort | null; nip44Writes?: boolean }): void {
     if (deps.auth !== undefined) this.auth = deps.auth
     if (deps.api !== undefined) this.api = deps.api
@@ -102,13 +128,17 @@ export const Keys = {
       if (localKey && hasNostrKey) {
         console.log('Keys: Root key present locally and in Nostr')
         this.keyCache.set('root', localKey)
+        this._setRootKeyLocalOnly(false)
         return
       }
 
       if (localKey && !hasNostrKey) {
         console.log('Keys: Migrating local root key to Nostr...')
         this.keyCache.set('root', localKey)
-        await this.publishRootKeyToNostr(localKey)
+        const published = await this.publishRootKeyToNostr(localKey)
+        if (!published) {
+          console.warn('Keys: Migration publish failed. Root key is local-only.')
+        }
         return
       }
 
@@ -119,6 +149,7 @@ export const Keys = {
         await this.storeEncryptedKey('root', rootKey, null)
         this.keyCache.set('root', rootKey)
         console.log('Keys: Restored root key from Nostr')
+        this._setRootKeyLocalOnly(false)
         return
       }
 
@@ -155,8 +186,11 @@ export const Keys = {
     const rootKey = Crypto.generateKey()
     await this.storeEncryptedKey('root', rootKey, null)
     this.keyCache.set('root', rootKey)
-    await this.publishRootKeyToNostr(rootKey)
-    console.log('Keys: Generated new root key')
+    const published = await this.publishRootKeyToNostr(rootKey)
+    if (!published) {
+      console.warn('Keys: Root key generated but NOT published to relay. This browser is the only copy.')
+    }
+    console.log('Keys: Generated new root key (published:', published, ')')
     return rootKey
   },
 
@@ -197,11 +231,13 @@ export const Keys = {
     return this.auth!.nip04Decrypt(pubkey, ciphertext)
   },
 
-  // Publish root key to Nostr for persistence across devices/sessions (kind 30078, d='root-key')
-  async publishRootKeyToNostr(rootKey: Uint8Array): Promise<void> {
+  // Publish root key to Nostr for persistence across devices/sessions (kind 30078, d='root-key').
+  // Returns true when the relay accepted the event, false on any failure. Callers
+  // MUST check the return value: a false means the key lives only in this browser.
+  async publishRootKeyToNostr(rootKey: Uint8Array): Promise<boolean> {
     if (!this.auth || !this.auth.isConnected) {
       console.warn('Keys: Cannot publish root key - Auth not connected')
-      return
+      return false
     }
     try {
       const keyHex = Crypto.bytesToHex(rootKey)
@@ -209,9 +245,28 @@ export const Keys = {
       const signedEvent = await this.auth.createRootKeyEvent(encryptedKey)
       await this.auth.publishEvent(signedEvent)
       console.log('Keys: Published root key to Nostr')
+      this.lastPublishError = null
+      this._setRootKeyLocalOnly(false)
+      return true
     } catch (err) {
-      console.warn('Keys: Failed to publish root key to Nostr:', (err as Error).message)
+      const msg = (err as Error).message
+      console.warn('Keys: Failed to publish root key to Nostr:', msg)
+      this.lastPublishError = msg
+      this._setRootKeyLocalOnly(true)
+      return false
     }
+  },
+
+  // Retry publishing a local-only root key. Returns true on success.
+  async retryPublishRootKey(): Promise<boolean> {
+    const rootKey = this.keyCache.get('root')
+    if (!rootKey) {
+      const stored = await this.loadEncryptedKey('root')
+      if (!stored) return false
+      this.keyCache.set('root', stored)
+      return this.publishRootKeyToNostr(stored)
+    }
+    return this.publishRootKeyToNostr(rootKey)
   },
 
   async getRootKey(): Promise<Uint8Array> {
