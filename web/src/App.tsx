@@ -19,6 +19,7 @@ import { MigrationModal } from './components/MigrationModal'
 import { BackupModal } from './components/BackupModal'
 import { ActivityModal } from './components/ActivityModal'
 import { NIP46Dialog } from './components/NIP46Dialog'
+import { RootKeyWarning } from './components/RootKeyWarning'
 import { Search } from './lib/search'
 import { Sharing } from './lib/sharing'
 import { Versioning } from './lib/versioning'
@@ -312,6 +313,7 @@ export default function App() {
                   🔑
                 </button>
               </div>
+              <RootKeyWarning onOpenBackup={() => setBackupOpen(true)} />
               {folderUploadError && (
                 <div
                   role="alert"
