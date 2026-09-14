@@ -37,6 +37,7 @@ function stubStorage() {
 beforeEach(() => {
   Keys.keyCache.clear()
   Keys.rootKeyLocalOnly = false
+  Keys.lastPublishError = null
   Keys._localOnlyListeners.clear()
   Keys.userPubkey = 'aa'.repeat(32)
   Keys.nip44Writes = false
@@ -96,6 +97,29 @@ describe('publishRootKeyToNostr', () => {
     const result = await Keys.publishRootKeyToNostr(key)
 
     expect(result).toBe(false)
+  })
+
+  it('stores the error message in lastPublishError on failure', async () => {
+    Keys.configure({
+      auth: makeAuthStub({
+        publishEvent: async () => { throw new Error('auth-required: complete NIP-42 first') },
+      }),
+    })
+
+    const key = new Uint8Array(32).fill(0x42)
+    await Keys.publishRootKeyToNostr(key)
+
+    expect(Keys.lastPublishError).toBe('auth-required: complete NIP-42 first')
+  })
+
+  it('clears lastPublishError on success', async () => {
+    Keys.configure({ auth: makeAuthStub() })
+    Keys.lastPublishError = 'previous failure'
+
+    const key = new Uint8Array(32).fill(0x42)
+    await Keys.publishRootKeyToNostr(key)
+
+    expect(Keys.lastPublishError).toBeNull()
   })
 })
 

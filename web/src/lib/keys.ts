@@ -78,6 +78,10 @@ export const Keys = {
   // encrypted under it are unrecoverable from any other device. The UI should
   // surface this as a persistent warning and offer a retry.
   rootKeyLocalOnly: false as boolean,
+  // The error message from the most recent publish failure, or null when the
+  // last attempt succeeded. Shown to the user so they can distinguish "relay
+  // down" from "auth-required" from "rate limit" without opening devtools.
+  lastPublishError: null as string | null,
   // Listeners notified when rootKeyLocalOnly changes.
   _localOnlyListeners: new Set<(localOnly: boolean) => void>(),
 
@@ -241,10 +245,13 @@ export const Keys = {
       const signedEvent = await this.auth.createRootKeyEvent(encryptedKey)
       await this.auth.publishEvent(signedEvent)
       console.log('Keys: Published root key to Nostr')
+      this.lastPublishError = null
       this._setRootKeyLocalOnly(false)
       return true
     } catch (err) {
-      console.warn('Keys: Failed to publish root key to Nostr:', (err as Error).message)
+      const msg = (err as Error).message
+      console.warn('Keys: Failed to publish root key to Nostr:', msg)
+      this.lastPublishError = msg
       this._setRootKeyLocalOnly(true)
       return false
     }

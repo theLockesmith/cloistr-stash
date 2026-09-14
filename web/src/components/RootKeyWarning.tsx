@@ -12,11 +12,15 @@ import { Keys } from '../lib/keys'
  */
 export function RootKeyWarning({ onOpenBackup }: { onOpenBackup: () => void }) {
   const [localOnly, setLocalOnly] = useState(Keys.rootKeyLocalOnly)
+  const [lastError, setLastError] = useState(Keys.lastPublishError)
   const [retrying, setRetrying] = useState(false)
   const [dismissed, setDismissed] = useState(false)
 
   useEffect(() => {
-    return Keys.onRootKeyLocalOnlyChange(setLocalOnly)
+    return Keys.onRootKeyLocalOnlyChange((lo) => {
+      setLocalOnly(lo)
+      setLastError(Keys.lastPublishError)
+    })
   }, [])
 
   const handleRetry = useCallback(async () => {
@@ -41,6 +45,9 @@ export function RootKeyWarning({ onOpenBackup }: { onOpenBackup: () => void }) {
         {' '}If you clear this browser's data or sign in from another device,
         your files will be unrecoverable. This happened because the key could
         not be published to the relay.
+        {lastError && (
+          <span className="root-key-warning-detail"> Relay said: {lastError}</span>
+        )}
         <div className="root-key-warning-actions">
           <button
             type="button"
