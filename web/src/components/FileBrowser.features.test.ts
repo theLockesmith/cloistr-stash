@@ -163,6 +163,15 @@ describe('Mobile: long-press for context menu', () => {
     expect(SOURCE, '500ms threshold missing').toContain('500')
   })
 
+  it('useLongPress returns pointer event handlers (not touch)', () => {
+    const hookFn = SOURCE.slice(SOURCE.indexOf('function useLongPress('))
+    const returnLine = hookFn.slice(hookFn.indexOf('return {'), hookFn.indexOf('return {') + 200)
+    expect(returnLine, 'onPointerDown missing').toContain('onPointerDown')
+    expect(returnLine, 'onPointerUp missing').toContain('onPointerUp')
+    expect(returnLine, 'onPointerLeave missing').toContain('onPointerLeave')
+    expect(returnLine, 'onPointerCancel missing').toContain('onPointerCancel')
+  })
+
   it('FolderRow spreads long-press handlers', () => {
     const folderRow = SOURCE.slice(SOURCE.indexOf('function FolderRow('))
     expect(folderRow.slice(0, 1000), 'FolderRow missing ...lp spread').toContain('{...lp}')
@@ -181,5 +190,32 @@ describe('Mobile: long-press for context menu', () => {
   it('FileCard spreads long-press handlers', () => {
     const fileCard = SOURCE.slice(SOURCE.indexOf('function FileCard('))
     expect(fileCard.slice(0, 800), 'FileCard missing ...lp spread').toContain('{...lp}')
+  })
+})
+
+describe('Shared ContextMenu from @cloistr/ui', () => {
+  it('imports ContextMenu and useContextMenu from @cloistr/ui', () => {
+    expect(SOURCE, 'ContextMenu import missing').toContain("ContextMenu, useContextMenu")
+    expect(SOURCE, '@cloistr/ui import missing').toContain("from '@cloistr/ui/components'")
+  })
+
+  it('uses useContextMenu hook', () => {
+    expect(SOURCE, 'useContextMenu() call missing').toContain('useContextMenu()')
+  })
+
+  it('menu items have key fields', () => {
+    // fileMenuItems must use the ContextMenuEntry type which requires key
+    expect(SOURCE, 'ContextMenuEntry not used').toContain('ContextMenuEntry[]')
+    // Spot-check a few keys
+    expect(SOURCE, "key: 'info' missing").toContain("key: 'info'")
+    expect(SOURCE, "key: 'delete' missing").toContain("key: 'delete'")
+  })
+
+  it('does not define a local ContextMenu function', () => {
+    // The local ContextMenu function should be gone, replaced by the shared one.
+    // Only the import and JSX usage of ContextMenu should remain.
+    expect(SOURCE, 'local ContextMenu function still present').not.toContain(
+      'function ContextMenu(',
+    )
   })
 })
