@@ -36,7 +36,7 @@ import {
 } from '../lib/operations'
 import { uploadFiles as libUploadFiles, copyFile as libCopyFile, type UploadItem } from '../lib/upload'
 import { Search, type SearchResult } from '../lib/search'
-import { Sharing, type DecryptedIncomingShare } from '../lib/sharing'
+import { Sharing, type DecryptedIncomingShare, type IncomingShare } from '../lib/sharing'
 import type { FolderPathItem, StashFile, StashFolder, StashNotification, StashView, SortField, SortDir, SortPrefs } from './types'
 
 interface RecentEntry {
@@ -971,12 +971,21 @@ export function StashProvider({ children }: { children: ReactNode }) {
     if (!authPort.isConnected || !pubkey) return
 
     try {
-      const response = (await API.listShares(pubkey, 'received')) as unknown as {
-        received?: Array<{ id: string; owner_pubkey: string; name?: string; isFolder?: boolean }>
-        shares?: Array<{ id: string; owner_pubkey: string; name?: string; isFolder?: boolean }>
+      // Relay is the source of truth; API is the fallback.
+      let shares: Array<{ id: string; owner_pubkey: string; name?: string; isFolder?: boolean }>
+      try {
+        const relayShares = await Sharing.queryIncomingSharesFromRelay(pubkey)
+        shares = relayShares.map((s: IncomingShare) => ({
+          id: s.id,
+          owner_pubkey: s.owner_pubkey,
+        }))
+      } catch {
+        const response = (await API.listShares(pubkey, 'received')) as unknown as {
+          received?: Array<{ id: string; owner_pubkey: string; name?: string; isFolder?: boolean }>
+          shares?: Array<{ id: string; owner_pubkey: string; name?: string; isFolder?: boolean }>
+        }
+        shares = response.received ?? response.shares ?? []
       }
-      // The API may return shares under `received` (type='received') or `shares`.
-      const shares = response.received ?? response.shares ?? []
 
       const existingIds = new Set(
         notificationsRef.current

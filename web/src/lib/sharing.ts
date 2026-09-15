@@ -17,6 +17,7 @@
 import { Crypto } from './crypto'
 import { Keys } from './keys'
 import { API } from './api'
+import { Relay } from './relay'
 import { authPort } from './authBridge'
 import type { UnsignedEvent, SignedEvent } from './relay'
 import type { StashFile, StashFolder } from '../state/types'
@@ -755,47 +756,72 @@ export const Sharing = {
     }
   },
 
+  // Query incoming share events (kind 30080) directly from the relay.
+  // Returns IncomingShare records in the same shape the API returns, so
+  // the decryption/accept flow downstream is unchanged.
+  async queryIncomingSharesFromRelay(pubkey: string): Promise<IncomingShare[]> {
+    const events = await Relay.subscribe(
+      { kinds: [30080], '#p': [pubkey] },
+      10000,
+    )
+    return events.map((event) => {
+      const dTag = event.tags?.find((t: string[]) => t[0] === 'd')
+      return {
+        id: dTag ? dTag[1] : event.id,
+        owner_pubkey: event.pubkey,
+        encrypted_content: event.content,
+      } as IncomingShare
+    })
+  },
+
   // List all shares received by the current user (decrypts each share's content).
+  // Source of truth is the relay (kind 30080 addressed to this pubkey); the
+  // server API is a fallback for when the relay is unreachable.
   async listIncomingShares(): Promise<DecryptedIncomingShare[]> {
     if (!authPort.isConnected) {
       return []
     }
 
+    let shares: IncomingShare[]
     try {
-      const response = (await API.listShares(
-        authPort.pubkey!,
-        'received',
-      )) as unknown as { received?: IncomingShare[] }
-      const shares = response.received ?? []
-
-      // Decrypt and parse share contents
-      const decryptedShares: DecryptedIncomingShare[] = []
-      for (const share of shares) {
-        try {
-          const decryptedContent = await this.decryptFromSender(
-            share.owner_pubkey,
-            share.encrypted_content,
-          )
-          const content = JSON.parse(decryptedContent) as unknown
-          decryptedShares.push({
-            ...share,
-            content: content,
-            decrypted: true,
-          })
-        } catch (err) {
-          decryptedShares.push({
-            ...share,
-            decrypted: false,
-            error: (err as Error).message,
-          })
-        }
+      shares = await this.queryIncomingSharesFromRelay(authPort.pubkey!)
+    } catch (relayErr) {
+      console.warn('Sharing: Relay query failed, falling back to API:', (relayErr as Error).message)
+      try {
+        const response = (await API.listShares(
+          authPort.pubkey!,
+          'received',
+        )) as unknown as { received?: IncomingShare[] }
+        shares = response.received ?? []
+      } catch (apiErr) {
+        console.error('Sharing: Both relay and API failed:', (apiErr as Error).message)
+        return []
       }
-
-      return decryptedShares
-    } catch (err) {
-      console.error('Sharing: Failed to list incoming shares:', err)
-      return []
     }
+
+    const decryptedShares: DecryptedIncomingShare[] = []
+    for (const share of shares) {
+      try {
+        const decryptedContent = await this.decryptFromSender(
+          share.owner_pubkey,
+          share.encrypted_content,
+        )
+        const content = JSON.parse(decryptedContent) as unknown
+        decryptedShares.push({
+          ...share,
+          content: content,
+          decrypted: true,
+        })
+      } catch (err) {
+        decryptedShares.push({
+          ...share,
+          decrypted: false,
+          error: (err as Error).message,
+        })
+      }
+    }
+
+    return decryptedShares
   },
 
   // Check if a share has expired.
