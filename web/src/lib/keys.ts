@@ -200,9 +200,8 @@ export const Keys = {
     return ciphertext.includes('?iv=')
   },
 
-  // Scheme-aware encrypt to `pubkey` (own pubkey for self-wrap, or a recipient's
-  // for shares). Writes NIP-04 unless the NIP-44 write-gate is enabled AND the
-  // signer supports NIP-44; falls back to NIP-04 if the NIP-44 attempt fails.
+  // Encrypt to `pubkey` (the RECIPIENT: own pubkey for self-wrap, or another
+  // user's for shares). NIP-44 by default; NIP-04 fallback.
   async selfEncrypt(pubkey: string, plaintext: string): Promise<string> {
     if (this.nip44Writes && this.auth?.nip44Encrypt) {
       try {
