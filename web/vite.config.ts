@@ -14,6 +14,14 @@ const libsodiumCjs = fileURLToPath(
 const apiTarget = process.env.VITE_API_PROXY || 'http://localhost:8080'
 const proxyEntry = { target: apiTarget, changeOrigin: true, secure: true }
 
+export function manualChunks(id: string): string | undefined {
+  if (id.includes('node_modules')) {
+    if (id.includes('react-dom') || id.includes('/react/')) return 'react-vendor'
+    if (id.includes('libsodium') || id.includes('@cloistr/')) return 'crypto-kit'
+    if (id.includes('yjs')) return 'collab'
+  }
+}
+
 // Stash frontend (React + @cloistr/ui). Go backend serves the built `dist/`
 // in production (`server --web web/dist`); in dev we proxy API calls to it.
 export default defineConfig({
@@ -70,13 +78,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          if (id.includes('node_modules')) {
-            if (id.includes('react-dom') || id.includes('/react/')) return 'react-vendor'
-            if (id.includes('libsodium') || id.includes('@cloistr/')) return 'crypto-kit'
-            if (id.includes('yjs')) return 'collab'
-          }
-        },
+        manualChunks: manualChunks,
       },
     },
   },
