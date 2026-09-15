@@ -8,7 +8,7 @@
 // showContextMenu behaviour.  Long-press (500ms) triggers the same menu on touch.
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { ConfirmModal } from '@cloistr/ui/components'
+import { ConfirmModal, ContextMenu, useContextMenu, type ContextMenuEntry } from '@cloistr/ui/components'
 import { useStash } from '../state/useStash'
 import type { StashFile, StashFolder, SortField } from '../state/types'
 import { formatDate, formatFileSize, getFileIcon } from './format'
@@ -50,18 +50,6 @@ interface RenameTarget {
   name: string
   file?: StashFile
   folder?: StashFolder
-}
-
-interface MenuItem {
-  label: string
-  onClick: () => void
-  danger?: boolean
-}
-
-interface ContextMenuState {
-  x: number
-  y: number
-  items: MenuItem[]
 }
 
 export function FileBrowser() {
@@ -113,7 +101,8 @@ export function FileBrowser() {
   const [versionTarget, setVersionTarget] = useState<StashFile | null>(null)
   const [editorTarget, setEditorTarget] = useState<StashFile | null>(null)
   const [commentsTarget, setCommentsTarget] = useState<StashFile | null>(null)
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const ctxMenu = useContextMenu()
+  const [menuItems, setMenuItems] = useState<ContextMenuEntry[]>([])
   // File being published publicly (null = modal closed).
   const [publishTarget, setPublishTarget] = useState<StashFile | null>(null)
   // Folder being customized (null = modal closed).
@@ -130,25 +119,17 @@ export function FileBrowser() {
     setInfoFile(file)
   }
 
-  const closeContextMenu = useCallback(() => setContextMenu(null), [])
-
   /**
    * Open the context menu at the mouse coordinates from a contextmenu event.
-   * Mirrors the legacy showContextMenu(x, y, items) viewport-clipping logic.
+   * Viewport clamping is handled by the shared ContextMenu component.
    */
   const openContextMenu = useCallback(
-    (e: React.MouseEvent, items: MenuItem[]) => {
+    (e: React.MouseEvent, items: ContextMenuEntry[]) => {
       e.preventDefault()
       e.stopPropagation()
-      // Approximate menu dimensions for edge-clamping (matches legacy heuristic).
-      const MENU_W = 170
-      const MENU_H = items.length * 36 + 16
-      const x = Math.max(10, Math.min(e.clientX, window.innerWidth - MENU_W - 10))
-      const y = Math.max(10, Math.min(e.clientY, window.innerHeight - MENU_H - 10))
-      setContextMenu({ x, y, items })
-    },
-    [],
-  )
+      setMenuItems(items)
+      ctxMenu.open({ x: e.clientX, y: e.clientY })
+    }, [ctxMenu])
 
   // HOISTED ABOVE EVERY EARLY RETURN. Do not move these back down.
   //
@@ -310,16 +291,18 @@ export function FileBrowser() {
   // Trash view gets a focused menu: Restore and Permanently Delete only.
   // The standard menu's Delete action was a no-op in trash (it re-published the
   // same deletedAt value), and Rename/Move/Share make no sense for trashed files.
-  const fileMenuItems = (file: StashFile): MenuItem[] => {
+  const fileMenuItems = (file: StashFile): ContextMenuEntry[] => {
     if (view === 'trash') {
       return [
-        { label: 'Info', onClick: () => openInfo(file) },
-        { label: 'Preview', onClick: () => setPreviewFile(file) },
+        { key: 'info', label: 'Info', onClick: () => openInfo(file) },
+        { key: 'preview', label: 'Preview', onClick: () => setPreviewFile(file) },
         {
+          key: 'restore',
           label: 'Restore',
           onClick: () => void restoreFile(file),
         },
         {
+          key: 'delete-permanently',
           label: 'Delete permanently',
           onClick: () => setPendingPermDelete(file),
           danger: true,
@@ -327,25 +310,26 @@ export function FileBrowser() {
       ]
     }
     return [
-      { label: 'Info', onClick: () => openInfo(file) },
+      { key: 'info', label: 'Info', onClick: () => openInfo(file) },
       ...(Collaboration.isCollaborativeFileType(file.mime_type)
-        ? [{ label: 'Edit', onClick: () => setEditorTarget(file) }]
+        ? [{ key: 'edit', label: 'Edit', onClick: () => setEditorTarget(file) }]
         : []),
-      { label: 'Preview', onClick: () => setPreviewFile(file) },
-      { label: 'Encryption Info', onClick: () => setEncInfoFile(file) },
-      { label: 'Share', onClick: () => setShareTarget(file) },
-      { label: 'Manage Shares', onClick: () => setManageSharesTarget(file) },
+      { key: 'preview', label: 'Preview', onClick: () => setPreviewFile(file) },
+      { key: 'encryption-info', label: 'Encryption Info', onClick: () => setEncInfoFile(file) },
+      { key: 'share', label: 'Share', onClick: () => setShareTarget(file) },
+      { key: 'manage-shares', label: 'Manage Shares', onClick: () => setManageSharesTarget(file) },
       // Distinct from 'Share' directly above: this one publishes an UNENCRYPTED
       // copy. The label says 'publicly' because the two actions sound alike and
       // have opposite privacy properties.
-      { label: 'Publish publicly…', onClick: () => setPublishTarget(file) },
-      { label: 'Versions', onClick: () => setVersionTarget(file) },
-      { label: 'Comments', onClick: () => setCommentsTarget(file) },
-      { label: 'Tags…', onClick: () => setTagsTarget(file) },
-      { label: 'Rename', onClick: () => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) }) },
-      { label: 'Move to…', onClick: () => setMoveTarget(file) },
-      { label: 'Copy to…', onClick: () => setCopyTarget(file) },
+      { key: 'publish-publicly', label: 'Publish publicly…', onClick: () => setPublishTarget(file) },
+      { key: 'versions', label: 'Versions', onClick: () => setVersionTarget(file) },
+      { key: 'comments', label: 'Comments', onClick: () => setCommentsTarget(file) },
+      { key: 'tags', label: 'Tags…', onClick: () => setTagsTarget(file) },
+      { key: 'rename', label: 'Rename', onClick: () => setRenameTarget({ kind: 'file', file, name: fileDisplayName(file) }) },
+      { key: 'move-to', label: 'Move to…', onClick: () => setMoveTarget(file) },
+      { key: 'copy-to', label: 'Copy to…', onClick: () => setCopyTarget(file) },
       {
+        key: 'delete',
         label: 'Delete',
         onClick: () => setPendingDelete({ kind: 'file', file, name: fileDisplayName(file) }),
         danger: true,
@@ -358,14 +342,14 @@ export function FileBrowser() {
     onOpen: () => void,
     onRename: () => void,
     onDelete: () => void,
-  ): MenuItem[] => [
-    { label: 'Open', onClick: onOpen },
-    { label: 'Rename', onClick: onRename },
+  ): ContextMenuEntry[] => [
+    { key: 'open', label: 'Open', onClick: onOpen },
+    { key: 'rename', label: 'Rename', onClick: onRename },
     // Customize was reachable only from the row's kebab menu, so right-clicking
     // a folder offered strictly less than clicking it. Every action a surface
     // exposes should be in that surface's context menu too.
-    { label: 'Customize', onClick: () => setCustomizeFolder({ id: folder.id, name: folder.name }) },
-    { label: 'Delete', onClick: onDelete, danger: true },
+    { key: 'customize', label: 'Customize', onClick: () => setCustomizeFolder({ id: folder.id, name: folder.name }) },
+    { key: 'delete', label: 'Delete', onClick: onDelete, danger: true },
   ]
 
   // --- Search results view ---
@@ -407,13 +391,13 @@ export function FileBrowser() {
           </div>
         )}
         {modals}
-        <ContextMenu state={contextMenu} onClose={closeContextMenu} />
+        <ContextMenu {...ctxMenu.menuProps} items={menuItems} />
       </div>
     )
   }
 
-  if (loading) return <div className="fb-status">Loading…{modals}<ContextMenu state={contextMenu} onClose={closeContextMenu} /></div>
-  if (error) return <div className="fb-status fb-error">{error}{modals}<ContextMenu state={contextMenu} onClose={closeContextMenu} /></div>
+  if (loading) return <div className="fb-status">Loading…{modals}<ContextMenu {...ctxMenu.menuProps} items={menuItems} /></div>
+  if (error) return <div className="fb-status fb-error">{error}{modals}<ContextMenu {...ctxMenu.menuProps} items={menuItems} /></div>
 
   // --- Shared (incoming shares) view ---
   if (view === 'shared') {
@@ -454,7 +438,7 @@ export function FileBrowser() {
           </ul>
         )}
         {modals}
-        <ContextMenu state={contextMenu} onClose={closeContextMenu} />
+        <ContextMenu {...ctxMenu.menuProps} items={menuItems} />
       </div>
     )
   }
@@ -644,13 +628,13 @@ export function FileBrowser() {
       )}
 
       {modals}
-      <ContextMenu state={contextMenu} onClose={closeContextMenu} />
+      <ContextMenu {...ctxMenu.menuProps} items={menuItems} />
     </div>
   )
 }
 
 /** Lightweight per-row actions menu (⋮) with a click-away overlay. */
-function RowMenu({ items, label }: { items: MenuItem[]; label: string }) {
+function RowMenu({ items, label }: { items: ContextMenuEntry[]; label: string }) {
   const [open, setOpen] = useState(false)
   return (
     <span className="fb-menu">
@@ -669,76 +653,25 @@ function RowMenu({ items, label }: { items: MenuItem[]; label: string }) {
           <button type="button" className="fb-menu-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />
           <span className="fb-menu-list" role="menu">
             {items.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                role="menuitem"
-                className={`fb-menu-item ${item.danger ? 'danger' : ''}`}
-                onClick={() => {
-                  setOpen(false)
-                  item.onClick()
-                }}
-              >
-                {item.label}
-              </button>
+              'separator' in item ? null : (
+                <button
+                  key={item.key}
+                  type="button"
+                  role="menuitem"
+                  className={`fb-menu-item ${item.danger ? 'danger' : ''}`}
+                  onClick={() => {
+                    setOpen(false)
+                    item.onClick()
+                  }}
+                >
+                  {item.label}
+                </button>
+              )
             ))}
           </span>
         </>
       )}
     </span>
-  )
-}
-
-/**
- * Fixed-position context menu (#context-menu).
- *
- * Ported from the legacy showContextMenu(x, y, items) in ui.js:976-1025.
- * Always present in the DOM so Playwright's toBeAttached() assertion passes;
- * carries the `hidden` class when not open (matching the legacy .hidden rule).
- * Dismisses on any click outside the menu via a one-shot document listener,
- * identical to the legacy setTimeout-deferred addEventListener pattern.
- */
-function ContextMenu({ state, onClose }: { state: ContextMenuState | null; onClose: () => void }) {
-  useEffect(() => {
-    if (!state) return
-    // Defer so the contextmenu event that opened the menu doesn't immediately
-    // close it — same pattern as the legacy `setTimeout(..., 0)` on line 1020.
-    const id = setTimeout(() => {
-      document.addEventListener('click', onClose, { once: true })
-    }, 0)
-    return () => {
-      clearTimeout(id)
-      document.removeEventListener('click', onClose)
-    }
-  }, [state, onClose])
-
-  const style: React.CSSProperties = state
-    ? { left: `${state.x}px`, top: `${state.y}px` }
-    : {}
-
-  return (
-    <div
-      id="context-menu"
-      className={`context-menu${state ? '' : ' hidden'}`}
-      style={style}
-      role="menu"
-      aria-hidden={!state}
-    >
-      {state?.items.map((item) => (
-        <button
-          key={item.label}
-          type="button"
-          role="menuitem"
-          className={`context-menu-item${item.danger ? ' danger' : ''}`}
-          onClick={() => {
-            onClose()
-            item.onClick()
-          }}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
   )
 }
 
@@ -794,9 +727,9 @@ function FolderRow({
       <RowMenu
         label={`Actions for ${folder.name}`}
         items={[
-          { label: 'Customize', onClick: onCustomize },
-          { label: 'Rename', onClick: onRename },
-          { label: 'Delete', onClick: onDelete, danger: true },
+          { key: 'customize', label: 'Customize', onClick: onCustomize },
+          { key: 'rename', label: 'Rename', onClick: onRename },
+          { key: 'delete', label: 'Delete', onClick: onDelete, danger: true },
         ]}
       />
     </div>
@@ -819,7 +752,7 @@ function FileRow({
   onToggleSelect: () => void
   onToggleStar: () => void
   onInfo: () => void
-  menuItems: MenuItem[]
+  menuItems: ContextMenuEntry[]
   onContextMenu: (e: React.MouseEvent) => void
 }) {
   const enc = isEncrypted(file)
@@ -913,10 +846,10 @@ function FolderCard({
       <RowMenu
         label={`Actions for ${folder.name}`}
         items={[
-          { label: 'Open', onClick: onOpen },
-          { label: 'Rename', onClick: onRename },
-          { label: 'Customize', onClick: onCustomize },
-          { label: 'Delete', onClick: onDelete, danger: true },
+          { key: 'open', label: 'Open', onClick: onOpen },
+          { key: 'rename', label: 'Rename', onClick: onRename },
+          { key: 'customize', label: 'Customize', onClick: onCustomize },
+          { key: 'delete', label: 'Delete', onClick: onDelete, danger: true },
         ]}
       />
     </div>
@@ -944,7 +877,7 @@ function FileCard({
 }: {
   file: StashFile
   onInfo: () => void
-  menuItems: MenuItem[]
+  menuItems: ContextMenuEntry[]
   onContextMenu: (e: React.MouseEvent) => void
 }) {
   const enc = isEncrypted(file)
@@ -965,21 +898,20 @@ function FileCard({
 }
 
 /**
- * useLongPress: returns touch event handlers that fire onLongPress after 500 ms
- * with a synthetic MouseEvent-compatible object at the touch coordinates.
+ * useLongPress: returns pointer event handlers that fire onLongPress after
+ * 500 ms at the pointer coordinates.
  *
- * This is the touch equivalent for right-click context menus. A 500 ms press
- * is the de-facto mobile standard for "secondary action".
+ * Pointer events cover both mouse and touch, so this replaces the old
+ * touch-only implementation.  500 ms is the de-facto mobile standard for
+ * "secondary action".
  */
 function useLongPress(onLongPress: (e: { clientX: number; clientY: number; preventDefault: () => void; stopPropagation: () => void }) => void) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fired = useRef(false)
 
-  const start = useCallback((e: React.TouchEvent) => {
+  const start = useCallback((e: React.PointerEvent) => {
     fired.current = false
-    const touch = e.touches[0]
-    if (!touch) return
-    const { clientX, clientY } = touch
+    const { clientX, clientY } = e
     timer.current = setTimeout(() => {
       fired.current = true
       onLongPress({ clientX, clientY, preventDefault: () => {}, stopPropagation: () => {} })
@@ -993,7 +925,7 @@ function useLongPress(onLongPress: (e: { clientX: number; clientY: number; preve
     }
   }, [])
 
-  return { onTouchStart: start, onTouchEnd: cancel, onTouchMove: cancel }
+  return { onPointerDown: start, onPointerUp: cancel, onPointerLeave: cancel, onPointerCancel: cancel }
 }
 
 /**
