@@ -27,7 +27,6 @@ export default defineConfig({
       includeAssets: ['favicon.svg', 'favicon.ico', 'apple-touch-icon.png'],
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
-        // The app bundle is ~1.2MB; allow precaching it (maps excluded above).
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallback: '/index.html',
       },
@@ -68,5 +67,17 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react-dom') || id.includes('/react/')) return 'react-vendor'
+            if (id.includes('libsodium') || id.includes('@cloistr/')) return 'crypto-kit'
+            if (id.includes('yjs')) return 'collab'
+          }
+        },
+      },
+    },
   },
 })

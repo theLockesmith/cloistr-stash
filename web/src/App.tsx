@@ -342,30 +342,6 @@ export default function App() {
               open={newFolderOpen}
               onClose={() => setNewFolderOpen(false)}
             />
-            {/* Folder Customize modal stub — structure required by spec. */}
-            <div id="folder-customize-modal" className="modal hidden">
-              <div className="modal-content modal-small">
-                <div className="modal-header">
-                  <h2>Customize Folder</h2>
-                  <button type="button" className="modal-close" id="folder-customize-close">&times;</button>
-                </div>
-                <div className="modal-body">
-                  <div id="customize-folder-name" className="folder-name-display" />
-                  <div className="customize-section">
-                    <span>Color</span>
-                    <div id="folder-color-picker" className="color-picker" />
-                  </div>
-                  <div className="customize-section">
-                    <span>Icon</span>
-                    <div id="folder-icon-picker" className="icon-picker" />
-                  </div>
-                </div>
-                <div className="modal-footer">
-                  <button type="button" className="btn" id="folder-customize-reset">Reset</button>
-                  <button type="button" className="btn btn-primary" id="folder-customize-save">Save</button>
-                </div>
-              </div>
-            </div>
             <KeyboardShortcuts onNewFolder={() => setNewFolderOpen(true)} />
             <MigrationModal
               unencryptedFiles={migrationFiles}
