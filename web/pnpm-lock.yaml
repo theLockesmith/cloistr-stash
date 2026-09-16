@@ -37,7 +37,7 @@ importers:
         version: 13.6.32
     devDependencies:
       '@types/dompurify':
-        specifier: ^3.0.5
+        specifier: ^3.2.0
         version: 3.2.0
       '@types/libsodium-wrappers':
         specifier: ^0.8.2
