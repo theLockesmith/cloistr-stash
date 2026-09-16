@@ -17,7 +17,7 @@ import { Crypto } from './crypto'
 import { Keys } from './keys'
 import { API } from './api'
 import { Relay } from './relay'
-import { authPort } from './authBridge'
+import { authPort, getSigner } from './authBridge'
 import type { UnsignedEvent, SignedEvent } from './relay'
 import type { StashFile, StashFolder } from '../state/types'
 
@@ -318,12 +318,10 @@ export const Sharing = {
       throw new Error('Cannot share: missing file ID')
     }
 
-    let fileKey: Uint8Array
-    if (folderId) {
-      fileKey = await Keys.deriveFileKey(folderId, fileId)
-    } else {
-      fileKey = await Keys.deriveRootFileKey(fileId)
-    }
+    const fileKey = await Keys.getFileKey(folderId, fileId, {
+      ownerEnvelope: file.owner_key,
+      signer: getSigner(),
+    })
 
     // Encrypt the file key for the recipient (NIP-44 preferred, NIP-04 fallback)
     const fileKeyHex = Crypto.bytesToHex(fileKey)
@@ -502,13 +500,10 @@ export const Sharing = {
       throw new Error('Cannot generate link: missing file ID')
     }
 
-    // Get the file key
-    let fileKey: Uint8Array
-    if (folderId) {
-      fileKey = await Keys.deriveFileKey(folderId, fileId)
-    } else {
-      fileKey = await Keys.deriveRootFileKey(fileId)
-    }
+    const fileKey = await Keys.getFileKey(folderId, fileId, {
+      ownerEnvelope: file.owner_key,
+      signer: getSigner(),
+    })
 
     // Encode the key for URL fragment
     const keyBase64url = Crypto.bytesToBase64url(fileKey)
@@ -626,12 +621,10 @@ export const Sharing = {
     const encryptedData = await response.arrayBuffer()
 
     // Step 2: Decrypt with old key
-    let oldFileKey: Uint8Array
-    if (folderId) {
-      oldFileKey = await Keys.deriveFileKey(folderId, fileId)
-    } else {
-      oldFileKey = await Keys.deriveRootFileKey(fileId)
-    }
+    const oldFileKey = await Keys.getFileKey(folderId, fileId, {
+      ownerEnvelope: file.owner_key,
+      signer: getSigner(),
+    })
 
     const decryptedData = await Crypto.decryptFile(encryptedData, oldFileKey)
 

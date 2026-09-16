@@ -166,10 +166,21 @@ export async function updateAuth(signer: Signer | null, state: AuthSnapshot): Pr
   const isConnected = state.isConnected && !!signer
   if (isConnected && state.pubkey && !wasConnected) {
     await Keys.init(state.pubkey)
+    // Trigger wrapped-key migration after keys are initialized (best-effort, non-blocking).
+    import('./migration-wrapped-keys').then(({ runWrappedKeyMigration }) =>
+      runWrappedKeyMigration().catch((err) =>
+        console.warn('Wrapped-key migration failed:', (err as Error).message),
+      ),
+    )
   } else if (!isConnected && wasConnected) {
     Keys.clearCache()
     Relay.disconnect()
   }
 }
 
-export { authPort }
+/** The underlying signer, for use by envelope functions that need SignerInterface. */
+function getSigner(): Signer {
+  return requireSigner()
+}
+
+export { authPort, getSigner }

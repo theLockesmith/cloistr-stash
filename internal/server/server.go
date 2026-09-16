@@ -55,15 +55,17 @@ type FileMetadata struct {
 	PlaintextHash string `json:"plaintext_hash,omitempty"`
 	Encrypted     bool   `json:"encrypted,omitempty"`
 	EncryptedSize int64  `json:"encrypted_size,omitempty"`
+	OwnerKey      string `json:"owner_key,omitempty"`
 }
 
 // FolderMetadataResponse represents folder information returned to the frontend
 type FolderMetadataResponse struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	ParentID     string `json:"parent_id,omitempty"`
-	CreatedAt    int64  `json:"created_at,omitempty"`
-	EncryptedKey string `json:"encrypted_key,omitempty"`
+	ID           string                      `json:"id"`
+	Name         string                      `json:"name"`
+	ParentID     string                      `json:"parent_id,omitempty"`
+	CreatedAt    int64                       `json:"created_at,omitempty"`
+	EncryptedKey string                      `json:"encrypted_key,omitempty"`
+	WrappedKeys  []metadata.WrappedKeyEntry  `json:"wrapped_keys,omitempty"`
 }
 
 // ShareResponse represents a file share returned to the frontend
@@ -361,6 +363,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 			PlaintextHash: f.PlaintextHash,
 			Encrypted:     f.Encrypted,
 			EncryptedSize: f.EncryptedSize,
+			OwnerKey:      f.OwnerKey,
 		})
 	}
 
@@ -729,6 +732,7 @@ func (s *Server) handleListFolders(w http.ResponseWriter, r *http.Request) {
 			ParentID:     f.ParentID,
 			CreatedAt:    f.CreatedAt.Unix(),
 			EncryptedKey: f.EncryptedKey,
+			WrappedKeys:  f.WrappedKeys,
 		})
 	}
 
@@ -788,6 +792,7 @@ func (s *Server) handleCreateFolder(w http.ResponseWriter, r *http.Request) {
 		ParentID:     folder.ParentID,
 		CreatedAt:    folder.CreatedAt.Unix(),
 		EncryptedKey: folder.EncryptedKey,
+		WrappedKeys:  folder.WrappedKeys,
 	})
 
 	s.logger.Info("folder created",
@@ -834,6 +839,7 @@ func (s *Server) handleGetFolder(w http.ResponseWriter, r *http.Request) {
 		ParentID:     folder.ParentID,
 		CreatedAt:    folder.CreatedAt.Unix(),
 		EncryptedKey: folder.EncryptedKey,
+		WrappedKeys:  folder.WrappedKeys,
 	})
 }
 

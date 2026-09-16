@@ -11,7 +11,8 @@ import { Crypto } from './crypto'
 import { Keys } from './keys'
 import { API } from './api'
 import { Events } from './events'
-import { authPort } from './authBridge'
+import { authPort, getSigner } from './authBridge'
+import { Relay } from './relay'
 import { Search } from './search'
 import type { StashFile } from '../state/types'
 
@@ -87,9 +88,11 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
 
       item.status = 'encrypting'
       emit(item)
-      const fileKey = folderId
-        ? await Keys.deriveFileKey(folderId, item.fileId)
-        : await Keys.deriveRootFileKey(item.fileId)
+      const fileKey = Keys.wrappedKeyMode
+        ? Keys.generateFileKey()
+        : folderId
+          ? await Keys.deriveFileKey(folderId, item.fileId)
+          : await Keys.deriveRootFileKey(item.fileId)
 
       const encryptedData = await Crypto.encryptFile(fileData, fileKey, (p) => {
         item.progress = Math.round(p * 50)
@@ -116,6 +119,17 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
       if (authPort.isConnected) {
         item.status = 'publishing'
         emit(item)
+
+        let ownerEnvelope: string | undefined
+        if (Keys.wrappedKeyMode) {
+          const signer = getSigner()
+          ownerEnvelope = await Keys.wrapFileKeyForOwner(fileKey, item.fileId, signer)
+
+          if (folderId) {
+            await addWrappedKeyToFolder(folderId, item.fileId, fileKey)
+          }
+        }
+
         const metadataEvent = await Events.createEncryptedFileMetadataEvent({
           fileId: item.fileId,
           sha256,
@@ -125,6 +139,7 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
           encryptedSize: encryptedData.length,
           mimeType: item.file.type || 'application/octet-stream',
           folderId: folderId ?? undefined,
+          ownerEnvelope,
         })
         await authPort.publishEvent(metadataEvent)
       }
@@ -182,9 +197,11 @@ export async function uploadEncryptedBytes(
   const fileId = Crypto.generateFileId()
   const plaintextHash = await Crypto.hash(data)
 
-  const fileKey = folderId
-    ? await Keys.deriveFileKey(folderId, fileId)
-    : await Keys.deriveRootFileKey(fileId)
+  const fileKey = Keys.wrappedKeyMode
+    ? Keys.generateFileKey()
+    : folderId
+      ? await Keys.deriveFileKey(folderId, fileId)
+      : await Keys.deriveRootFileKey(fileId)
 
   const encryptedData = await Crypto.encryptFile(data, fileKey)
   const encryptedHash = await Crypto.hash(encryptedData)
@@ -201,6 +218,15 @@ export async function uploadEncryptedBytes(
   const sha256 = (result.sha256 as string) || encryptedHash
 
   if (authPort.isConnected) {
+    let ownerEnvelope: string | undefined
+    if (Keys.wrappedKeyMode) {
+      const signer = getSigner()
+      ownerEnvelope = await Keys.wrapFileKeyForOwner(fileKey, fileId, signer)
+      if (folderId) {
+        await addWrappedKeyToFolder(folderId, fileId, fileKey)
+      }
+    }
+
     const metadataEvent = await Events.createEncryptedFileMetadataEvent({
       fileId,
       sha256,
@@ -210,6 +236,7 @@ export async function uploadEncryptedBytes(
       encryptedSize: encryptedData.length,
       mimeType: mimeType || 'application/octet-stream',
       folderId: folderId ?? undefined,
+      ownerEnvelope,
     })
     await authPort.publishEvent(metadataEvent)
   }
@@ -232,6 +259,67 @@ export async function uploadEncryptedBytes(
  *
  * The original file is not modified.
  */
+async function addWrappedKeyToFolder(
+  folderId: string,
+  fileId: string,
+  fileKey: Uint8Array,
+): Promise<void> {
+  const pubkey = authPort.pubkey
+  if (!pubkey) return
+
+  const folderKey = await Keys.getFolderKey(folderId)
+  const envelope = Keys.wrapFileKeyForFolder(fileKey, fileId, folderKey)
+
+  // Query the current folder event to preserve existing wrapped keys
+  const events = await Relay.subscribe(
+    { kinds: [30079], authors: [pubkey], '#d': [folderId], limit: 1 },
+    5000,
+  )
+
+  const existingWrapped: Array<{ subject: string; envelope: string }> = []
+  let folderName = ''
+  let folderDescription = ''
+  let parentId: string | undefined
+  let encryptedFolderKey: string | undefined
+
+  if (events.length > 0) {
+    const event = events[0]
+    for (const tag of (event.tags ?? []) as string[][]) {
+      if (tag[0] === 'wk' && tag.length >= 3) {
+        existingWrapped.push({ subject: tag[1], envelope: tag[2] })
+      } else if (tag[0] === 'key' && tag.length >= 2) {
+        encryptedFolderKey = tag[1]
+      } else if (tag[0] === 'parent' && tag.length >= 2) {
+        parentId = tag[1]
+      }
+    }
+    try {
+      const content = JSON.parse(event.content as string) as Record<string, unknown>
+      folderName = (content.name as string) ?? ''
+      folderDescription = (content.description as string) ?? ''
+    } catch { /* use defaults */ }
+  }
+
+  // Replace or add this file's wrapped key
+  const updated = existingWrapped.filter((wk) => wk.subject !== fileId)
+  updated.push({ subject: fileId, envelope })
+
+  if (!encryptedFolderKey) {
+    const folderKeyHex = Crypto.bytesToHex(folderKey)
+    encryptedFolderKey = await Keys.selfEncrypt(pubkey, folderKeyHex)
+  }
+
+  const folderEvent = await Events.createEncryptedFolderEvent({
+    id: folderId,
+    name: folderName,
+    description: folderDescription,
+    parentId,
+    encryptedFolderKey,
+    wrappedKeys: updated,
+  })
+  await authPort.publishEvent(folderEvent)
+}
+
 export async function copyFile(
   file: StashFile,
   targetFolderId: string | null,
@@ -253,10 +341,11 @@ export async function copyFile(
   if (!response.ok) throw new Error(`Download failed: ${response.status}`)
   const encryptedBuffer = await response.arrayBuffer()
 
-  // 2. Derive source key and decrypt.
-  const sourceKey = sourceFolderId
-    ? await Keys.deriveFileKey(sourceFolderId, fileId)
-    : await Keys.deriveRootFileKey(fileId)
+  // 2. Get source key and decrypt (wrapped key → derivation fallback).
+  const sourceKey = await Keys.getFileKey(sourceFolderId, fileId, {
+    ownerEnvelope: file.owner_key,
+    signer: getSigner(),
+  })
 
   const plaintext = await Crypto.decryptFile(encryptedBuffer, sourceKey)
   Crypto.wipeKey(sourceKey)

@@ -63,6 +63,11 @@ type FileMetadata struct {
 	// Tags are user-defined labels stored as Nostr 't' tags on the event.
 	// Used for filtering/organisation in the UI.
 	Tags []string `json:"tags,omitempty"`
+
+	// OwnerKey is the file's content key wrapped (envelope-encrypted) to the
+	// owner's pubkey. Stored as an 'owner_key' tag on the kind:30078 event.
+	// Present after the derivation-to-wrapping migration; absent on legacy events.
+	OwnerKey string `json:"owner_key,omitempty"`
 }
 
 // FolderMetadata represents a folder for organizing files
@@ -92,6 +97,17 @@ type FolderMetadata struct {
 	// Encrypted folder key (NIP-04 encrypted with owner's pubkey)
 	// Used to restore folder encryption keys after session refresh
 	EncryptedKey string `json:"encrypted_key,omitempty"`
+
+	// WrappedKeys holds member file keys wrapped under the folder key.
+	// Each entry is a ['wk', fileId, envelope] tag on the kind:30079 event.
+	// Present after the derivation-to-wrapping migration; absent on legacy events.
+	WrappedKeys []WrappedKeyEntry `json:"wrapped_keys,omitempty"`
+}
+
+// WrappedKeyEntry is a file's content key wrapped under its parent folder key.
+type WrappedKeyEntry struct {
+	Subject  string `json:"subject"`
+	Envelope string `json:"envelope"`
 }
 
 // Event kinds for Drive metadata

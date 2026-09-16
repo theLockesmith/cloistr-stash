@@ -14,6 +14,15 @@
 // paths the legacy `typeof Auth === 'undefined'` checks took.
 
 import { Crypto } from './crypto'
+import {
+  wrapKey,
+  unwrapKey,
+  wrapKeyForRecipient,
+  unwrapKeyFromSender,
+  generateContentKey,
+  type ContentKey,
+  type Envelope,
+} from '@cloistr/auth'
 
 /** Minimal Nostr signer/relay surface this module needs (provided by the auth layer). */
 export interface AuthPort {
@@ -72,6 +81,10 @@ export const Keys = {
   // (selfDecrypt) accepts both schemes regardless. Revisit this default before
   // real user data exists. See docs/migration-nip04-to-nip44-root-key.md.
   nip44Writes: true as boolean,
+
+  // True after the derivation-to-wrapping migration has completed. After this,
+  // new file keys are generated randomly (not derived) and wrapped in events.
+  wrappedKeyMode: false as boolean,
 
   // True when the root key exists locally but has NOT been confirmed published to
   // a relay. This means the key lives only in this browser's IndexedDB, and files
@@ -452,6 +465,71 @@ export const Keys = {
     const keyHex = Crypto.bytesToHex(folderKey)
     if (!this.auth) throw new Error('Not connected')
     return this.selfEncrypt(recipientPubkey, keyHex)
+  },
+
+  // ── Envelope key wrapping (derivation → wrapping migration) ────────────
+
+  generateFileKey(): Uint8Array {
+    return generateContentKey()
+  },
+
+  wrapFileKeyForFolder(fileKey: Uint8Array, fileId: string, folderKey: Uint8Array): Envelope {
+    return wrapKey(fileKey as ContentKey, fileId, folderKey as ContentKey)
+  },
+
+  unwrapFileKeyFromFolder(envelope: Envelope, fileId: string, folderKey: Uint8Array): Uint8Array {
+    return unwrapKey(envelope, fileId, folderKey as ContentKey)
+  },
+
+  async wrapFileKeyForOwner(fileKey: Uint8Array, fileId: string, signer: unknown): Promise<Envelope> {
+    if (!this.userPubkey) throw new Error('User not initialized')
+    return wrapKeyForRecipient(
+      fileKey as ContentKey,
+      fileId,
+      this.userPubkey,
+      signer as Parameters<typeof wrapKeyForRecipient>[3],
+    )
+  },
+
+  async unwrapFileKeyFromOwner(envelope: Envelope, fileId: string, signer: unknown): Promise<Uint8Array> {
+    if (!this.userPubkey) throw new Error('User not initialized')
+    return unwrapKeyFromSender(
+      envelope,
+      fileId,
+      this.userPubkey,
+      signer as Parameters<typeof unwrapKeyFromSender>[3],
+    )
+  },
+
+  async getFileKey(
+    folderId: string | null,
+    fileId: string,
+    opts?: { ownerEnvelope?: string; folderWrappedKeys?: Array<{ subject: string; envelope: string }>; signer?: unknown },
+  ): Promise<Uint8Array> {
+    // 1. Try unwrap from owner envelope on the file event
+    if (opts?.ownerEnvelope && opts?.signer) {
+      try {
+        return await this.unwrapFileKeyFromOwner(opts.ownerEnvelope, fileId, opts.signer)
+      } catch {
+        // fall through to next method
+      }
+    }
+
+    // 2. Try unwrap from folder's wrapped key set
+    if (opts?.folderWrappedKeys && folderId) {
+      const entry = opts.folderWrappedKeys.find((wk) => wk.subject === fileId)
+      if (entry) {
+        try {
+          const folderKey = await this.getFolderKey(folderId)
+          return this.unwrapFileKeyFromFolder(entry.envelope, fileId, folderKey)
+        } catch {
+          // fall through to derivation
+        }
+      }
+    }
+
+    // 3. Fall back to HKDF derivation (legacy)
+    return folderId ? this.deriveFileKey(folderId, fileId) : this.deriveRootFileKey(fileId)
   },
 
   async getPublicLinkKey(folderId: string | null, fileId: string): Promise<string> {
