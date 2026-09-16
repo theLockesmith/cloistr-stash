@@ -9,14 +9,14 @@ importers:
   .:
     dependencies:
       '@cloistr/auth':
-        specifier: ^0.6.0
-        version: 0.6.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
+        specifier: ^0.7.0
+        version: 0.7.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
       '@cloistr/collab-common':
         specifier: ^0.2.15
         version: 0.2.15(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
       '@cloistr/ui':
         specifier: ^0.42.0
-        version: 0.42.0(@cloistr/auth@0.6.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.42.0(@cloistr/auth@0.7.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       libsodium-wrappers:
         specifier: ^0.8.4
         version: 0.8.4
@@ -585,8 +585,8 @@ packages:
       react: ^18.0.0 || ^19.0.0
       react-dom: ^18.0.0 || ^19.0.0
 
-  '@cloistr/auth@0.6.0':
-    resolution: {integrity: sha1-FMUpyiuEbwb+jtl2eUfX+bGp0XY=, tarball: https://git.aegis-hq.xyz/api/v4/projects/175/packages/npm/@cloistr/auth/-/@cloistr/auth-0.6.0.tgz}
+  '@cloistr/auth@0.7.0':
+    resolution: {integrity: sha1-X5bGtGglqEvPYZCsVMN8OJAbVhc=, tarball: https://git.aegis-hq.xyz/api/v4/projects/175/packages/npm/@cloistr/auth/-/@cloistr/auth-0.7.0.tgz}
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
       react-dom: ^18.0.0 || ^19.0.0
@@ -2966,7 +2966,7 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@cloistr/auth@0.6.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)':
+  '@cloistr/auth@0.7.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)':
     dependencies:
       nostr-tools: 2.25.2(typescript@5.9.3)
       react: 18.3.1
@@ -2990,9 +2990,9 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@cloistr/ui@0.42.0(@cloistr/auth@0.6.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@cloistr/ui@0.42.0(@cloistr/auth@0.7.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@cloistr/auth': 0.6.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
+      '@cloistr/auth': 0.7.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
       '@types/qrcode': 1.5.6
       qrcode: 1.5.4
       react: 18.3.1
