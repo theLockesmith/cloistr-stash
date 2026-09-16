@@ -9,7 +9,6 @@
 //   - window.location.origin  → baseUrl parameter on generatePublicLink /
 //                               createExpiringLink (callers supply it)
 //   - Auth.generateShareId()          → local helper (crypto.getRandomValues)
-//   - Auth.createShareRevokeEvent()   → local helper (NIP-09 kind 5 via authPort.signEvent)
 //   - Auth.createEncryptedFileMetadataEvent() → local helper (kind 30078)
 //   - Auth.createDeleteAuth()         → local helper (Blossom kind 24242 t=delete)
 //   - UI.toast()                      → dropped (pure UI; callers handle feedback)
@@ -154,14 +153,65 @@ function generateShareId(): string {
   return Crypto.bytesToHex(bytes)
 }
 
-async function createShareRevokeEvent(shareId: string): Promise<SignedEvent> {
-  const event: UnsignedEvent = {
-    kind: 5, // NIP-09 deletion
-    created_at: Math.floor(Date.now() / 1000),
-    tags: [['e', shareId]],
-    content: 'Revoke share',
+// ─── Local share index (IndexedDB) ──────────────────────────────────────────
+// Written at publish time so the sharer can list their own outgoing shares
+// without a decrypt sweep of every share they ever made. The relay stays the
+// portable source of truth; this is a local cache.
+
+interface ShareIndexEntry {
+  id: string
+  fileId: string
+  recipientPubkey: string
+  permission: string
+  expiresAt: number | null
+  createdAt: number
+}
+
+const SHARE_DB_NAME = 'cloistr-drive-shares'
+const SHARE_STORE = 'outgoing'
+
+function openShareDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    try {
+      const req = indexedDB.open(SHARE_DB_NAME, 1)
+      req.onupgradeneeded = () => {
+        const db = req.result
+        if (!db.objectStoreNames.contains(SHARE_STORE)) {
+          const store = db.createObjectStore(SHARE_STORE, { keyPath: 'id' })
+          store.createIndex('fileId', 'fileId', { unique: false })
+        }
+      }
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    } catch (e) {
+      reject(e)
+    }
+  })
+}
+
+async function writeShareIndex(entry: ShareIndexEntry): Promise<void> {
+  try {
+    const db = await openShareDB()
+    const tx = db.transaction(SHARE_STORE, 'readwrite')
+    tx.objectStore(SHARE_STORE).put(entry)
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch {
+    // Non-fatal: the relay is the source of truth
   }
-  return authPort.signEvent(event)
+}
+
+async function queryShareIndex(fileId: string): Promise<ShareIndexEntry[]> {
+  const db = await openShareDB()
+  const tx = db.transaction(SHARE_STORE, 'readonly')
+  const idx = tx.objectStore(SHARE_STORE).index('fileId')
+  const req = idx.getAll(fileId)
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result as ShareIndexEntry[])
+    req.onerror = () => reject(req.error)
+  })
 }
 
 async function createEncryptedFileMetadataEvent(
@@ -308,6 +358,17 @@ export const Sharing = {
     // Publish to relay
     await authPort.publishEvent(signedEvent)
 
+    // Write to local share index so the sharer can list their own outgoing
+    // shares without a decrypt sweep of every share they ever made.
+    void writeShareIndex({
+      id: shareId,
+      fileId: fileId,
+      recipientPubkey,
+      permission,
+      expiresAt: expiresAt ?? null,
+      createdAt: Math.floor(Date.now() / 1000),
+    })
+
     console.log('Sharing: File shared with', recipientPubkey.slice(0, 8) + '...')
 
     return {
@@ -368,6 +429,15 @@ export const Sharing = {
     // Publish to relay
     await authPort.publishEvent(signedEvent)
 
+    void writeShareIndex({
+      id: shareId,
+      fileId: folderId,
+      recipientPubkey,
+      permission,
+      expiresAt: expiresAt ?? null,
+      createdAt: Math.floor(Date.now() / 1000),
+    })
+
     console.log('Sharing: Folder shared with', recipientPubkey.slice(0, 8) + '...')
 
     return {
@@ -382,8 +452,15 @@ export const Sharing = {
   async createShareEvent(shareInfo: ShareEventInfo): Promise<SignedEvent> {
     const now = Math.floor(Date.now() / 1000)
 
-    // Encrypt the entire share content for the recipient (NIP-44 preferred)
-    const contentJson = JSON.stringify(shareInfo.shareContent)
+    // Encrypt the share content + permission for the recipient (NIP-44 preferred).
+    // Item coordinate and permission are ONLY in the encrypted payload — plaintext
+    // tags carry nothing beyond the recipient, so a stranger learns only that two
+    // keys exchanged something.
+    const contentJson = JSON.stringify({
+      ...shareInfo.shareContent,
+      permission: shareInfo.permission,
+      expiresAt: shareInfo.expiresAt,
+    })
     const encryptedContent = await this.encryptForRecipient(shareInfo.recipientPubkey, contentJson)
 
     const event: UnsignedEvent = {
@@ -392,21 +469,14 @@ export const Sharing = {
       tags: [
         ['d', shareInfo.id],
         ['p', shareInfo.recipientPubkey],
-        ['permission', shareInfo.permission],
       ],
       content: encryptedContent,
     }
 
-    // Add file/folder reference tag
-    if (shareInfo.shareContent.type === this.SHARE_TYPE_FILE) {
-      const c = shareInfo.shareContent as ShareFileContent
-      event.tags.push(['file', `30078:${authPort.pubkey}:${c.fileId}`])
-    } else if (shareInfo.shareContent.type === this.SHARE_TYPE_FOLDER) {
-      const c = shareInfo.shareContent as ShareFolderContent
-      event.tags.push(['folder', `30079:${authPort.pubkey}:${c.folderId}`])
-    }
-
-    // Add expiration if set
+    // Expiration stays as a plaintext tag because our relay implements NIP-40
+    // (rejects expired events, filters them from queries). This provides
+    // self-cleaning share records at the cost of leaking when a share ends.
+    // The value is also inside the encrypted payload for the recipient.
     if (shareInfo.expiresAt) {
       event.tags.push(['expiration', shareInfo.expiresAt.toString()])
     }
@@ -534,26 +604,6 @@ export const Sharing = {
     return decryptedData
   },
 
-  // Revoke a share (publishes NIP-09 deletion event; clears cache entry).
-  async revokeShare(shareId: string): Promise<boolean> {
-    if (!authPort.isConnected) {
-      throw new Error('Not connected')
-    }
-
-    // Create deletion event (NIP-09)
-    const signedEvent = await createShareRevokeEvent(shareId)
-
-    // Publish to relay
-    await authPort.publishEvent(signedEvent)
-
-    // Remove from cache
-    this.sharesCache.delete(shareId)
-
-    console.log('Sharing: Revoked share', shareId.slice(0, 8) + '...')
-
-    return true
-  },
-
   // Revoke all shares for a file and re-encrypt with a new key.
   // Downloads, decrypts, generates new fileId/key, re-encrypts, uploads, updates metadata.
   async revokeAndReencryptFile(file: StashFile): Promise<ReencryptResult> {
@@ -627,9 +677,27 @@ export const Sharing = {
     const deleteAuth = await createDeleteAuth(file.sha256)
     await API.deleteFile(file.sha256, deleteAuth)
 
-    // Step 10: Revoke all existing shares (they're now useless anyway)
-    // Note: In a full implementation, we'd query for shares and revoke them.
-    // For now, old shares will simply fail to decrypt.
+    // Best-effort: request deletion of stale share events from the relay.
+    // These are requests, not guarantees: other relays and local caches retain
+    // copies. The real protection is that the old key no longer decrypts anything.
+    // Note: a deletion request is itself a public event announcing that a share
+    // was withdrawn. It does not name the recipient, but it signals that a
+    // revocation happened. Prefer expiry over deletion where both are available.
+    try {
+      const staleShares = await this.listOutgoingSharesForFile(fileId)
+      for (const share of staleShares) {
+        const deleteEvent: UnsignedEvent = {
+          kind: 5,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [['a', `30080:${authPort.pubkey}:${share.id}`]],
+          content: '',
+        }
+        const signed = await authPort.signEvent(deleteEvent)
+        await authPort.publishEvent(signed)
+      }
+    } catch {
+      // Best-effort: failure is expected and documented
+    }
 
     // Cleanup
     Crypto.wipeKey(oldFileKey)
@@ -737,23 +805,61 @@ export const Sharing = {
     })
   },
 
-  // List all shares created by the current user.
-  async listOutgoingShares(): Promise<unknown[]> {
-    if (!authPort.isConnected) {
-      return []
+  // Query outgoing shares for a specific file/folder.
+  // Fast path: local IndexedDB index (written at share-publish time).
+  // Cold-start fallback: relay decrypt sweep with explicit limit, populating
+  // the index as it goes. The sharer can decrypt their own records because
+  // NIP-44/NIP-04 use a shared secret that both parties derive.
+  async listOutgoingSharesForFile(
+    targetId: string,
+  ): Promise<Array<{ id: string; recipientPubkey: string; permission: string; expiresAt: number | null }>> {
+    if (!authPort.isConnected || !authPort.pubkey) return []
+
+    // Fast path: local index
+    try {
+      const cached = await queryShareIndex(targetId)
+      if (cached.length > 0) return cached
+    } catch {
+      // IndexedDB unavailable; fall through to relay
     }
 
-    try {
-      // Backend emits outgoing shares under the key "shares" (not "created").
-      const response = (await API.listShares(
-        authPort.pubkey!,
-        'created',
-      )) as unknown as { shares?: unknown[] }
-      return response.shares ?? []
-    } catch (err) {
-      console.error('Sharing: Failed to list outgoing shares:', err)
-      return []
+    // Cold-start fallback: decrypt sweep (bounded)
+    const events = await Relay.subscribe(
+      { kinds: [30080], authors: [authPort.pubkey], limit: 200 },
+      10000,
+    )
+
+    const results: Array<{ id: string; recipientPubkey: string; permission: string; expiresAt: number | null }> = []
+    for (const event of events) {
+      const pTag = (event.tags as string[][])?.find((t) => t[0] === 'p')
+      if (!pTag) continue
+
+      try {
+        const decrypted = await this.decryptFromSender(pTag[1], event.content as string)
+        const content = JSON.parse(decrypted) as Record<string, unknown>
+        const entryFileId = (content.fileId ?? content.folderId) as string | undefined
+        const dTag = (event.tags as string[][])?.find((t) => t[0] === 'd')
+        const entry = {
+          id: dTag ? dTag[1] : (event.id as string),
+          recipientPubkey: pTag[1],
+          permission: (content.permission as string) ?? 'view',
+          expiresAt: (content.expiresAt as number) ?? null,
+        }
+
+        // Populate local index for next time
+        if (entryFileId) {
+          void writeShareIndex({ ...entry, fileId: entryFileId, createdAt: (event.created_at as number) ?? 0 })
+        }
+
+        if (entryFileId === targetId) {
+          results.push(entry)
+        }
+      } catch {
+        // Undecryptable
+      }
     }
+
+    return results
   },
 
   // Query incoming share events (kind 30080) directly from the relay.
