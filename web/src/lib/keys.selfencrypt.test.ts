@@ -77,15 +77,14 @@ describe('Keys.selfEncrypt / selfDecrypt', () => {
     expect(pt).toBe('sealed_blob')
   })
 
-  it('selfDecrypt falls back to NIP-04 when NIP-44 decrypt throws', async () => {
+  it('selfDecrypt throws when NIP-44 decrypt fails on non-NIP-04 ciphertext', async () => {
     const auth = mockAuth({
       nip44Decrypt: vi.fn(async () => { throw new Error('decrypt failed') }),
-      nip04Decrypt: vi.fn(async (_pk, ct) => `fallback:${ct}`),
     })
     Keys.configure({ auth })
 
-    const pt = await Keys.selfDecrypt('sender_pub', 'ambiguous_blob')
-    expect(pt).toBe('fallback:ambiguous_blob')
+    await expect(Keys.selfDecrypt('sender_pub', 'ambiguous_blob'))
+      .rejects.toThrow('decrypt failed')
   })
 })
 

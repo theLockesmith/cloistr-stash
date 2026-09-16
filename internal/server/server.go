@@ -183,9 +183,6 @@ func (s *Server) registerRoutes() {
 	// Create share requires whitelist authorization
 	s.mux.Handle("POST /api/shares", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleCreateShare)))
 
-	// Revoke share requires whitelist authorization
-	s.mux.Handle("DELETE /api/shares/{id}", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleRevokeShare)))
-
 	// Public links - anonymous access
 	// GET /public/{id} - access a public link (serves download page with blob info)
 	s.mux.HandleFunc("GET /public/{id}", s.handlePublicLink)
@@ -1029,60 +1026,6 @@ func (s *Server) handleCreateShare(w http.ResponseWriter, r *http.Request) {
 		"owner", event.PubKey[:16],
 		"recipient", share.RecipientPubkey[:16],
 	)
-}
-
-// handleRevokeShare revokes a file share
-func (s *Server) handleRevokeShare(w http.ResponseWriter, r *http.Request) {
-	shareID := r.PathValue("id")
-	if shareID == "" {
-		http.Error(w, "Share ID required", http.StatusBadRequest)
-		return
-	}
-
-	if s.metadata == nil {
-		http.Error(w, "Metadata storage not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	// Parse the signed deletion event from request body
-	var event nostr.Event
-	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
-		s.logger.Warn("failed to decode deletion event", "error", err)
-		http.Error(w, "Invalid event format", http.StatusBadRequest)
-		return
-	}
-
-	// Validate event kind
-	if event.Kind != 5 {
-		http.Error(w, "Invalid event kind: expected 5 (deletion)", http.StatusBadRequest)
-		return
-	}
-
-	// Verify signature
-	ok, err := event.CheckSignature()
-	if err != nil || !ok {
-		s.logger.Warn("invalid deletion event signature",
-			"event_id", event.ID,
-			"error", err,
-		)
-		http.Error(w, "Invalid signature", http.StatusUnauthorized)
-		return
-	}
-
-	// Publish deletion event to relay
-	if err := s.metadata.DeleteFile(r.Context(), &event); err != nil {
-		s.logger.Error("failed to publish share revocation",
-			"error", err,
-			"share_id", shareID,
-		)
-		http.Error(w, "Failed to revoke share", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = fmt.Fprint(w, `{"status":"revoked"}`)
-
-	s.logger.Info("share revoked", "share_id", shareID)
 }
 
 // KeyringResponse represents the response from the keyring endpoint

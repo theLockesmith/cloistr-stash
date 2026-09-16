@@ -561,17 +561,7 @@ func TestAPI_ShareEndpoints(t *testing.T) {
 		}
 	})
 
-	t.Run("Revoke share without auth fails", func(t *testing.T) {
-		req := httptest.NewRequest("DELETE", "/api/shares/test-share-id", strings.NewReader("{}"))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
 
-		srv.Handler().ServeHTTP(w, req)
-
-		if w.Code != http.StatusUnauthorized {
-			t.Errorf("Expected status 401, got %d", w.Code)
-		}
-	})
 }
 
 // Test Quota API

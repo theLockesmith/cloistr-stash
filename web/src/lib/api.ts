@@ -218,22 +218,6 @@ export const API = {
     return response.json()
   },
 
-  async revokeShare(shareId: string, signedEvent: SignedEvent, authHeader?: string | null): Promise<unknown> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (authHeader) headers['Authorization'] = authHeader
-
-    const response = await fetch(`${this.baseURL}/api/shares/${shareId}`, {
-      method: 'DELETE',
-      headers,
-      body: JSON.stringify(signedEvent),
-    })
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(error || `Failed to revoke share: ${response.status}`)
-    }
-    return response.json()
-  },
-
   async getQuota(pubkey: string): Promise<QuotaInfo> {
     const response = await fetch(`${this.baseURL}/api/quota?pubkey=${pubkey}`)
     if (!response.ok) throw new Error(`Failed to get quota: ${response.status}`)

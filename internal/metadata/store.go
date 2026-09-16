@@ -824,6 +824,9 @@ func (s *Store) ListFilesInFolder(ctx context.Context, pubkey, folderID string) 
 // CreateShareEvent creates a Nostr event for a file share (unsigned)
 // The content should be NIP-04 encrypted by the caller before creating the event
 func CreateShareEvent(share *FileShare, encryptedContent string) *nostr.Event {
+	// Only d (share ID) and p (recipient) are plaintext. Item coordinate,
+	// permission, and file metadata are inside the encrypted content, so a
+	// stranger learns only that two keys exchanged something.
 	event := &nostr.Event{
 		Kind:      KindFileShare,
 		PubKey:    share.OwnerPubkey,
@@ -831,16 +834,12 @@ func CreateShareEvent(share *FileShare, encryptedContent string) *nostr.Event {
 		Tags: nostr.Tags{
 			{"d", share.Identifier},
 			{"p", share.RecipientPubkey},
-			{"file", fmt.Sprintf("%d:%s:%s", KindFileMetadata, share.OwnerPubkey, share.FileIdentifier)},
 		},
-		Content: encryptedContent, // NIP-04 encrypted share details
+		Content: encryptedContent,
 	}
 
-	// Add optional tags
-	if share.Permission != "" {
-		event.Tags = append(event.Tags, nostr.Tag{"permission", share.Permission})
-	}
-
+	// Expiration stays plaintext: the relay implements NIP-40 and will stop
+	// serving expired records, which is the only self-cleaning mechanism.
 	if !share.ExpiresAt.IsZero() {
 		event.Tags = append(event.Tags, nostr.Tag{"expiration", fmt.Sprintf("%d", share.ExpiresAt.Unix())})
 	}
@@ -870,11 +869,8 @@ func ParseShareEvent(event *nostr.Event) (*FileShare, error) {
 			share.Identifier = tag[1]
 		case "p":
 			share.RecipientPubkey = tag[1]
-		case "file":
-			// Parse file reference: "30078:pubkey:file-id"
-			share.FileIdentifier = tag[1]
-		case "permission":
-			share.Permission = tag[1]
+		// "file", "folder", and "permission" tags were moved inside the
+		// encrypted content. The server cannot read them (zero-knowledge).
 		case "expiration":
 			var expiry int64
 			_, _ = fmt.Sscanf(tag[1], "%d", &expiry)
