@@ -20,6 +20,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import type { StashFile } from '../state/types'
 import { API } from '../lib/api'
 import { Keys } from '../lib/keys'
@@ -150,7 +151,9 @@ export function PreviewModal({ file, onClose }: { file: StashFile | null; onClos
         // Produce preview artefact
         if (pType === 'markdown') {
           const raw = new TextDecoder().decode(data)
-          const html = marked(raw, { gfm: true, breaks: true, async: false }) as string
+          const html = DOMPurify.sanitize(
+            marked(raw, { gfm: true, breaks: true, async: false }) as string,
+          )
           if (cancelled) return
           setState({
             status: 'ready',
@@ -363,8 +366,6 @@ export function PreviewModal({ file, onClose }: { file: StashFile | null; onClos
                     className="markdown-content"
                     id="markdown-preview"
                     style={mdTab === 'source' ? { display: 'none' } : undefined}
-                    // Marked sanitises via its default renderer; XSS risk is
-                    // limited to the user's own E2E-decrypted content.
                     // eslint-disable-next-line react/no-danger
                     dangerouslySetInnerHTML={{ __html: state.markdownHtml ?? '' }}
                   />
