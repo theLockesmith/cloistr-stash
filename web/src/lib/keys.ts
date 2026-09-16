@@ -213,21 +213,13 @@ export const Keys = {
     return this.auth!.nip04Encrypt(pubkey, plaintext)
   },
 
-  // Scheme-aware decrypt from `pubkey`, accepting either scheme: NIP-04 (legacy
-  // root-key events / legacy shares) or NIP-44 (new). Ciphertext self-identifies
-  // (NIP-04 carries '?iv='), so no version tag is needed. Falls back defensively.
+  // Scheme-aware decrypt from `pubkey`, accepting either NIP-04 (legacy) or
+  // NIP-44. Ciphertext self-identifies (NIP-04 carries '?iv=').
   async selfDecrypt(pubkey: string, ciphertext: string): Promise<string> {
     if (this.isNip04Ciphertext(ciphertext)) {
       return this.auth!.nip04Decrypt(pubkey, ciphertext)
     }
-    if (this.auth?.nip44Decrypt) {
-      try {
-        return await this.auth.nip44Decrypt(pubkey, ciphertext)
-      } catch (err) {
-        console.warn('Keys: NIP-44 decrypt failed, trying NIP-04:', (err as Error).message)
-      }
-    }
-    return this.auth!.nip04Decrypt(pubkey, ciphertext)
+    return this.auth!.nip44Decrypt!(pubkey, ciphertext)
   },
 
   // Publish root key to Nostr for persistence across devices/sessions (kind 30078, d='root-key').
@@ -354,24 +346,14 @@ export const Keys = {
     return new Uint8Array(derivedBits)
   },
 
-  // Store an encrypted key in IndexedDB. Encrypted with the user's Nostr key (NIP-04/44),
-  // falling back to base64 when no signer is connected (offline) -- same as legacy.
   async storeEncryptedKey(keyId: string, key: Uint8Array, associatedId: string | null): Promise<void> {
+    if (!this.auth || !this.auth.isConnected) {
+      throw new Error('Cannot store key: signer not connected')
+    }
     if (!this.db) await this.openDB()
 
     const keyHex = Crypto.bytesToHex(key)
-
-    let encryptedKey: string
-    try {
-      if (this.auth && this.auth.isConnected) {
-        encryptedKey = await this.auth.nip04Encrypt(this.userPubkey!, keyHex)
-      } else {
-        encryptedKey = Crypto.bytesToBase64(key)
-      }
-    } catch {
-      console.warn('Keys: NIP-04 encryption not available, using base64 fallback')
-      encryptedKey = Crypto.bytesToBase64(key)
-    }
+    const encryptedKey = await this.selfEncrypt(this.userPubkey!, keyHex)
 
     const record: KeyRecord = {
       id: `${this.userPubkey}:${keyId}`,
@@ -408,13 +390,26 @@ export const Keys = {
           return
         }
         try {
-          if (this.auth && this.auth.isConnected && record.encryptedKey.includes('?iv=')) {
-            const keyHex = await this.auth.nip04Decrypt(this.userPubkey!, record.encryptedKey)
+          if (this.auth && this.auth.isConnected) {
+            const keyHex = await this.selfDecrypt(this.userPubkey!, record.encryptedKey)
             resolve(Crypto.hexToBytes(keyHex))
           } else {
-            resolve(Crypto.base64ToBytes(record.encryptedKey))
+            resolve(null)
           }
         } catch (err) {
+          // Legacy: old code stored raw key bytes as base64 when the signer
+          // was disconnected or NIP-04 failed. Detect and auto-migrate.
+          try {
+            const raw = Crypto.base64ToBytes(record.encryptedKey)
+            if (raw.length === 32) {
+              console.warn('Keys: Found legacy base64 key for', keyId, '— migrating to encrypted storage')
+              if (this.auth && this.auth.isConnected) {
+                void this.storeEncryptedKey(keyId, raw, record.associatedId).catch(() => {})
+              }
+              resolve(raw)
+              return
+            }
+          } catch { /* not valid base64 either */ }
           console.error('Keys: Failed to decrypt key:', err)
           resolve(null)
         }
@@ -587,7 +582,7 @@ export const Keys = {
 
     const backupString = JSON.stringify(backup)
     const backupHash = await Crypto.hash(new TextEncoder().encode(backupString))
-    const encryptedBackup = await this.auth.nip04Encrypt(this.userPubkey!, backupString)
+    const encryptedBackup = await this.selfEncrypt(this.userPubkey!, backupString)
 
     return {
       encrypted: encryptedBackup,
@@ -610,7 +605,7 @@ export const Keys = {
       throw new Error('Backup is for a different user')
     }
 
-    const decryptedString = await this.auth.nip04Decrypt(this.userPubkey!, backupData.encrypted)
+    const decryptedString = await this.selfDecrypt(this.userPubkey!, backupData.encrypted)
     const backup = JSON.parse(decryptedString) as {
       createdAt: number
       keys: Array<{ keyId: string; type: string; associatedId: string | null; encryptedKey: string }>
