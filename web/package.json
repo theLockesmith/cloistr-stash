@@ -11,8 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@cloistr/auth": "^1.0.0",
-    "@cloistr/collab-common": "^0.2.15",
+    "@cloistr/auth": "^1.0.1",
+    "@cloistr/collab-common": "^0.2.16",
     "@cloistr/ui": "^0.42.0",
     "dompurify": "^3.4.15",
     "libsodium-wrappers": "^0.8.4",
