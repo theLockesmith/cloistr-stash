@@ -647,10 +647,8 @@ export const Sharing = {
 
     // Step 7: Upload new encrypted blob
     const authHeader = await authPort.createUploadAuth(newHash, reencryptedData.length)
-    const encryptedFile = new File([reencryptedData as BlobPart], file.name + '.encrypted', {
-      type: 'application/octet-stream',
-    })
-    const uploadResult = (await API.uploadFile(encryptedFile, authHeader)) as { sha256: string }
+    const encryptedBlob = new Blob([reencryptedData as BlobPart], { type: 'application/octet-stream' })
+    const uploadResult = (await API.uploadFile(encryptedBlob, authHeader)) as { sha256: string }
 
     // Step 8: Publish new metadata event
     const metadataEvent = await createEncryptedFileMetadataEvent({

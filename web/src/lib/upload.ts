@@ -110,10 +110,8 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
         authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
       }
 
-      const encryptedFile = new File([encryptedData as BlobPart], item.file.name + '.encrypted', {
-        type: 'application/octet-stream',
-      })
-      const result = await API.uploadFile(encryptedFile, authHeader, 'e2e')
+      const encryptedBlob = new Blob([encryptedData as BlobPart], { type: 'application/octet-stream' })
+      const result = await API.uploadFile(encryptedBlob, authHeader, 'e2e')
       const sha256 = (result.sha256 as string) || encryptedHash
 
       if (authPort.isConnected) {
@@ -211,10 +209,8 @@ export async function uploadEncryptedBytes(
     authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
   }
 
-  const encryptedFile = new File([encryptedData as BlobPart], name + '.encrypted', {
-    type: 'application/octet-stream',
-  })
-  const result = await API.uploadFile(encryptedFile, authHeader, 'e2e')
+  const encryptedBlob = new Blob([encryptedData as BlobPart], { type: 'application/octet-stream' })
+  const result = await API.uploadFile(encryptedBlob, authHeader, 'e2e')
   const sha256 = (result.sha256 as string) || encryptedHash
 
   if (authPort.isConnected) {
