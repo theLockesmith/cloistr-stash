@@ -23,6 +23,14 @@ import {
   type ContentKey,
   type Envelope,
 } from '@cloistr/auth'
+import {
+  IndexedDBKeyStorage,
+  InMemoryKeyStorage,
+  type KeyStorage,
+  type KeyRecord,
+} from './key-storage'
+
+export { InMemoryKeyStorage, type KeyStorage, type KeyRecord } from './key-storage'
 
 /** Minimal Nostr signer/relay surface this module needs (provided by the auth layer). */
 export interface AuthPort {
@@ -43,19 +51,8 @@ export interface ApiPort {
   getKeyring(pubkey: string): Promise<{ encrypted_root_key?: string } | null>
 }
 
-interface KeyRecord {
-  id: string
-  pubkey: string
-  keyId: string
-  type: string
-  associatedId: string | null
-  encryptedKey: string
-  createdAt: number
-  updatedAt: number
-}
-
 export const Keys = {
-  // Key storage in IndexedDB (UNCHANGED for backward compat)
+  // Key storage constants (UNCHANGED for backward compat)
   DB_NAME: 'cloistr-drive-keys',
   DB_VERSION: 1,
   STORE_NAME: 'keys',
@@ -66,6 +63,7 @@ export const Keys = {
   CONTEXT_FILE: 'cloistr-drive-file-v1',
   CONTEXT_SHARE: 'cloistr-drive-share-v1',
 
+  storage: null as KeyStorage | null,
   db: null as IDBDatabase | null,
   keyCache: new Map<string, Uint8Array>(),
   userPubkey: null as string | null,
@@ -172,23 +170,20 @@ export const Keys = {
     }
   },
 
-  async openDB(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.DB_NAME, this.DB_VERSION)
-      request.onerror = () => reject(request.error)
-      request.onsuccess = () => {
-        this.db = request.result
-        resolve(this.db)
-      }
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result
-        if (!db.objectStoreNames.contains(this.STORE_NAME)) {
-          const store = db.createObjectStore(this.STORE_NAME, { keyPath: 'id' })
-          store.createIndex('pubkey', 'pubkey', { unique: false })
-          store.createIndex('type', 'type', { unique: false })
-        }
-      }
-    })
+  setStorage(storage: KeyStorage): void {
+    this.storage = storage
+  },
+
+  async ensureStorage(): Promise<KeyStorage> {
+    if (!this.storage) {
+      this.storage = new IndexedDBKeyStorage(this.DB_NAME, this.DB_VERSION, this.STORE_NAME)
+    }
+    await this.storage.init()
+    return this.storage
+  },
+
+  async openDB(): Promise<void> {
+    await this.ensureStorage()
   },
 
   // Generate the root key for a user. Master key from which all others derive.
@@ -363,7 +358,7 @@ export const Keys = {
     if (!this.auth || !this.auth.isConnected) {
       throw new Error('Cannot store key: signer not connected')
     }
-    if (!this.db) await this.openDB()
+    const store = await this.ensureStorage()
 
     const keyHex = Crypto.bytesToHex(key)
     const encryptedKey = await this.selfEncrypt(this.userPubkey!, keyHex)
@@ -379,69 +374,43 @@ export const Keys = {
       updatedAt: Date.now(),
     }
 
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(this.STORE_NAME, 'readwrite')
-      const store = tx.objectStore(this.STORE_NAME)
-      const request = store.put(record)
-      request.onsuccess = () => resolve()
-      request.onerror = () => reject(request.error)
-    })
+    await store.put(record)
   },
 
   async loadEncryptedKey(keyId: string): Promise<Uint8Array | null> {
-    if (!this.db) await this.openDB()
+    const store = await this.ensureStorage()
+    const record = await store.get(`${this.userPubkey}:${keyId}`)
 
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(this.STORE_NAME, 'readonly')
-      const store = tx.objectStore(this.STORE_NAME)
-      const request = store.get(`${this.userPubkey}:${keyId}`)
+    if (!record) return null
 
-      request.onsuccess = async () => {
-        const record = request.result as KeyRecord | undefined
-        if (!record) {
-          resolve(null)
-          return
-        }
-        try {
-          if (this.auth && this.auth.isConnected) {
-            const keyHex = await this.selfDecrypt(this.userPubkey!, record.encryptedKey)
-            resolve(Crypto.hexToBytes(keyHex))
-          } else {
-            resolve(null)
-          }
-        } catch (err) {
-          // Legacy: old code stored raw key bytes as base64 when the signer
-          // was disconnected or NIP-04 failed. Detect and auto-migrate.
-          try {
-            const raw = Crypto.base64ToBytes(record.encryptedKey)
-            if (raw.length === 32) {
-              console.warn('Keys: Found legacy base64 key for', keyId, '— migrating to encrypted storage')
-              if (this.auth && this.auth.isConnected) {
-                void this.storeEncryptedKey(keyId, raw, record.associatedId).catch(() => {})
-              }
-              resolve(raw)
-              return
-            }
-          } catch { /* not valid base64 either */ }
-          console.error('Keys: Failed to decrypt key:', err)
-          resolve(null)
-        }
+    try {
+      if (this.auth && this.auth.isConnected) {
+        const keyHex = await this.selfDecrypt(this.userPubkey!, record.encryptedKey)
+        return Crypto.hexToBytes(keyHex)
       }
-
-      request.onerror = () => reject(request.error)
-    })
+      return null
+    } catch (err) {
+      // Legacy: old code stored raw key bytes as base64 when the signer
+      // was disconnected or NIP-04 failed. Detect and auto-migrate.
+      try {
+        const raw = Crypto.base64ToBytes(record.encryptedKey)
+        if (raw.length === 32) {
+          console.warn('Keys: Found legacy base64 key for', keyId, 'migrating to encrypted storage')
+          if (this.auth && this.auth.isConnected) {
+            void this.storeEncryptedKey(keyId, raw, record.associatedId).catch(() => {})
+          }
+          return raw
+        }
+      } catch { /* not valid base64 either */ }
+      console.error('Keys: Failed to decrypt key:', err)
+      return null
+    }
   },
 
   async deleteKey(keyId: string): Promise<void> {
-    if (!this.db) await this.openDB()
+    const store = await this.ensureStorage()
     this.keyCache.delete(keyId)
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(this.STORE_NAME, 'readwrite')
-      const store = tx.objectStore(this.STORE_NAME)
-      const request = store.delete(`${this.userPubkey}:${keyId}`)
-      request.onsuccess = () => resolve()
-      request.onerror = () => reject(request.error)
-    })
+    await store.delete(`${this.userPubkey}:${keyId}`)
   },
 
   async importSharedFolderKey(

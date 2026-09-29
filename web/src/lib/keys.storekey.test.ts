@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Keys } from './keys'
 import type { AuthPort } from './keys'
+import { InMemoryKeyStorage } from './key-storage'
 
 function mockAuth(overrides: Partial<AuthPort> = {}): AuthPort {
   return {
@@ -19,39 +20,17 @@ function disconnectedAuth(): AuthPort {
   return { ...mockAuth(), isConnected: false }
 }
 
-function stubDB(): { written: Record<string, unknown>[]; db: IDBDatabase } {
-  const written: Record<string, unknown>[] = []
-  const db = {
-    transaction: () => ({
-      objectStore: () => ({
-        put: (record: Record<string, unknown>) => {
-          written.push(record)
-          const req = { onsuccess: null as (() => void) | null, onerror: null as (() => void) | null }
-          Promise.resolve().then(() => req.onsuccess?.())
-          return req
-        },
-        get: (_id: string) => {
-          const req = {
-            onsuccess: null as (() => void) | null,
-            onerror: null as (() => void) | null,
-            result: undefined as unknown,
-          }
-          Promise.resolve().then(() => req.onsuccess?.())
-          return req
-        },
-      }),
-    }),
-  } as unknown as IDBDatabase
-  return { written, db }
-}
-
 describe('storeEncryptedKey refuses plaintext', () => {
+  let storage: InMemoryKeyStorage
+
   beforeEach(() => {
     Keys.nip44Writes = true
+    storage = new InMemoryKeyStorage()
+    Keys.setStorage(storage)
   })
 
   afterEach(() => {
-    Keys.db = null
+    Keys.storage = null
   })
 
   it('throws when signer is not connected', async () => {
@@ -74,39 +53,39 @@ describe('storeEncryptedKey refuses plaintext', () => {
     const auth = mockAuth()
     Keys.configure({ auth })
     Keys.userPubkey = 'test_pub'
-    const { written, db } = stubDB()
-    Keys.db = db
 
     await Keys.storeEncryptedKey('test:1', new Uint8Array(32), null)
 
     expect(auth.nip44Encrypt).toHaveBeenCalled()
-    expect(written).toHaveLength(1)
-    expect(written[0].encryptedKey).toMatch(/^nip44:/)
+    const record = await storage.get('test_pub:test:1')
+    expect(record).not.toBeNull()
+    expect(record!.encryptedKey).toMatch(/^nip44:/)
   })
 
   it('never writes when signer is disconnected', async () => {
     Keys.configure({ auth: disconnectedAuth() })
     Keys.userPubkey = 'test_pub'
-    const { written, db } = stubDB()
-    Keys.db = db
 
     await expect(Keys.storeEncryptedKey('test:1', new Uint8Array(32), null))
       .rejects.toThrow()
 
-    expect(written).toHaveLength(0)
+    const record = await storage.get('test_pub:test:1')
+    expect(record).toBeNull()
   })
 })
 
 describe('loadEncryptedKey returns null when offline', () => {
+  beforeEach(() => {
+    Keys.setStorage(new InMemoryKeyStorage())
+  })
+
   afterEach(() => {
-    Keys.db = null
+    Keys.storage = null
   })
 
   it('returns null when signer is not connected', async () => {
     Keys.configure({ auth: disconnectedAuth() })
     Keys.userPubkey = 'test_pub'
-    const { db } = stubDB()
-    Keys.db = db
 
     const result = await Keys.loadEncryptedKey('nonexistent')
     expect(result).toBeNull()
