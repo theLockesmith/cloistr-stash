@@ -170,7 +170,7 @@ describe('Blossom round-trip E2E', () => {
     const fileKey = await Keys.deriveKey(folderKey, fileId, Keys.CONTEXT_FILE)
     const ciphertext = await Crypto.encryptFile(plaintext, fileKey)
 
-    const blob = new Blob([ciphertext], { type: 'application/octet-stream' })
+    const blob = new Blob([ciphertext as BlobPart], { type: 'application/octet-stream' })
     const uploadResult = await API.uploadFile(blob, null, 'e2e')
     const sha256 = uploadResult.sha256 as string
     expect(sha256).toBeTruthy()
@@ -232,7 +232,7 @@ describe('Blossom round-trip E2E', () => {
     const fileKey = await Keys.deriveRootFileKey(fileId)
     const ciphertext = await Crypto.encryptFile(plaintext, fileKey)
 
-    const blob = new Blob([ciphertext], { type: 'application/octet-stream' })
+    const blob = new Blob([ciphertext as BlobPart], { type: 'application/octet-stream' })
     const uploadResult = await API.uploadFile(blob, null, 'e2e')
     const sha256 = uploadResult.sha256 as string
 
