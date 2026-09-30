@@ -496,6 +496,9 @@ export const Keys = {
     }
 
     // 3. Fall back to HKDF derivation (pre-migration files only)
+    if (this.wrappedKeyMode) {
+      console.warn('Keys: wrappedKeyMode active but falling back to HKDF derivation', fileId)
+    }
     return folderId ? this.deriveFileKey(folderId, fileId) : this.deriveRootFileKey(fileId)
   },
 

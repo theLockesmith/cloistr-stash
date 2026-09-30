@@ -26,6 +26,7 @@ interface MigrationRecord {
   completedAt: number
   filesMigrated: number
   foldersMigrated: number
+  failedFileIds?: string[]
 }
 
 function getMigrationRecord(pubkey: string): MigrationRecord | null {
@@ -72,6 +73,7 @@ export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> 
 
   let filesMigrated = 0
   let foldersMigrated = 0
+  const failedFileIds: string[] = []
 
   // Group files by folder
   const filesByFolder = new Map<string, StashFile[]>()
@@ -129,6 +131,7 @@ export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> 
         filesMigrated++
       } catch (err) {
         console.warn('WrappedKeyMigration: failed to migrate file', fileId, err)
+        failedFileIds.push(fileId)
       }
     }
 
@@ -178,6 +181,7 @@ export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> 
       filesMigrated++
     } catch (err) {
       console.warn('WrappedKeyMigration: failed to migrate root file', fileId, err)
+      failedFileIds.push(fileId)
     }
   }
 
@@ -186,7 +190,16 @@ export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> 
     completedAt: Date.now(),
     filesMigrated,
     foldersMigrated,
+    failedFileIds: failedFileIds.length > 0 ? failedFileIds : undefined,
   }
+
+  if (failedFileIds.length > 0) {
+    console.warn(
+      `WrappedKeyMigration: incomplete. ${filesMigrated} files migrated, ${failedFileIds.length} failed. Will retry on next run.`,
+    )
+    return record
+  }
+
   saveMigrationRecord(pubkey, record)
   Keys.wrappedKeyMode = true
 
