@@ -14,8 +14,12 @@ import { Events } from './events'
 import { authPort, getSigner } from './authBridge'
 import type { StashFile, StashFolder } from '../state/types'
 
-const MIGRATION_KEY = 'cloistr-drive-wrapped-key-migration'
+const MIGRATION_KEY_PREFIX = 'cloistr-drive-wrapped-key-migration'
 const MIGRATION_VERSION = 1
+
+function migrationKey(pubkey: string): string {
+  return `${MIGRATION_KEY_PREFIX}:${pubkey}`
+}
 
 interface MigrationRecord {
   version: number
@@ -24,33 +28,33 @@ interface MigrationRecord {
   foldersMigrated: number
 }
 
-async function getMigrationRecord(): Promise<MigrationRecord | null> {
+function getMigrationRecord(pubkey: string): MigrationRecord | null {
   try {
-    const raw = localStorage.getItem(MIGRATION_KEY)
+    const raw = localStorage.getItem(migrationKey(pubkey))
     return raw ? (JSON.parse(raw) as MigrationRecord) : null
   } catch {
     return null
   }
 }
 
-function saveMigrationRecord(record: MigrationRecord): void {
-  localStorage.setItem(MIGRATION_KEY, JSON.stringify(record))
+function saveMigrationRecord(pubkey: string, record: MigrationRecord): void {
+  localStorage.setItem(migrationKey(pubkey), JSON.stringify(record))
 }
 
-export async function isMigrationComplete(): Promise<boolean> {
-  const record = await getMigrationRecord()
+export function isMigrationComplete(pubkey: string): boolean {
+  const record = getMigrationRecord(pubkey)
   return record !== null && record.version >= MIGRATION_VERSION
 }
 
 export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> {
   if (!authPort.isConnected || !authPort.pubkey) return null
-  if (await isMigrationComplete()) {
+  const pubkey = authPort.pubkey!
+  if (isMigrationComplete(pubkey)) {
     Keys.wrappedKeyMode = true
     return null
   }
 
   const signer = getSigner()
-  const pubkey = authPort.pubkey!
 
   console.log('WrappedKeyMigration: starting...')
 
@@ -93,6 +97,7 @@ export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> 
     for (const file of folderFiles) {
       const fileId = (file.id ?? file.file_id ?? file.fileId ?? file.d) as string
       if (!fileId) continue
+      if (file.owner_key) continue
 
       try {
         // Derive the file key one final time
@@ -148,6 +153,7 @@ export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> 
   for (const file of rootFiles) {
     const fileId = (file.id ?? file.file_id ?? file.fileId ?? file.d) as string
     if (!fileId) continue
+    if (file.owner_key) continue
 
     try {
       const fileKey = await Keys.deriveRootFileKey(fileId)
@@ -181,7 +187,7 @@ export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> 
     filesMigrated,
     foldersMigrated,
   }
-  saveMigrationRecord(record)
+  saveMigrationRecord(pubkey, record)
   Keys.wrappedKeyMode = true
 
   console.log(

@@ -514,6 +514,7 @@ export const Keys = {
     }
     this.keyCache.clear()
     this.userPubkey = null
+    this.wrappedKeyMode = false
     console.log('Keys: Cache cleared')
   },
 

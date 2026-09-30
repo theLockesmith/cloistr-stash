@@ -94,77 +94,80 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
           ? await Keys.deriveFileKey(folderId, item.fileId)
           : await Keys.deriveRootFileKey(item.fileId)
 
-      const encryptedData = await Crypto.encryptFile(fileData, fileKey, (p) => {
-        item.progress = Math.round(p * 50)
+      try {
+        const encryptedData = await Crypto.encryptFile(fileData, fileKey, (p) => {
+          item.progress = Math.round(p * 50)
+          emit(item)
+        })
+
+        item.status = 'hashing'
         emit(item)
-      })
+        const encryptedHash = await Crypto.hash(encryptedData)
 
-      item.status = 'hashing'
-      emit(item)
-      const encryptedHash = await Crypto.hash(encryptedData)
-
-      item.status = 'uploading'
-      emit(item)
-      let authHeader: string | null = null
-      if (authPort.isConnected) {
-        authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
-      }
-
-      const encryptedBlob = new Blob([encryptedData as BlobPart], {
-        type: 'application/octet-stream',
-      })
-      const result = await API.uploadFile(encryptedBlob, authHeader, 'e2e')
-      const sha256 = (result.sha256 as string) || encryptedHash
-
-      if (authPort.isConnected) {
-        item.status = 'publishing'
+        item.status = 'uploading'
         emit(item)
-
-        let ownerEnvelope: string | undefined
-        if (Keys.wrappedKeyMode) {
-          const signer = getSigner()
-          ownerEnvelope = await Keys.wrapFileKeyForOwner(fileKey, item.fileId, signer)
-
-          if (folderId) {
-            await addWrappedKeyToFolder(folderId, item.fileId, fileKey)
-          }
+        let authHeader: string | null = null
+        if (authPort.isConnected) {
+          authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
         }
 
-        const metadataEvent = await Events.createEncryptedFileMetadataEvent({
-          fileId: item.fileId,
-          sha256,
-          plaintextHash,
-          name: item.file.name,
-          size: item.file.size,
-          encryptedSize: encryptedData.length,
-          mimeType: item.file.type || 'application/octet-stream',
-          folderId: folderId ?? undefined,
-          ownerEnvelope,
+        const encryptedFile = new File([encryptedData as BlobPart], item.file.name + '.encrypted', {
+          type: 'application/octet-stream',
         })
-        await authPort.publishEvent(metadataEvent)
-      }
+        const result = await API.uploadFile(encryptedFile, authHeader, 'e2e')
+        const sha256 = (result.sha256 as string) || encryptedHash
 
-      // Index the plaintext for encrypted search (best-effort) before wiping.
-      try {
-        await Search.indexFile(
-          {
-            file_id: item.fileId,
+        if (authPort.isConnected) {
+          item.status = 'publishing'
+          emit(item)
+
+          let ownerEnvelope: string | undefined
+          if (Keys.wrappedKeyMode) {
+            const signer = getSigner()
+            ownerEnvelope = await Keys.wrapFileKeyForOwner(fileKey, item.fileId, signer)
+
+            if (folderId) {
+              await addWrappedKeyToFolder(folderId, item.fileId, fileKey)
+            }
+          }
+
+          const metadataEvent = await Events.createEncryptedFileMetadataEvent({
+            fileId: item.fileId,
             sha256,
+            plaintextHash,
             name: item.file.name,
             size: item.file.size,
-            mime_type: item.file.type,
-            encrypted: true,
-          },
-          fileData,
-        )
-      } catch (err) {
-        console.warn('Upload: failed to index file for search', err)
-      }
+            encryptedSize: encryptedData.length,
+            mimeType: item.file.type || 'application/octet-stream',
+            folderId: folderId ?? undefined,
+            ownerEnvelope,
+          })
+          await authPort.publishEvent(metadataEvent)
+        }
 
-      Crypto.wipeKey(fileKey)
-      item.status = 'success'
-      item.progress = 100
-      emit(item)
+        // Index the plaintext for encrypted search (best-effort) before wiping.
+        try {
+          await Search.indexFile(
+            {
+              file_id: item.fileId,
+              sha256,
+              name: item.file.name,
+              size: item.file.size,
+              mime_type: item.file.type,
+              encrypted: true,
+            },
+            fileData,
+          )
+        } catch (err) {
+          console.warn('Upload: failed to index file for search', err)
+        }
+
+        item.status = 'success'
+        item.progress = 100
+        emit(item)
+      } finally {
+        Crypto.wipeKey(fileKey)
+      }
     } catch (err) {
       item.status = 'error'
       item.error = (err as Error).message
@@ -203,45 +206,47 @@ export async function uploadEncryptedBytes(
       ? await Keys.deriveFileKey(folderId, fileId)
       : await Keys.deriveRootFileKey(fileId)
 
-  const encryptedData = await Crypto.encryptFile(data, fileKey)
-  const encryptedHash = await Crypto.hash(encryptedData)
+  try {
+    const encryptedData = await Crypto.encryptFile(data, fileKey)
+    const encryptedHash = await Crypto.hash(encryptedData)
 
-  let authHeader: string | null = null
-  if (authPort.isConnected) {
-    authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
-  }
-
-  const encryptedBlob = new Blob([encryptedData as BlobPart], {
-    type: 'application/octet-stream',
-  })
-  const result = await API.uploadFile(encryptedBlob, authHeader, 'e2e')
-  const sha256 = (result.sha256 as string) || encryptedHash
-
-  if (authPort.isConnected) {
-    let ownerEnvelope: string | undefined
-    if (Keys.wrappedKeyMode) {
-      const signer = getSigner()
-      ownerEnvelope = await Keys.wrapFileKeyForOwner(fileKey, fileId, signer)
-      if (folderId) {
-        await addWrappedKeyToFolder(folderId, fileId, fileKey)
-      }
+    let authHeader: string | null = null
+    if (authPort.isConnected) {
+      authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
     }
 
-    const metadataEvent = await Events.createEncryptedFileMetadataEvent({
-      fileId,
-      sha256,
-      plaintextHash,
-      name,
-      size: data.length,
-      encryptedSize: encryptedData.length,
-      mimeType: mimeType || 'application/octet-stream',
-      folderId: folderId ?? undefined,
-      ownerEnvelope,
+    const encryptedFile = new File([encryptedData as BlobPart], name + '.encrypted', {
+      type: 'application/octet-stream',
     })
-    await authPort.publishEvent(metadataEvent)
-  }
+    const result = await API.uploadFile(encryptedFile, authHeader, 'e2e')
+    const sha256 = (result.sha256 as string) || encryptedHash
 
-  Crypto.wipeKey(fileKey)
+    if (authPort.isConnected) {
+      let ownerEnvelope: string | undefined
+      if (Keys.wrappedKeyMode) {
+        const signer = getSigner()
+        ownerEnvelope = await Keys.wrapFileKeyForOwner(fileKey, fileId, signer)
+        if (folderId) {
+          await addWrappedKeyToFolder(folderId, fileId, fileKey)
+        }
+      }
+
+      const metadataEvent = await Events.createEncryptedFileMetadataEvent({
+        fileId,
+        sha256,
+        plaintextHash,
+        name,
+        size: data.length,
+        encryptedSize: encryptedData.length,
+        mimeType: mimeType || 'application/octet-stream',
+        folderId: folderId ?? undefined,
+        ownerEnvelope,
+      })
+      await authPort.publishEvent(metadataEvent)
+    }
+  } finally {
+    Crypto.wipeKey(fileKey)
+  }
 }
 
 /**
@@ -279,23 +284,26 @@ async function addWrappedKeyToFolder(
   let parentId: string | undefined
   let encryptedFolderKey: string | undefined
 
-  if (events.length > 0) {
-    const event = events[0]
-    for (const tag of (event.tags ?? []) as string[][]) {
-      if (tag[0] === 'wk' && tag.length >= 3) {
-        existingWrapped.push({ subject: tag[1], envelope: tag[2] })
-      } else if (tag[0] === 'key' && tag.length >= 2) {
-        encryptedFolderKey = tag[1]
-      } else if (tag[0] === 'parent' && tag.length >= 2) {
-        parentId = tag[1]
-      }
-    }
-    try {
-      const content = JSON.parse(event.content as string) as Record<string, unknown>
-      folderName = (content.name as string) ?? ''
-      folderDescription = (content.description as string) ?? ''
-    } catch { /* use defaults */ }
+  if (events.length === 0) {
+    console.warn('addWrappedKeyToFolder: no folder event found for', folderId, '— skipping to avoid blank overwrite')
+    return
   }
+
+  const event = events[0]
+  for (const tag of (event.tags ?? []) as string[][]) {
+    if (tag[0] === 'wk' && tag.length >= 3) {
+      existingWrapped.push({ subject: tag[1], envelope: tag[2] })
+    } else if (tag[0] === 'key' && tag.length >= 2) {
+      encryptedFolderKey = tag[1]
+    } else if (tag[0] === 'parent' && tag.length >= 2) {
+      parentId = tag[1]
+    }
+  }
+  try {
+    const content = JSON.parse(event.content as string) as Record<string, unknown>
+    folderName = (content.name as string) ?? ''
+    folderDescription = (content.description as string) ?? ''
+  } catch { /* use defaults */ }
 
   const folderKey = await Keys.getFolderKey(folderId, parentId ?? null)
   const envelope = Keys.wrapFileKeyForFolder(fileKey, fileId, folderKey)

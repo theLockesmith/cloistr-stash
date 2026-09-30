@@ -180,6 +180,12 @@ describe('Keys: getFileKey fallback chain', () => {
     ).rejects.toThrow()
   })
 
+  it('clearCache resets wrappedKeyMode to false', async () => {
+    Keys.wrappedKeyMode = true
+    Keys.clearCache()
+    expect(Keys.wrappedKeyMode).toBe(false)
+  })
+
   it('pre-migration file still opens after migration (same derived key)', async () => {
     const rootKey = await primeKeysWithRoot()
     const folderKey = await deriveFolderKeyManually(rootKey, folderId)
