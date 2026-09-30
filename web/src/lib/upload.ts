@@ -267,10 +267,7 @@ async function addWrappedKeyToFolder(
   const pubkey = authPort.pubkey
   if (!pubkey) return
 
-  const folderKey = await Keys.getFolderKey(folderId)
-  const envelope = Keys.wrapFileKeyForFolder(fileKey, fileId, folderKey)
-
-  // Query the current folder event to preserve existing wrapped keys
+  // Query the current folder event FIRST to get parentId for correct key derivation
   const events = await Relay.subscribe(
     { kinds: [30079], authors: [pubkey], '#d': [folderId], limit: 1 },
     5000,
@@ -299,6 +296,9 @@ async function addWrappedKeyToFolder(
       folderDescription = (content.description as string) ?? ''
     } catch { /* use defaults */ }
   }
+
+  const folderKey = await Keys.getFolderKey(folderId, parentId ?? null)
+  const envelope = Keys.wrapFileKeyForFolder(fileKey, fileId, folderKey)
 
   // Replace or add this file's wrapped key
   const updated = existingWrapped.filter((wk) => wk.subject !== fileId)

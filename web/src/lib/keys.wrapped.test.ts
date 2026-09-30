@@ -150,6 +150,36 @@ describe('Keys: getFileKey fallback chain', () => {
     expect(result).not.toEqual(randomFileKey)
   })
 
+  it('SECURITY: wrappedKeyMode throws on envelope unwrap failure instead of silent HKDF fallback', async () => {
+    const rootKey = await primeKeysWithRoot()
+    await deriveFolderKeyManually(rootKey, folderId)
+
+    Keys.wrappedKeyMode = true
+
+    // A corrupted owner envelope should throw, not silently return an HKDF-derived key
+    const signer = makeSigner(TEST_PUBKEY)
+    await expect(
+      Keys.getFileKey(folderId, fileId, {
+        ownerEnvelope: 'corrupted-envelope-data',
+        signer,
+      }),
+    ).rejects.toThrow()
+  })
+
+  it('SECURITY: wrappedKeyMode throws on folder envelope unwrap failure', async () => {
+    const rootKey = await primeKeysWithRoot()
+    await deriveFolderKeyManually(rootKey, folderId)
+
+    Keys.wrappedKeyMode = true
+
+    // A corrupted folder envelope should throw, not silently return an HKDF-derived key
+    await expect(
+      Keys.getFileKey(folderId, fileId, {
+        folderWrappedKeys: [{ subject: fileId, envelope: 'corrupted-envelope-data' }],
+      }),
+    ).rejects.toThrow()
+  })
+
   it('pre-migration file still opens after migration (same derived key)', async () => {
     const rootKey = await primeKeysWithRoot()
     const folderKey = await deriveFolderKeyManually(rootKey, folderId)

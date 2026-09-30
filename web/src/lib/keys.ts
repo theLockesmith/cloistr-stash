@@ -473,8 +473,10 @@ export const Keys = {
     if (opts?.ownerEnvelope && opts?.signer) {
       try {
         return await this.unwrapFileKeyFromOwner(opts.ownerEnvelope, fileId, opts.signer)
-      } catch {
-        // fall through to next method
+      } catch (err) {
+        if (this.wrappedKeyMode) {
+          throw new Error(`Failed to unwrap owner envelope for ${fileId}: ${(err as Error).message}`)
+        }
       }
     }
 
@@ -485,13 +487,15 @@ export const Keys = {
         try {
           const folderKey = await this.getFolderKey(folderId)
           return this.unwrapFileKeyFromFolder(entry.envelope, fileId, folderKey)
-        } catch {
-          // fall through to derivation
+        } catch (err) {
+          if (this.wrappedKeyMode) {
+            throw new Error(`Failed to unwrap folder key for ${fileId}: ${(err as Error).message}`)
+          }
         }
       }
     }
 
-    // 3. Fall back to HKDF derivation (legacy)
+    // 3. Fall back to HKDF derivation (pre-migration files only)
     return folderId ? this.deriveFileKey(folderId, fileId) : this.deriveRootFileKey(fileId)
   },
 
