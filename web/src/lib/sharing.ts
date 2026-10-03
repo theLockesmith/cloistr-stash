@@ -18,6 +18,7 @@ import { Keys } from './keys'
 import { API } from './api'
 import { Relay } from './relay'
 import { authPort, getSigner } from './authBridge'
+import { addWrappedKeyToFolder } from './upload'
 import type { UnsignedEvent, SignedEvent } from './relay'
 import type { StashFile, StashFolder } from '../state/types'
 
@@ -143,6 +144,7 @@ interface EncryptedFileMetadataParams {
   mimeType: string
   folderId: string | null
   encrypted: boolean
+  ownerEnvelope?: string
 }
 
 // ─── Module-private helpers ───────────────────────────────────────────────────
@@ -231,6 +233,9 @@ async function createEncryptedFileMetadataEvent(
   }
   if (params.encrypted) {
     tags.push(['encrypted', 'true'])
+  }
+  if (params.ownerEnvelope) {
+    tags.push(['owner_key', params.ownerEnvelope])
   }
 
   const event: UnsignedEvent = {
@@ -628,12 +633,19 @@ export const Sharing = {
 
     const decryptedData = await Crypto.decryptFile(encryptedData, oldFileKey)
 
-    // Step 3: Generate new file ID for fresh key derivation
+    // Step 3: Generate new file ID
     const newFileId = Crypto.generateFileId()
 
-    // Step 4: Derive new file key
+    // Step 4: Generate new file key (random + wrapped in wrappedKeyMode, HKDF otherwise)
     let newFileKey: Uint8Array
-    if (folderId) {
+    let ownerEnvelope: string | undefined
+    if (Keys.wrappedKeyMode) {
+      newFileKey = Keys.generateFileKey()
+      ownerEnvelope = await Keys.wrapFileKeyForOwner(newFileKey, newFileId, getSigner())
+      if (folderId) {
+        await addWrappedKeyToFolder(folderId, newFileId, newFileKey)
+      }
+    } else if (folderId) {
       newFileKey = await Keys.deriveFileKey(folderId, newFileId)
     } else {
       newFileKey = await Keys.deriveRootFileKey(newFileId)
@@ -663,6 +675,7 @@ export const Sharing = {
       mimeType: (file.mime_type ?? file.mimeType ?? 'application/octet-stream') as string,
       folderId: folderId,
       encrypted: true,
+      ownerEnvelope,
     })
     await authPort.publishEvent(metadataEvent)
 
