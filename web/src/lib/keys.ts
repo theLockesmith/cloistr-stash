@@ -469,18 +469,17 @@ export const Keys = {
     fileId: string,
     opts?: { ownerEnvelope?: string; folderWrappedKeys?: Array<{ subject: string; envelope: string }>; signer?: unknown },
   ): Promise<Uint8Array> {
-    // 1. Try unwrap from owner envelope on the file event
+    // 1. Owner envelope present → file was encrypted with a wrapped key.
+    //    HKDF derivation will NOT produce the right key, so always throw on failure.
     if (opts?.ownerEnvelope && opts?.signer) {
       try {
         return await this.unwrapFileKeyFromOwner(opts.ownerEnvelope, fileId, opts.signer)
       } catch (err) {
-        if (this.wrappedKeyMode) {
-          throw new Error(`Failed to unwrap owner envelope for ${fileId}: ${(err as Error).message}`)
-        }
+        throw new Error(`Failed to unwrap owner envelope for ${fileId}: ${(err as Error).message}`)
       }
     }
 
-    // 2. Try unwrap from folder's wrapped key set
+    // 2. Folder wrapped key entry exists → same: always throw on failure.
     if (opts?.folderWrappedKeys && folderId) {
       const entry = opts.folderWrappedKeys.find((wk) => wk.subject === fileId)
       if (entry) {
@@ -488,17 +487,12 @@ export const Keys = {
           const folderKey = await this.getFolderKey(folderId)
           return this.unwrapFileKeyFromFolder(entry.envelope, fileId, folderKey)
         } catch (err) {
-          if (this.wrappedKeyMode) {
-            throw new Error(`Failed to unwrap folder key for ${fileId}: ${(err as Error).message}`)
-          }
+          throw new Error(`Failed to unwrap folder key for ${fileId}: ${(err as Error).message}`)
         }
       }
     }
 
-    // 3. Fall back to HKDF derivation (pre-migration files only)
-    if (this.wrappedKeyMode) {
-      console.warn('Keys: wrappedKeyMode active but falling back to HKDF derivation', fileId)
-    }
+    // 3. No wrapped key on this file → HKDF derivation (pre-migration)
     return folderId ? this.deriveFileKey(folderId, fileId) : this.deriveRootFileKey(fileId)
   },
 

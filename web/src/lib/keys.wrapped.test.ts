@@ -180,6 +180,31 @@ describe('Keys: getFileKey fallback chain', () => {
     ).rejects.toThrow()
   })
 
+  it('PER-FILE: corrupted owner envelope throws even without wrappedKeyMode', async () => {
+    await primeKeysWithRoot()
+
+    Keys.wrappedKeyMode = false
+    const signer = makeSigner(TEST_PUBKEY)
+    await expect(
+      Keys.getFileKey(folderId, fileId, {
+        ownerEnvelope: 'corrupted-envelope-data',
+        signer,
+      }),
+    ).rejects.toThrow()
+  })
+
+  it('PER-FILE: corrupted folder wrapped key throws even without wrappedKeyMode', async () => {
+    const rootKey = await primeKeysWithRoot()
+    await deriveFolderKeyManually(rootKey, folderId)
+
+    Keys.wrappedKeyMode = false
+    await expect(
+      Keys.getFileKey(folderId, fileId, {
+        folderWrappedKeys: [{ subject: fileId, envelope: 'corrupted-envelope-data' }],
+      }),
+    ).rejects.toThrow()
+  })
+
   it('clearCache resets wrappedKeyMode to false', async () => {
     Keys.wrappedKeyMode = true
     Keys.clearCache()

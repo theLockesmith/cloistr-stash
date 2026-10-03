@@ -11,10 +11,12 @@ import { Keys } from './keys'
 import { Crypto } from './crypto'
 import { API } from './api'
 import { Events } from './events'
+import { Relay } from './relay'
 import { authPort, getSigner } from './authBridge'
 import type { StashFile, StashFolder } from '../state/types'
 
 const MIGRATION_KEY_PREFIX = 'cloistr-drive-wrapped-key-migration'
+const MIGRATION_D_TAG = 'wrapped-key-migration'
 const MIGRATION_VERSION = 1
 
 function migrationKey(pubkey: string): string {
@@ -29,7 +31,7 @@ interface MigrationRecord {
   failedFileIds?: string[]
 }
 
-function getMigrationRecord(pubkey: string): MigrationRecord | null {
+function getLocalMigrationRecord(pubkey: string): MigrationRecord | null {
   try {
     const raw = localStorage.getItem(migrationKey(pubkey))
     return raw ? (JSON.parse(raw) as MigrationRecord) : null
@@ -38,19 +40,57 @@ function getMigrationRecord(pubkey: string): MigrationRecord | null {
   }
 }
 
-function saveMigrationRecord(pubkey: string, record: MigrationRecord): void {
-  localStorage.setItem(migrationKey(pubkey), JSON.stringify(record))
+async function getRelayMigrationRecord(pubkey: string): Promise<MigrationRecord | null> {
+  try {
+    const events = await Relay.subscribe(
+      { kinds: [30078], authors: [pubkey], '#d': [MIGRATION_D_TAG], limit: 1 },
+      10_000,
+    )
+    if (events.length === 0) return null
+
+    const event = events[0] as { content?: string; pubkey?: string }
+    if (!event.content) return null
+
+    const decrypted = await Keys.selfDecrypt(pubkey, event.content)
+    const record = JSON.parse(decrypted) as MigrationRecord
+
+    // Cache to localStorage for fast access next time
+    localStorage.setItem(migrationKey(pubkey), JSON.stringify(record))
+    return record
+  } catch {
+    return null
+  }
 }
 
-export function isMigrationComplete(pubkey: string): boolean {
-  const record = getMigrationRecord(pubkey)
-  return record !== null && record.version >= MIGRATION_VERSION
+async function saveMigrationRecord(pubkey: string, record: MigrationRecord): Promise<void> {
+  localStorage.setItem(migrationKey(pubkey), JSON.stringify(record))
+
+  try {
+    const encrypted = await Keys.selfEncrypt(pubkey, JSON.stringify(record))
+    const event = await authPort.signEvent({
+      kind: 30078,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [['d', MIGRATION_D_TAG]],
+      content: encrypted,
+    })
+    await authPort.publishEvent(event)
+  } catch (err) {
+    console.warn('Failed to publish migration record to relay:', (err as Error).message)
+  }
+}
+
+export async function isMigrationComplete(pubkey: string): Promise<boolean> {
+  const local = getLocalMigrationRecord(pubkey)
+  if (local !== null && local.version >= MIGRATION_VERSION) return true
+
+  const relay = await getRelayMigrationRecord(pubkey)
+  return relay !== null && relay.version >= MIGRATION_VERSION
 }
 
 export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> {
   if (!authPort.isConnected || !authPort.pubkey) return null
   const pubkey = authPort.pubkey!
-  if (isMigrationComplete(pubkey)) {
+  if (await isMigrationComplete(pubkey)) {
     Keys.wrappedKeyMode = true
     return null
   }
@@ -200,7 +240,7 @@ export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> 
     return record
   }
 
-  saveMigrationRecord(pubkey, record)
+  await saveMigrationRecord(pubkey, record)
   Keys.wrappedKeyMode = true
 
   console.log(
