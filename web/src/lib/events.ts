@@ -45,6 +45,8 @@ export interface EncryptedFileMetadataInput {
   version?: number
   /** User-defined tags stored as Nostr 't' tags on the kind:30078 event. */
   userTags?: string[]
+  /** File key wrapped (envelope-encrypted) to the owner's pubkey. */
+  ownerEnvelope?: string
 }
 
 export interface FolderMetadataInput {
@@ -53,6 +55,8 @@ export interface FolderMetadataInput {
   description?: string
   parentId?: string
   encryptedFolderKey?: string
+  /** Member file keys wrapped under the folder key (envelope encryption). */
+  wrappedKeys?: Array<{ subject: string; envelope: string }>
 }
 
 export const Events = {
@@ -114,6 +118,8 @@ export const Events = {
       tags.push(['current', fileInfo.sha256])
     }
 
+    if (fileInfo.ownerEnvelope) tags.push(['owner_key', fileInfo.ownerEnvelope])
+
     return authPort.signEvent({ kind: 30078, created_at: ts, tags, content })
   },
 
@@ -142,6 +148,9 @@ export const Events = {
     ]
     if (folderInfo.parentId) tags.push(['parent', folderInfo.parentId])
     if (folderInfo.encryptedFolderKey) tags.push(['key', folderInfo.encryptedFolderKey])
+    for (const wk of folderInfo.wrappedKeys ?? []) {
+      tags.push(['wk', wk.subject, wk.envelope])
+    }
 
     return authPort.signEvent({ kind: 30079, created_at: now(), tags, content })
   },
