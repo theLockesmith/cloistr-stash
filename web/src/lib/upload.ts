@@ -264,7 +264,7 @@ export async function uploadEncryptedBytes(
  *
  * The original file is not modified.
  */
-async function addWrappedKeyToFolder(
+export async function addWrappedKeyToFolder(
   folderId: string,
   fileId: string,
   fileKey: Uint8Array,
