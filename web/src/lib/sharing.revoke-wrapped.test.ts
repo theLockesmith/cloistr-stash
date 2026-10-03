@@ -104,14 +104,26 @@ describe('revokeAndReencryptFile: wrapped key mode', () => {
     ;(Keys as { wrappedKeyMode: boolean }).wrappedKeyMode = false
   })
 
-  it('uses HKDF derivation when wrappedKeyMode is false', async () => {
+  it('uses HKDF derivation when wrappedKeyMode is false and file is not wrapped', async () => {
     ;(Keys as { wrappedKeyMode: boolean }).wrappedKeyMode = false
 
-    const result = await Sharing.revokeAndReencryptFile(testFile as never)
+    const { owner_key: _unused, ...unwrappedFile } = testFile
+    const result = await Sharing.revokeAndReencryptFile(unwrappedFile as never)
 
     expect(result.newFileId).toBe('new-file-id-after-revoke')
     expect(generateFileKeyCalled).toBe(false)
     expect(wrapFileKeyForOwnerCalled).toBe(false)
+  })
+
+  it('PER-FILE: already-wrapped file stays wrapped even when wrappedKeyMode is false (fresh client)', async () => {
+    ;(Keys as { wrappedKeyMode: boolean }).wrappedKeyMode = false
+
+    await Sharing.revokeAndReencryptFile(testFile as never)
+
+    expect(generateFileKeyCalled).toBe(true)
+    expect(wrapFileKeyForOwnerCalled).toBe(true)
+    const tags = (capturedMetadataEvent as { tags: string[][] }).tags
+    expect(tags.find((t: string[]) => t[0] === 'owner_key')).toBeTruthy()
   })
 
   it('generates random key + wraps when wrappedKeyMode is true', async () => {
