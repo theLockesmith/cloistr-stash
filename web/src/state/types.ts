@@ -48,7 +48,14 @@ export interface StashFile {
   deletedAt?: number
   /** User-defined tags for filtering/organisation (stored as Nostr 't' tags). */
   tags?: string[]
+  /** File key wrapped (envelope-encrypted) to the owner's pubkey. Present after wrapped-key migration. */
+  owner_key?: string
   [key: string]: unknown
+}
+
+export interface WrappedKeyEntry {
+  subject: string
+  envelope: string
 }
 
 export interface StashFolder {
@@ -58,6 +65,8 @@ export interface StashFolder {
   description?: string
   /** Folder key, encrypted to the owner's pubkey (self-encryption). */
   encrypted_key?: string
+  /** Member file keys wrapped under the folder key. Present after wrapped-key migration. */
+  wrapped_keys?: WrappedKeyEntry[]
   [key: string]: unknown
 }
 

@@ -345,6 +345,8 @@ func ParseFileEvent(event *nostr.Event) (*FileMetadata, error) {
 			file.DeletedAt = deletedAt
 		case "t":
 			file.Tags = append(file.Tags, tag[1])
+		case "owner_key":
+			file.OwnerKey = tag[1]
 		}
 	}
 
@@ -574,6 +576,13 @@ func ParseFolderEvent(event *nostr.Event) (*FolderMetadata, error) {
 			folder.ParentID = tag[1]
 		case "key":
 			folder.EncryptedKey = tag[1]
+		case "wk":
+			if len(tag) >= 3 {
+				folder.WrappedKeys = append(folder.WrappedKeys, WrappedKeyEntry{
+					Subject:  tag[1],
+					Envelope: tag[2],
+				})
+			}
 		}
 	}
 
