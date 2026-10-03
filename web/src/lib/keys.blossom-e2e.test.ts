@@ -124,21 +124,31 @@ function stubAuth(): AuthPort {
 
 // --- Tests -------------------------------------------------------------------
 
+// Set STASH_TEST_URL to point at a real local server (e.g. http://localhost:8080)
+// instead of the built-in mock.
+const useRealServer = !!process.env.STASH_TEST_URL
+
 describe('Blossom round-trip E2E', () => {
-  let mock: ReturnType<typeof createMockServer>
+  let mock: ReturnType<typeof createMockServer> | null = null
   let tmpDir: string
   let origBaseURL: string
 
   beforeAll(async () => {
-    mock = createMockServer()
-    await new Promise<void>((resolve) => mock.server.listen(0, '127.0.0.1', resolve))
     origBaseURL = API.baseURL
-    API.baseURL = `http://127.0.0.1:${mock.port()}`
+    if (useRealServer) {
+      API.baseURL = process.env.STASH_TEST_URL!
+    } else {
+      mock = createMockServer()
+      await new Promise<void>((resolve) => mock!.server.listen(0, '127.0.0.1', resolve))
+      API.baseURL = `http://127.0.0.1:${mock!.port()}`
+    }
   })
 
   afterAll(async () => {
     API.baseURL = origBaseURL
-    await new Promise<void>((resolve) => mock.server.close(() => resolve()))
+    if (mock) {
+      await new Promise<void>((resolve) => mock!.server.close(() => resolve()))
+    }
   })
 
   afterEach(async () => {
@@ -174,7 +184,7 @@ describe('Blossom round-trip E2E', () => {
     const uploadResult = await API.uploadFile(blob, null, 'e2e')
     const sha256 = uploadResult.sha256 as string
     expect(sha256).toBeTruthy()
-    expect(mock.files.has(sha256)).toBe(true)
+    if (mock) expect(mock.files.has(sha256)).toBe(true)
 
     // Wipe process A state
     Keys.clearCache()
