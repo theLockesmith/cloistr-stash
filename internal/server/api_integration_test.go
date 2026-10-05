@@ -231,7 +231,7 @@ func TestAPI_AuthenticationFlow(t *testing.T) {
 		{
 			name:           "Valid auth header for whitelisted user",
 			endpoint:       "/api/auth/status",
-			authHeader:     createValidTestAuthHeader(t),
+			authHeader:     createNIP98TestHeader(t, "GET", "http://example.com/api/auth/status"),
 			expectedAuth:   true,
 			expectedAuthorized: true,
 		},
@@ -458,10 +458,23 @@ func TestAPI_FolderEndpoints(t *testing.T) {
 		}
 	})
 
-	t.Run("Create folder with auth (no metadata store)", func(t *testing.T) {
+	t.Run("Blossom upload token is refused on folders (cross-route reuse)", func(t *testing.T) {
 		req := httptest.NewRequest("POST", "/api/folders", strings.NewReader("{}"))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", authHeader)
+		w := httptest.NewRecorder()
+
+		srv.Handler().ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401, got %d", w.Code)
+		}
+	})
+
+	t.Run("Create folder with auth (no metadata store)", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/api/folders", strings.NewReader("{}"))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", createNIP98TestHeader(t, "POST", "http://example.com/api/folders"))
 		w := httptest.NewRecorder()
 
 		srv.Handler().ServeHTTP(w, req)
@@ -547,10 +560,23 @@ func TestAPI_ShareEndpoints(t *testing.T) {
 		}
 	})
 
-	t.Run("Create share with auth (no metadata store)", func(t *testing.T) {
+	t.Run("Blossom upload token is refused on shares (cross-route reuse)", func(t *testing.T) {
 		req := httptest.NewRequest("POST", "/api/shares", strings.NewReader("{}"))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", authHeader)
+		w := httptest.NewRecorder()
+
+		srv.Handler().ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401, got %d", w.Code)
+		}
+	})
+
+	t.Run("Create share with auth (no metadata store)", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/api/shares", strings.NewReader("{}"))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", createNIP98TestHeader(t, "POST", "http://example.com/api/shares"))
 		w := httptest.NewRecorder()
 
 		srv.Handler().ServeHTTP(w, req)
@@ -802,6 +828,25 @@ func TestAPI_HealthAndMetrics(t *testing.T) {
 			t.Log("Note: Metrics endpoint may not be fully configured")
 		}
 	})
+}
+
+// createNIP98TestHeader signs a kind-27235 (NIP-98) header for one request.
+// Non-blob routes accept only this; a Blossom upload token is refused there.
+func createNIP98TestHeader(t *testing.T, method, url string) string {
+	t.Helper()
+	event := nostr.Event{
+		Kind:      27235,
+		CreatedAt: nostr.Timestamp(time.Now().Unix()),
+		Tags:      nostr.Tags{{"u", url}, {"method", method}},
+	}
+	if err := event.Sign(testPrivateKey); err != nil {
+		t.Fatalf("sign NIP-98 header: %v", err)
+	}
+	eventJSON, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "Nostr " + base64.StdEncoding.EncodeToString(eventJSON)
 }
 
 // Helper function to create valid auth header for tests

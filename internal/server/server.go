@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -397,8 +396,10 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 		encryptionMode = "e2e" // Default to e2e for Drive uploads (always client-encrypted)
 	}
 
-	// Extract pubkey from auth header for quota check
-	pubkey := extractPubkeyFromAuth(authHeader)
+	// Quota is charged to the pubkey the middleware authenticated (signature,
+	// kind 24242 t=upload, expiration all checked), never to a pubkey merely
+	// claimed in a header.
+	pubkey := auth.GetPubkeyFromContext(r.Context())
 
 	// Check quota before upload
 	if s.quota != nil && s.quota.IsEnabled() && pubkey != "" {
@@ -505,7 +506,8 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 
 	// Get Blossom auth header from request
 	authHeader := r.Header.Get("X-Blossom-Auth")
-	pubkey := extractPubkeyFromAuth(authHeader)
+	// Authenticated by the middleware (24242 t=delete, x=sha256, expiration).
+	pubkey := auth.GetPubkeyFromContext(r.Context())
 
 	// Get file size before deletion for quota update
 	var fileSize int64
@@ -660,27 +662,6 @@ func (s *Server) handlePublishMetadata(w http.ResponseWriter, r *http.Request) {
 		"event_id", event.ID[:16],
 		"pubkey", event.PubKey[:16],
 	)
-}
-
-// extractPubkeyFromAuth extracts the pubkey from a Blossom auth header
-// Format: "Nostr <base64-encoded-signed-event>"
-func extractPubkeyFromAuth(authHeader string) string {
-	if !strings.HasPrefix(authHeader, "Nostr ") {
-		return ""
-	}
-
-	eventB64 := strings.TrimPrefix(authHeader, "Nostr ")
-	eventJSON, err := base64.StdEncoding.DecodeString(eventB64)
-	if err != nil {
-		return ""
-	}
-
-	var event nostr.Event
-	if err := json.Unmarshal(eventJSON, &event); err != nil {
-		return ""
-	}
-
-	return event.PubKey
 }
 
 // handleListFolders returns all folders for a given pubkey
@@ -1317,8 +1298,9 @@ func (s *Server) handleGetQuota(w http.ResponseWriter, r *http.Request) {
 	pubkey := r.URL.Query().Get("pubkey")
 	if pubkey == "" {
 		// Try to get from auth header
-		authHeader := r.Header.Get("X-Blossom-Auth")
-		pubkey = extractPubkeyFromAuth(authHeader)
+		// Signature-verified only: this selects whose usage to SHOW, which
+		// ?pubkey= already allows; nothing is changed on this route.
+		pubkey = auth.VerifiedPubkeyFromHeader(r.Header.Get("X-Blossom-Auth"))
 	}
 
 	if pubkey == "" {
