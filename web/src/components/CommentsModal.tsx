@@ -22,7 +22,7 @@
 // decision that an operator should make before production launch.
 
 import { useState, useRef, useCallback } from 'react'
-import { addComment, deleteComment, getComments, type FileComment } from '../lib/comments'
+import { addComment, deleteComment, getComments, type FileComment } from '@cloistr/stash-core/comments'
 import type { StashFile } from '../state/types'
 
 function fileDisplayName(file: StashFile): string {

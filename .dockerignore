@@ -19,5 +19,7 @@ dist/
 web/node_modules/
 web/dist/
 web/legacy/
+web/packages/*/node_modules/
+web/packages/*/dist/
 test-results/
 playwright-report/

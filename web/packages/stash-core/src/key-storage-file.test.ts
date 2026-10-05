@@ -64,6 +64,38 @@ describe('FileKeyStorage', () => {
     expect(stat.mode & 0o777).toBe(0o600)
   })
 
+  it('tightens a pre-existing record file to 0600', async () => {
+    const record = makeRecord('user:root', 'root')
+    await storage.put(record)
+    const files = await readdir(dir)
+    const { chmodSync, statSync } = await import('node:fs')
+    const path = join(dir, files[0])
+    chmodSync(path, 0o644)
+
+    await storage.put({ ...record, updatedAt: record.updatedAt + 1 })
+    expect(statSync(path).mode & 0o777).toBe(0o600)
+  })
+
+  it('directory is 0700, tightened if it already existed looser', async () => {
+    const { chmodSync, statSync } = await import('node:fs')
+    chmodSync(dir, 0o755)
+    const s2 = new FileKeyStorage(dir)
+    await s2.init()
+    expect(statSync(dir).mode & 0o777).toBe(0o700)
+  })
+
+  it('writes atomically: no temp files left behind', async () => {
+    await storage.put(makeRecord('user:root', 'root'))
+    await storage.put(makeRecord('user:folder:a', 'folder:a'))
+    const files = await readdir(dir)
+    expect(files.every((f) => f.endsWith('.json'))).toBe(true)
+    expect(files.length).toBe(2)
+  })
+
+  it('declares refuseOverwrite so Keys enforces the key-replacement rule', () => {
+    expect(storage.refuseOverwrite).toBe(true)
+  })
+
   it('survives a fresh instance pointing at the same dir', async () => {
     const record = makeRecord('user:folder:abc', 'folder:abc')
     await storage.put(record)

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Keys } from '../lib/keys'
+import { Keys } from '@cloistr/stash-core/keys'
 
 /**
  * Persistent warning banner shown when the root encryption key exists only in

@@ -26,7 +26,7 @@
 // the legacy either).
 
 import { useRef, useState } from 'react'
-import { Keys } from '../lib/keys'
+import { Keys } from '@cloistr/stash-core/keys'
 
 type Status = { text: string; kind: 'idle' | 'info' | 'success' | 'error' }
 

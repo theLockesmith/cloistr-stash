@@ -14,6 +14,8 @@ const libsodiumCjs = fileURLToPath(
 export default defineConfig({
   resolve: {
     alias: { 'libsodium-wrappers': libsodiumCjs },
+    // @cloistr/stash-core (workspace package): resolve to TS source, not dist/.
+    conditions: ['cloistr-source'],
   },
   test: {
     environment: 'node',

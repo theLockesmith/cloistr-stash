@@ -10,6 +10,11 @@ export interface KeyRecord {
 }
 
 export interface KeyStorage {
+  /**
+   * When true, Keys refuses to replace a stored key with DIFFERENT key
+   * material unless the caller passes `{ replace: true }`. Opt-in per backend.
+   */
+  readonly refuseOverwrite?: boolean
   init(): Promise<void>
   put(record: KeyRecord): Promise<void>
   get(id: string): Promise<KeyRecord | null>

@@ -207,6 +207,40 @@ describe('migration record on relay', () => {
     )
   })
 
+  it('HEADLESS: isMigrationComplete reads the relay record when localStorage does not exist', async () => {
+    const encryptedRecord = 'nip44:' + JSON.stringify({ version: 1, completedAt: Date.now(), filesMigrated: 1, foldersMigrated: 1 })
+    vi.mocked(Relay.subscribe).mockResolvedValue([
+      { kind: 30078, tags: [['d', 'wrapped-key-migration']], content: encryptedRecord, pubkey: TEST_PUBKEY },
+    ] as never)
+    vi.stubGlobal('localStorage', undefined)
+    try {
+      expect(await isMigrationComplete(TEST_PUBKEY)).toBe(true)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('HEADLESS: completed migration still publishes the relay record when localStorage does not exist', async () => {
+    const rootKey = Crypto.generateKey()
+    Keys.keyCache.set('root', rootKey)
+    vi.mocked(API.listFolders).mockResolvedValue({ folders: [] } as never)
+    vi.mocked(API.listFiles).mockResolvedValue({ files: [] } as never)
+    vi.mocked(authPort.publishEvent).mockResolvedValue(undefined)
+    vi.mocked(Relay.subscribe).mockResolvedValue([]) // no record on the relay yet
+    vi.stubGlobal('localStorage', undefined)
+    try {
+      await runWrappedKeyMigration()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(Keys.wrappedKeyMode).toBe(true)
+    const published = vi.mocked(authPort.publishEvent).mock.calls.some((call) => {
+      const e = call[0] as { tags?: string[][] }
+      return e.tags?.some((t) => t[0] === 'd' && t[1] === 'wrapped-key-migration')
+    })
+    expect(published).toBe(true)
+  })
+
   it('isMigrationComplete caches relay result to localStorage', async () => {
     const record = { version: 1, completedAt: Date.now(), filesMigrated: 3, foldersMigrated: 1 }
     const encryptedRecord = 'nip44:' + JSON.stringify(record)

@@ -21,10 +21,10 @@
 import { useEffect, useState } from 'react'
 import type { StashFile } from '../state/types'
 import { formatFileSize } from './format'
-import { API } from '../lib/api'
-import { Keys } from '../lib/keys'
-import { Crypto } from '../lib/crypto'
-import { publicUrlForFile, checkPublished, type PublicState } from '../lib/publish'
+import { API } from '@cloistr/stash-core/api'
+import { Keys } from '@cloistr/stash-core/keys'
+import { Crypto } from '@cloistr/stash-core/crypto'
+import { publicUrlForFile, checkPublished, type PublicState } from '@cloistr/stash-core/publish'
 
 // ─── download helper ─────────────────────────────────────────────────────────
 

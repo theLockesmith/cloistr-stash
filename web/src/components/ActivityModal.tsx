@@ -23,7 +23,7 @@ import {
   getActivityIcon,
   formatActivityText,
   formatActivityTime,
-} from '../lib/activity'
+} from '@cloistr/stash-core/activity'
 
 type FilterValue = ActivityType | 'all'
 

@@ -22,9 +22,9 @@ import { useState, useEffect, useRef } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import type { StashFile } from '../state/types'
-import { API } from '../lib/api'
-import { Keys } from '../lib/keys'
-import { Crypto } from '../lib/crypto'
+import { API } from '@cloistr/stash-core/api'
+import { Keys } from '@cloistr/stash-core/keys'
+import { Crypto } from '@cloistr/stash-core/crypto'
 
 // ─── type detection ─────────────────────────────────────────────────────────
 

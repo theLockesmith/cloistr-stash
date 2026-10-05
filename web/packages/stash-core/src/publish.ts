@@ -34,7 +34,7 @@ import { Crypto } from './crypto'
 import { Keys } from './keys'
 import { Relay } from './relay'
 import type { SignedEvent } from './api'
-import type { StashFile } from '../state/types'
+import type { StashFile } from './types'
 
 /**
  * Host that serves unencrypted blobs by hash.

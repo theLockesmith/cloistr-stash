@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Modal } from '@cloistr/ui/components'
-import { Sharing } from '../lib/sharing'
+import { Sharing } from '@cloistr/stash-core/sharing'
 import type { StashFile } from '../state/types'
 
 interface OutgoingShareInfo {

@@ -23,7 +23,7 @@
 // App.tsx (which injects downloadFileData / createVersion / shareFile deps).
 
 import { useEffect, useRef, useState } from 'react'
-import { Collaboration, type CollabSession } from '../lib/collaboration'
+import { Collaboration, type CollabSession } from '@cloistr/stash-core/collaboration'
 import type { StashFile } from '../state/types'
 
 type EditorStatus = 'Ready' | 'Loading...' | 'Saving...' | 'Saved' | string
