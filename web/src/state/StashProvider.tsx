@@ -16,11 +16,11 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { API } from '../lib/api'
-import { Keys } from '../lib/keys'
-import { Crypto } from '../lib/crypto'
-import { Events } from '../lib/events'
-import { authPort } from '../lib/authBridge'
+import { API } from '@cloistr/stash-core/api'
+import { Keys } from '@cloistr/stash-core/keys'
+import { Crypto } from '@cloistr/stash-core/crypto'
+import { Events } from '@cloistr/stash-core/events'
+import { authPort } from '@cloistr/stash-core/authBridge'
 import {
   delay,
   deleteFolders,
@@ -33,10 +33,10 @@ import {
   setFileTags as opSetFileTags,
   RELAY_THROTTLE_MS,
   softDeleteFile,
-} from '../lib/operations'
-import { uploadFiles as libUploadFiles, copyFile as libCopyFile, type UploadItem } from '../lib/upload'
-import { Search, type SearchResult } from '../lib/search'
-import { Sharing, type DecryptedIncomingShare, type IncomingShare } from '../lib/sharing'
+} from '@cloistr/stash-core/operations'
+import { uploadFiles as libUploadFiles, copyFile as libCopyFile, type UploadItem } from '@cloistr/stash-core/upload'
+import { Search, type SearchResult } from '@cloistr/stash-core/search'
+import { Sharing, type DecryptedIncomingShare, type IncomingShare } from '@cloistr/stash-core/sharing'
 import type { FolderPathItem, StashFile, StashFolder, StashNotification, StashView, SortField, SortDir, SortPrefs } from './types'
 
 interface RecentEntry {

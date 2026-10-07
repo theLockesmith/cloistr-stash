@@ -13,7 +13,7 @@ import { API } from './api'
 import { Events } from './events'
 import { Relay } from './relay'
 import { authPort, getSigner } from './authBridge'
-import type { StashFile, StashFolder } from '../state/types'
+import type { StashFile, StashFolder } from './types'
 
 const MIGRATION_KEY_PREFIX = 'cloistr-drive-wrapped-key-migration'
 const MIGRATION_D_TAG = 'wrapped-key-migration'
@@ -31,9 +31,20 @@ interface MigrationRecord {
   failedFileIds?: string[]
 }
 
+// localStorage is a per-browser CACHE of the relay record. Headless clients
+// (plain Node) have none; the relay record is then the only source, which is
+// the point of publishing it there.
+function localCache(): Storage | null {
+  try {
+    return typeof localStorage === 'undefined' || !localStorage ? null : localStorage
+  } catch {
+    return null
+  }
+}
+
 function getLocalMigrationRecord(pubkey: string): MigrationRecord | null {
   try {
-    const raw = localStorage.getItem(migrationKey(pubkey))
+    const raw = localCache()?.getItem(migrationKey(pubkey)) ?? null
     return raw ? (JSON.parse(raw) as MigrationRecord) : null
   } catch {
     return null
@@ -55,7 +66,7 @@ async function getRelayMigrationRecord(pubkey: string): Promise<MigrationRecord 
     const record = JSON.parse(decrypted) as MigrationRecord
 
     // Cache to localStorage for fast access next time
-    localStorage.setItem(migrationKey(pubkey), JSON.stringify(record))
+    localCache()?.setItem(migrationKey(pubkey), JSON.stringify(record))
     return record
   } catch {
     return null
@@ -63,7 +74,7 @@ async function getRelayMigrationRecord(pubkey: string): Promise<MigrationRecord 
 }
 
 async function saveMigrationRecord(pubkey: string, record: MigrationRecord): Promise<void> {
-  localStorage.setItem(migrationKey(pubkey), JSON.stringify(record))
+  localCache()?.setItem(migrationKey(pubkey), JSON.stringify(record))
 
   try {
     const encrypted = await Keys.selfEncrypt(pubkey, JSON.stringify(record))

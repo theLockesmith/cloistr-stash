@@ -22,7 +22,7 @@ import { useEffect, useState } from 'react'
 import { ConfirmModal } from '@cloistr/ui/components'
 import { useStash } from '../state/useStash'
 import type { StashFile, StashFolder } from '../state/types'
-import { readFileBytes } from '../lib/fileKey'
+import { readFileBytes } from '@cloistr/stash-core/fileKey'
 
 export interface KeyboardShortcutsProps {
   /** Opens the new-folder modal. Wired when NewFolderModal is available. */

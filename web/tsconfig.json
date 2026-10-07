@@ -6,6 +6,8 @@
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",
+    // Resolve @cloistr/stash-core (workspace package) to its TS source, not dist/.
+    "customConditions": ["cloistr-source"],
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,

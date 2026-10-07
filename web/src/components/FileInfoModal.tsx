@@ -21,8 +21,8 @@
 import { useEffect, useState } from 'react'
 import type { StashFile } from '../state/types'
 import { formatFileSize } from './format'
-import { readFileBytes } from '../lib/fileKey'
-import { publicUrlForFile, checkPublished, type PublicState } from '../lib/publish'
+import { readFileBytes } from '@cloistr/stash-core/fileKey'
+import { publicUrlForFile, checkPublished, type PublicState } from '@cloistr/stash-core/publish'
 
 // ─── download helper ─────────────────────────────────────────────────────────
 

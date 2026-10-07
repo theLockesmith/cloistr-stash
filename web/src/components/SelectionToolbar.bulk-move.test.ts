@@ -24,7 +24,7 @@ import { describe, expect, it } from 'vitest'
 
 const TOOLBAR = readFileSync(join(__dirname, 'SelectionToolbar.tsx'), 'utf8')
 const PROVIDER = readFileSync(join(__dirname, '../state/StashProvider.tsx'), 'utf8')
-const UPLOAD = readFileSync(join(__dirname, '../lib/upload.ts'), 'utf8')
+const UPLOAD = readFileSync(join(__dirname, '../../packages/stash-core/src/upload.ts'), 'utf8')
 
 describe('SelectionToolbar bulk move', () => {
   it('imports MoveModal', () => {

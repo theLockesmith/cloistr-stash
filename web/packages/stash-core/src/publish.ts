@@ -34,7 +34,7 @@ import { readFileBytes, type FileRef } from './fileKey'
 import { Relay } from './relay'
 import { BLOB_HOST } from './serviceConfig'
 import type { SignedEvent } from './api'
-import type { StashFile } from '../state/types'
+import type { StashFile } from './types'
 
 /**
  * Host that serves unencrypted blobs by hash.

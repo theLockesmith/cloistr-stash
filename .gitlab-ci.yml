@@ -119,8 +119,8 @@ frontend:
     # Conflict markers first: cheapest check, and the one neither tsc nor vite
     # can perform. Anchored to line start — CSS is full of /* ====== */ dividers.
     - |
-      if grep -rnE '^(<<<<<<<|>>>>>>>|\|\|\|\|\|\|\|)' src/; then
-        echo "ERROR: unresolved conflict markers in web/src" >&2
+      if grep -rnE '^(<<<<<<<|>>>>>>>|\|\|\|\|\|\|\|)' src/ packages/*/src/; then
+        echo "ERROR: unresolved conflict markers in web/src or web/packages" >&2
         exit 1
       fi
     - npm ci

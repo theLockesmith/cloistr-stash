@@ -17,7 +17,7 @@ import {
   setProfilePicture,
   unpublish,
   type PublishResult,
-} from '../lib/publish'
+} from '@cloistr/stash-core/publish'
 import type { StashFile } from '../state/types'
 
 interface PublishModalProps {

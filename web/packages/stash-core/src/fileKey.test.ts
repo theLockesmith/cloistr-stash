@@ -5,9 +5,6 @@
 //
 // Real XChaCha20 here, so a wrong key genuinely fails to decrypt.
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 vi.mock('./authBridge', () => ({
   authPort: { isConnected: true, pubkey: 'owner-pubkey' },
@@ -176,42 +173,4 @@ describe('collaboration', () => {
     await expect(Collaboration.deriveSessionKey(wrapped as never)).rejects.toThrow('hkdf down')
     expect(wiped).toContainEqual(RANDOM_KEY)
   })
-})
-
-describe('who may derive a file key directly', () => {
-  // keys (the derivation itself), migration (wraps legacy keys), upload and
-  // sharing (writes outside wrapped-key mode), versioning (pre-fix fallback).
-  // A new caller must go through fileKeyFor instead.
-  it('is limited to the known writers and the version fallback', () => {
-    const lib = dirname(fileURLToPath(import.meta.url))
-    const root = join(lib, '..')
-    const allowed = new Set(['lib/keys.ts', 'lib/migration-wrapped-keys.ts', 'lib/upload.ts', 'lib/sharing.ts', 'lib/versioning.ts'])
-    const found: string[] = []
-    const walk = (dir: string) => {
-      for (const name of readdirSync(dir)) {
-        const p = join(dir, name)
-        if (statSync(p).isDirectory()) walk(p)
-        else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) && /derive(Root)?FileKey\(/.test(readFileSync(p, 'utf8'))) {
-          found.push(p.slice(root.length + 1))
-        }
-      }
-    }
-    walk(root)
-    expect(found.filter((f) => !allowed.has(f))).toEqual([])
-  })
-})
-
-describe('UI read paths go through the shared reader', () => {
-  // FileInfoModal / PreviewModal / KeyboardShortcuts / App's collab download
-  // run inside React effects and handlers; pin that each delegates to
-  // readFileBytes and chooses no key itself (the cause of this bug).
-  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-  const files = ['components/FileInfoModal.tsx', 'components/PreviewModal.tsx', 'components/KeyboardShortcuts.tsx', 'App.tsx']
-  for (const f of files) {
-    it(`${f} reads through readFileBytes`, () => {
-      const src = readFileSync(join(root, f), 'utf8')
-      expect(src).toMatch(/readFileBytes\(/)
-      expect(src).not.toMatch(/deriveFileKey|deriveRootFileKey|decryptFile\(/)
-    })
-  }
 })

@@ -7,6 +7,9 @@ WORKDIR /web
 # aegis npm registry (anonymous read works; CI passes NPM_TOKEN=CI_JOB_TOKEN
 # for authenticated pulls, matching the other Cloistr frontends).
 COPY web/package.json web/package-lock.json web/.npmrc ./
+# Workspace manifests must exist before `npm ci` (web/ is an npm workspace root;
+# packages/stash-core is the React-free data layer the app imports).
+COPY web/packages/stash-core/package.json packages/stash-core/
 ARG NPM_TOKEN=""
 RUN if [ -n "$NPM_TOKEN" ]; then \
       echo "//git.coldforge.xyz/api/v4/projects/44/packages/npm/:_authToken=${NPM_TOKEN}" >> .npmrc; \

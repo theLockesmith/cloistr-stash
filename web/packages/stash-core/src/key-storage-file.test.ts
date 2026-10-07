@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { FileKeyStorage } from './key-storage-file'
 import type { KeyRecord } from './key-storage'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -64,6 +64,38 @@ describe('FileKeyStorage', () => {
     expect(stat.mode & 0o777).toBe(0o600)
   })
 
+  it('tightens a pre-existing record file to 0600', async () => {
+    const record = makeRecord('user:root', 'root')
+    await storage.put(record)
+    const files = await readdir(dir)
+    const { chmodSync, statSync } = await import('node:fs')
+    const path = join(dir, files[0])
+    chmodSync(path, 0o644)
+
+    await storage.put({ ...record, updatedAt: record.updatedAt + 1 })
+    expect(statSync(path).mode & 0o777).toBe(0o600)
+  })
+
+  it('directory is 0700, tightened if it already existed looser', async () => {
+    const { chmodSync, statSync } = await import('node:fs')
+    chmodSync(dir, 0o755)
+    const s2 = new FileKeyStorage(dir)
+    await s2.init()
+    expect(statSync(dir).mode & 0o777).toBe(0o700)
+  })
+
+  it('writes atomically: no temp files left behind', async () => {
+    await storage.put(makeRecord('user:root', 'root'))
+    await storage.put(makeRecord('user:folder:a', 'folder:a'))
+    const files = await readdir(dir)
+    expect(files.every((f) => f.endsWith('.json'))).toBe(true)
+    expect(files.length).toBe(2)
+  })
+
+  it('declares refuseOverwrite so Keys enforces the key-replacement rule', () => {
+    expect(storage.refuseOverwrite).toBe(true)
+  })
+
   it('survives a fresh instance pointing at the same dir', async () => {
     const record = makeRecord('user:folder:abc', 'folder:abc')
     await storage.put(record)
@@ -90,5 +122,41 @@ describe('FileKeyStorage', () => {
     expect(await storage.get('user:root')).toBeNull()
     const files = await readdir(dir)
     expect(files.length).toBe(0)
+  })
+})
+
+describe('FileKeyStorage: key directory must be a real directory', () => {
+  let base: string
+
+  beforeEach(() => {
+    base = mkdtempSync(join(tmpdir(), 'cloistr-keys-link-'))
+  })
+
+  afterEach(() => {
+    rmSync(base, { recursive: true, force: true })
+  })
+
+  // A symlinked key dir lets whoever controls the link target choose where
+  // key records are written and read; chmod would also follow it and loosen
+  // or tighten someone else's directory.
+  it('refuses a symlinked key directory', async () => {
+    const target = join(base, 'elsewhere')
+    mkdirSync(target)
+    const link = join(base, 'keys')
+    symlinkSync(target, link)
+    await expect(new FileKeyStorage(link).init()).rejects.toThrow(/symlink/)
+    expect(statSync(target).mode & 0o777).not.toBe(0o700)
+  })
+
+  it('refuses a key path that is a regular file', async () => {
+    const file = join(base, 'keys')
+    writeFileSync(file, '')
+    await expect(new FileKeyStorage(file).init()).rejects.toThrow()
+  })
+
+  it('still creates a missing directory at 0700', async () => {
+    const fresh = join(base, 'new', 'keys')
+    await new FileKeyStorage(fresh).init()
+    expect(statSync(fresh).mode & 0o777).toBe(0o700)
   })
 })

@@ -13,8 +13,8 @@ import { describe, expect, it } from 'vitest'
 
 const SOURCE = readFileSync(join(__dirname, 'FileBrowser.tsx'), 'utf8')
 const PROVIDER = readFileSync(join(__dirname, '../state/StashProvider.tsx'), 'utf8')
-const OPERATIONS = readFileSync(join(__dirname, '../lib/operations.ts'), 'utf8')
-const EVENTS = readFileSync(join(__dirname, '../lib/events.ts'), 'utf8')
+const OPERATIONS = readFileSync(join(__dirname, '../../packages/stash-core/src/operations.ts'), 'utf8')
+const EVENTS = readFileSync(join(__dirname, '../../packages/stash-core/src/events.ts'), 'utf8')
 const SHARE_MODAL = readFileSync(join(__dirname, 'ShareModal.tsx'), 'utf8')
 const APP = readFileSync(join(__dirname, '../App.tsx'), 'utf8')
 const MOVE_MODAL = readFileSync(join(__dirname, 'MoveModal.tsx'), 'utf8')

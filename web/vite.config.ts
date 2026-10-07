@@ -65,6 +65,10 @@ export default defineConfig({
     // AuthProvider". See cloistr-signer gotcha (Vite dedupe + npm overrides).
     dedupe: ['react', 'react-dom', '@cloistr/collab-common', '@cloistr/auth'],
     alias: { 'libsodium-wrappers': libsodiumCjs },
+    // @cloistr/stash-core is a workspace package (packages/stash-core). The
+    // "cloistr-source" export condition points at its TS source, so the app builds it
+    // from src with no separate pre-build step; dist/ is only for Node consumers.
+    conditions: ['cloistr-source'],
   },
   server: {
     port: 3000,

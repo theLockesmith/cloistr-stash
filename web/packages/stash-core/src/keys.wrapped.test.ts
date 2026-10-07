@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Keys } from './keys'
 import { Crypto } from './crypto'
-import { generateContentKey, type Envelope } from '@cloistr/auth'
+import { generateContentKey, type Envelope } from '@cloistr/auth/core'
 
 // x-only pubkey (64 hex chars), the format Nostr and @cloistr/auth expect
 const TEST_PUBKEY = '4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766'

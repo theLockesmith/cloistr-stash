@@ -7,9 +7,16 @@ export interface KeyRecord {
   encryptedKey: string
   createdAt: number
   updatedAt: number
+  /** Pubkey that shared this key with us; absent for keys we own. */
+  sharedBy?: string
 }
 
 export interface KeyStorage {
+  /**
+   * When true, Keys refuses to replace a stored key with DIFFERENT key
+   * material unless the caller passes `{ replace: true }`. Opt-in per backend.
+   */
+  readonly refuseOverwrite?: boolean
   init(): Promise<void>
   put(record: KeyRecord): Promise<void>
   get(id: string): Promise<KeyRecord | null>
