@@ -140,7 +140,7 @@ func (m *AuthMiddleware) resolveSignerSession(r *http.Request) string {
 		m.logger.Warn("signer session validation failed", "error", err)
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return ""
 	}
@@ -202,8 +202,6 @@ func (m *AuthMiddleware) RequireWhitelist(next http.Handler) http.Handler {
 		}
 
 		// Check authorization: platform ACL takes precedence, then whitelist
-		var authorized bool
-
 		if m.platformClient != nil {
 			// Platform mode: check user_service_access table
 			hasAccess, err := m.platformClient.HasAccess(r.Context(), pubkey)
@@ -215,29 +213,26 @@ func (m *AuthMiddleware) RequireWhitelist(next http.Handler) http.Handler {
 				http.Error(w, "Authorization check failed", http.StatusInternalServerError)
 				return
 			}
-			authorized = hasAccess
-
-			if !authorized {
+			if !hasAccess {
 				m.logger.Info("access denied - no platform service access",
 					"pubkey", truncated,
 				)
 				http.Error(w, "Service access required", http.StatusPaymentRequired)
 				return
 			}
-		} else {
-			// Standalone mode: ANY authenticated user is authorized.
-			//
-			// The pubkey list is no longer an upload gate. Every signed-in user
-			// now gets a baseline quota, so quota is what limits usage, and the
-			// list identifies who is exempt from that limit (see
-			// quota.Manager.UserLimits, seeded in cmd/server/main.go).
-			//
-			// It used to gate authorization outright: a NON-EMPTY list returned
-			// 403 "Access denied - not authorized" to everyone outside it, which
-			// meant no ordinary signed-up user could upload to a service listed
-			// as LIVE. Only three developer pubkeys could.
-			authorized = true
 		}
+
+		// Standalone mode (no platform client): ANY authenticated user is authorized.
+		//
+		// The pubkey list is no longer an upload gate. Every signed-in user
+		// now gets a baseline quota, so quota is what limits usage, and the
+		// list identifies who is exempt from that limit (see
+		// quota.Manager.UserLimits, seeded in cmd/server/main.go).
+		//
+		// It used to gate authorization outright: a NON-EMPTY list returned
+		// 403 "Access denied - not authorized" to everyone outside it, which
+		// meant no ordinary signed-up user could upload to a service listed
+		// as LIVE. Only three developer pubkeys could.
 
 		// Add pubkey and authorized status to context
 		ctx := context.WithValue(r.Context(), ContextKeyPubkey, pubkey)
