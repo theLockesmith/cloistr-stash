@@ -16,9 +16,9 @@
 
 import { useState } from 'react'
 import { Modal } from '@cloistr/ui/components'
-import { API } from '../lib/api'
-import { authPort } from '../lib/authBridge'
-import { uploadEncryptedBytes } from '../lib/upload'
+import { API } from '@cloistr/stash-core/api'
+import { authPort } from '@cloistr/stash-core/authBridge'
+import { uploadEncryptedBytes } from '@cloistr/stash-core/upload'
 import type { StashFile } from '../state/types'
 
 export interface MigrationModalProps {

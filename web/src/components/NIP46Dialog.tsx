@@ -37,7 +37,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNostrAuth } from '@cloistr/auth'
 import { useToast } from '@cloistr/ui/components'
-import { SIGNER_URL } from '../lib/serviceConfig'
+import { SIGNER_URL } from '@cloistr/stash-core/serviceConfig'
 
 // Display label only. A malformed configured value must not throw at module
 // load (that would blank the login screen); show it as given instead.

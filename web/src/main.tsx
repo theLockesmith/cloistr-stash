@@ -5,7 +5,7 @@ import { ThemeProvider, SharedAuthProvider, ToastProvider } from '@cloistr/ui/co
 import '@cloistr/ui/styles'
 import App from './App'
 import { StashProvider } from './state/StashProvider'
-import { SIGNER_URL } from './lib/serviceConfig'
+import { SIGNER_URL } from '@cloistr/stash-core/serviceConfig'
 import './index.css'
 
 // On-device console, opened with ?debug=1. It NO-OPS without that query

@@ -20,7 +20,7 @@ import { Relay } from './relay'
 import { authPort, getSigner } from './authBridge'
 import { addWrappedKeyToFolder } from './upload'
 import type { UnsignedEvent, SignedEvent } from './relay'
-import type { StashFile, StashFolder } from '../state/types'
+import type { StashFile, StashFolder } from './types'
 
 // ─── Public input/output interfaces ──────────────────────────────────────────
 

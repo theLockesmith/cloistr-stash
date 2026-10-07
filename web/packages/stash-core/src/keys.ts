@@ -23,9 +23,21 @@ import {
   generateContentKey,
   type ContentKey,
   type Envelope,
-} from '@cloistr/auth'
+} from '@cloistr/auth/core'
 
 export type { KeyRecord, KeyStorage }
+
+/** Thrown when a refuseOverwrite key store already holds different key material for an id. */
+export class KeyOverwriteRefusedError extends Error {
+  constructor(public readonly keyId: string) {
+    super(
+      `Refusing to overwrite stored key '${keyId}' with different key material ` +
+        `(files encrypted under the stored key would become unreadable). ` +
+        `Delete it explicitly or pass { replace: true } to replace it.`,
+    )
+    this.name = 'KeyOverwriteRefusedError'
+  }
+}
 
 /** Minimal Nostr signer/relay surface this module needs (provided by the auth layer). */
 export interface AuthPort {
@@ -349,11 +361,38 @@ export const Keys = {
     return new Uint8Array(derivedBits)
   },
 
-  async storeEncryptedKey(keyId: string, key: Uint8Array, associatedId: string | null): Promise<void> {
+  async storeEncryptedKey(
+    keyId: string,
+    key: Uint8Array,
+    associatedId: string | null,
+    opts?: { replace?: boolean; sharedBy?: string },
+  ): Promise<void> {
     if (!this.auth || !this.auth.isConnected) {
       throw new Error('Cannot store key: signer not connected')
     }
     const storage = await this.ensureStorage()
+
+    // Refuse-to-overwrite (backends that opt in, e.g. FileKeyStorage): replacing
+    // a stored key with different bytes orphans everything encrypted under it.
+    // Re-storing the SAME key (re-wrap) is fine; an existing record we cannot
+    // decrypt is treated as different, since we cannot prove it is the same.
+    if (storage.refuseOverwrite && !opts?.replace) {
+      const existing = await storage.get(`${this.userPubkey}:${keyId}`)
+      if (existing) {
+        let existingKey: Uint8Array | null = null
+        try {
+          existingKey = Crypto.hexToBytes(await this.selfDecrypt(this.userPubkey!, existing.encryptedKey))
+        } catch {
+          try {
+            const raw = Crypto.base64ToBytes(existing.encryptedKey)
+            if (raw.length === 32) existingKey = raw
+          } catch { /* undecryptable */ }
+        }
+        if (!existingKey || Crypto.bytesToHex(existingKey) !== Crypto.bytesToHex(key)) {
+          throw new KeyOverwriteRefusedError(keyId)
+        }
+      }
+    }
 
     const keyHex = Crypto.bytesToHex(key)
     const encryptedKey = await this.selfEncrypt(this.userPubkey!, keyHex)
@@ -367,6 +406,7 @@ export const Keys = {
       encryptedKey,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      ...(opts?.sharedBy ? { sharedBy: opts.sharedBy } : {}),
     }
 
     await storage.put(record)
@@ -391,7 +431,7 @@ export const Keys = {
         if (raw.length === 32) {
           console.warn('Keys: Found legacy base64 key for', keyId, '— migrating to encrypted storage')
           if (this.auth && this.auth.isConnected) {
-            void this.storeEncryptedKey(keyId, raw, record.associatedId).catch(() => {})
+            void this.storeEncryptedKey(keyId, raw, record.associatedId, { sharedBy: record.sharedBy }).catch(() => {})
           }
           return raw
         }
@@ -417,7 +457,16 @@ export const Keys = {
     }
     const keyHex = await this.selfDecrypt(senderPubkey, encryptedKey)
     const folderKey = Crypto.hexToBytes(keyHex)
-    await this.storeEncryptedKey(`folder:${folderId}`, folderKey, folderId)
+    // A key that was itself shared with us may be replaced: the sender's key is
+    // authoritative for their folder, and after a revoke they rotate it and
+    // re-share. A key we own is never replaced by a share (on stores that
+    // refuse overwrites), or anyone who learned the folder id could make the
+    // folder unreadable to us.
+    const existing = await (await this.ensureStorage()).get(`${this.userPubkey}:folder:${folderId}`)
+    await this.storeEncryptedKey(`folder:${folderId}`, folderKey, folderId, {
+      replace: !existing || !!existing.sharedBy,
+      sharedBy: senderPubkey,
+    })
     this.keyCache.set(`folder:${folderId}`, folderKey)
     console.log('Keys: Imported shared folder key for', folderId.slice(0, 8) + '...')
     return folderKey
@@ -558,11 +607,11 @@ export const Keys = {
     for (const folderId of folderKeys) {
       const newFolderKey = Crypto.generateKey()
       this.keyCache.set(`folder:${folderId}`, newFolderKey)
-      await this.storeEncryptedKey(`folder:${folderId}`, newFolderKey, folderId)
+      await this.storeEncryptedKey(`folder:${folderId}`, newFolderKey, folderId, { replace: true })
     }
 
     this.keyCache.set('root', newRootKey)
-    await this.storeEncryptedKey('root', newRootKey, null)
+    await this.storeEncryptedKey('root', newRootKey, null, { replace: true })
 
     console.log('Keys: Re-key complete')
     return { rootKey: newRootKey, rekeyedFolders: folderKeys.length }

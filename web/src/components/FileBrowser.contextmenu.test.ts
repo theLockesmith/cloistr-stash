@@ -112,7 +112,7 @@ describe('FileBrowser context menus', () => {
   it('operations.ts exports restoreFile and permanentDeleteFile', () => {
     const { readFileSync: rfs } = require('node:fs')
     const { join: pjoin } = require('node:path')
-    const ops = rfs(pjoin(__dirname, '../lib/operations.ts'), 'utf8')
+    const ops = rfs(pjoin(__dirname, '../../packages/stash-core/src/operations.ts'), 'utf8')
     expect(ops, 'restoreFile not exported').toMatch(/export async function restoreFile/)
     expect(ops, 'permanentDeleteFile not exported').toMatch(/export async function permanentDeleteFile/)
   })

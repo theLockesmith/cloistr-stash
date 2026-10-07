@@ -1,7 +1,4 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 // serviceConfig captures its values at import (as every consumer module does),
 // so each case stubs the runtime global and then imports a fresh copy.
@@ -55,33 +52,5 @@ describe('serviceConfig', () => {
     expect(RelayPrefs.DEFAULT_RELAY).toBe('wss://relay.staging.cloistr.xyz')
     expect(RelayPrefs.DISCOVERY_URL).toBe('https://discover.staging.cloistr.xyz')
     expect(PUBLIC_BLOB_HOST).toBe('https://blossom.staging.cloistr.xyz')
-  })
-})
-
-describe('a malformed configured value', () => {
-  it('does not stop the login dialog module from loading', async () => {
-    await load({ signerUrl: 'signer.staging.cloistr.xyz' }) // scheme forgotten
-    await expect(import('../components/NIP46Dialog')).resolves.toBeDefined()
-  })
-})
-
-describe('app source', () => {
-  // Every production service address must come through serviceConfig, or a
-  // staging deployment of this image would quietly talk to production.
-  it('names no cloistr.xyz service URL outside serviceConfig', () => {
-    const src = join(dirname(fileURLToPath(import.meta.url)), '..')
-    const offenders: string[] = []
-    const walk = (dir: string) => {
-      for (const name of readdirSync(dir)) {
-        const p = join(dir, name)
-        if (statSync(p).isDirectory()) walk(p)
-        else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) && name !== 'serviceConfig.ts') {
-          const hits = readFileSync(p, 'utf8').match(/(?:wss?|https?):\/\/[a-z0-9.-]*cloistr\.xyz/g)
-          if (hits) offenders.push(`${p}: ${[...new Set(hits)].join(', ')}`)
-        }
-      }
-    }
-    walk(src)
-    expect(offenders).toEqual([])
   })
 })

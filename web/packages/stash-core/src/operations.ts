@@ -4,7 +4,7 @@
 
 import { Events } from './events'
 import { authPort } from './authBridge'
-import type { StashFile, StashFolder } from '../state/types'
+import type { StashFile, StashFolder } from './types'
 
 export const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 

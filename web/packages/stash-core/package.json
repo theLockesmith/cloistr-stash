@@ -1,0 +1,40 @@
+{
+  "name": "@cloistr/stash-core",
+  "version": "0.1.0",
+  "description": "Stash data layer (crypto, keys, sharing, upload, relay) with no React dependency. Used by the Stash web app and headless clients.",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "cloistr-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "cloistr-source": "./src/*.ts",
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "proof:node": "sh scripts/node-proof.sh"
+  },
+  "dependencies": {
+    "@cloistr/auth": "^1.3.0",
+    "@cloistr/collab-common": "^0.5.0",
+    "libsodium-wrappers": "^0.8.4",
+    "yjs": "^13.6.33"
+  },
+  "devDependencies": {
+    "@types/libsodium-wrappers": "^0.8.2",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

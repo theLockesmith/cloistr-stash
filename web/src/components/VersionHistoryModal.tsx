@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react'
 import { Modal } from '@cloistr/ui/components'
-import { Versioning, type FileVersion } from '../lib/versioning'
+import { Versioning, type FileVersion } from '@cloistr/stash-core/versioning'
 import { formatFileSize } from './format'
 import type { StashFile } from '../state/types'
 

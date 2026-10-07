@@ -14,7 +14,7 @@ import { Events } from './events'
 import { authPort, getSigner } from './authBridge'
 import { Relay } from './relay'
 import { Search } from './search'
-import type { StashFile } from '../state/types'
+import type { StashFile } from './types'
 
 export type UploadStatus =
   | 'pending'

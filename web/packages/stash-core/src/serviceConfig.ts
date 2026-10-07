@@ -13,6 +13,9 @@
 import { getRuntimeConfig, getServiceConfig } from '@cloistr/collab-common/config'
 
 const runtime = getRuntimeConfig()
+// Vite fills import.meta.env at build time; plain Node (headless clients)
+// has none, so read it optionally.
+const viteEnv = (import.meta as { env?: Record<string, string | undefined> }).env
 const config = getServiceConfig()
 
 export const RELAY_URL: string = config.relayUrl
@@ -27,6 +30,6 @@ export const DISCOVERY_URL: string = config.discoveryUrl
  * order (runtime, then VITE_BLOSSOM_URL, then default), different default.
  */
 export const BLOB_HOST: string =
-  runtime.blossomUrl || import.meta.env.VITE_BLOSSOM_URL || 'https://blossom.cloistr.xyz'
+  runtime.blossomUrl || viteEnv?.VITE_BLOSSOM_URL || 'https://blossom.cloistr.xyz'
 
 export const ENVIRONMENT: string = config.environment

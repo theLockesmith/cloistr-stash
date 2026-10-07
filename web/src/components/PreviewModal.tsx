@@ -22,7 +22,7 @@ import { useState, useEffect, useRef } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import type { StashFile } from '../state/types'
-import { readFileBytes } from '../lib/fileKey'
+import { readFileBytes } from '@cloistr/stash-core/fileKey'
 
 // ─── type detection ─────────────────────────────────────────────────────────
 
