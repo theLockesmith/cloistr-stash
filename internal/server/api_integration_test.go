@@ -106,7 +106,7 @@ func createMultipartFormData(filename string, content []byte) (*bytes.Buffer, st
 	var body bytes.Buffer
 
 	body.WriteString("--" + boundary + "\r\n")
-	body.WriteString(fmt.Sprintf("Content-Disposition: form-data; name=\"file\"; filename=\"%s\"\r\n", filename))
+	fmt.Fprintf(&body, "Content-Disposition: form-data; name=\"file\"; filename=\"%s\"\r\n", filename)
 	body.WriteString("Content-Type: application/octet-stream\r\n\r\n")
 	body.Write(content)
 	body.WriteString("\r\n--" + boundary + "--\r\n")
