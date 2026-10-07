@@ -328,9 +328,14 @@ export const Sharing = {
       signer: getSigner(),
     })
 
-    // Encrypt the file key for the recipient (NIP-44 preferred, NIP-04 fallback)
-    const fileKeyHex = Crypto.bytesToHex(fileKey)
-    const encryptedFileKey = await this.encryptForRecipient(recipientPubkey, fileKeyHex)
+    // Encrypt the file key for the recipient (NIP-44 preferred, NIP-04 fallback),
+    // then wipe it, on failure too: for a wrapped file it is the only key.
+    let encryptedFileKey: string
+    try {
+      encryptedFileKey = await this.encryptForRecipient(recipientPubkey, Crypto.bytesToHex(fileKey))
+    } finally {
+      Crypto.wipeKey(fileKey)
+    }
 
     // Create share content
     const shareContent: ShareFileContent = {
@@ -510,8 +515,13 @@ export const Sharing = {
       signer: getSigner(),
     })
 
-    // Encode the key for URL fragment
-    const keyBase64url = Crypto.bytesToBase64url(fileKey)
+    // Encode the key for URL fragment; the bytes are not needed after that.
+    let keyBase64url: string
+    try {
+      keyBase64url = Crypto.bytesToBase64url(fileKey)
+    } finally {
+      Crypto.wipeKey(fileKey)
+    }
 
     // Build the public link URL
     // Format: https://stash.cloistr.xyz/public/{sha256}#{key}
