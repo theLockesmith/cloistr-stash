@@ -5,7 +5,19 @@
 // message handling (OK/AUTH/NOTICE/EOSE/EVENT), NIP-42 auth (kind 22242),
 // publish-with-auth-retry, and subscribe semantics. The global `Auth`
 // singleton is injected via configure() as a typed RelayAuthPort.
+//
+// Bounded like collab-common's boundedPublish/boundedAuth: a publish settles
+// within PUBLISH_TIMEOUT_MS (PublishTimeoutError), and signing the NIP-42
+// auth event within AUTH_TIMEOUT_MS. A signer that refuses or never answers
+// fails every publish queued behind the auth with AuthSignerError at once,
+// instead of leaving them parked until the publish timer runs out.
 
+import {
+  AuthSignerError,
+  AUTH_TIMEOUT_MS,
+  PublishTimeoutError,
+  PUBLISH_TIMEOUT_MS,
+} from '@cloistr/collab-common/core'
 import type { SignedEvent } from './api'
 
 // Re-export so the data-layer modules can source both event types from './relay'.
@@ -67,6 +79,10 @@ export const Relay = {
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
+        // Drop the half-open socket so a late onopen can't mark us connected.
+        const stale = this.socket
+        this.socket = null
+        stale?.close()
         reject(new Error('Connection timeout'))
       }, 10000)
 
@@ -177,9 +193,11 @@ export const Relay = {
   async handleAuthChallenge(challenge: string): Promise<void> {
     if (!this.auth || !this.auth.isConnected) {
       console.warn('Relay: Auth challenge received but not connected to signer')
+      this.failPendingAuthRetry(new AuthSignerError('no signer connected'))
       return
     }
 
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
       console.log('Relay: Responding to NIP-42 auth challenge')
 
@@ -194,7 +212,15 @@ export const Relay = {
         content: '',
       }
 
-      const signedAuth = await this.auth.signEvent(authEvent)
+      const signedAuth = await Promise.race([
+        this.auth.signEvent(authEvent),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new AuthSignerError('timed out waiting for the signer')),
+            AUTH_TIMEOUT_MS,
+          )
+        }),
+      ]).finally(() => clearTimeout(timer))
 
       this.send(['AUTH', signedAuth])
       this.authenticated = true
@@ -203,7 +229,19 @@ export const Relay = {
       await this.retryPendingAfterAuth()
     } catch (err) {
       console.error('Relay: Failed to handle auth challenge:', err)
+      this.failPendingAuthRetry(
+        err instanceof AuthSignerError
+          ? err
+          : new AuthSignerError(err instanceof Error ? err.message : String(err)),
+      )
     }
+  },
+
+  failPendingAuthRetry(err: Error): void {
+    for (const pending of this.pendingAuthRetry.values()) {
+      pending.reject(err)
+    }
+    this.pendingAuthRetry.clear()
   },
 
   async retryPendingAfterAuth(): Promise<void> {
@@ -248,10 +286,12 @@ export const Relay = {
     }
 
     return new Promise((resolve, reject) => {
+      // Covers the whole round trip, including a wait in pendingAuthRetry.
       const timeout = setTimeout(() => {
         this.pendingPublishes.delete(signedEvent.id)
-        reject(new Error('Publish timeout'))
-      }, 10000)
+        this.pendingAuthRetry.delete(signedEvent.id)
+        reject(new PublishTimeoutError(PUBLISH_TIMEOUT_MS))
+      }, PUBLISH_TIMEOUT_MS)
 
       this.pendingPublishes.set(signedEvent.id, {
         event: signedEvent,
