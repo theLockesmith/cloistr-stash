@@ -22,9 +22,7 @@ import { useEffect, useState } from 'react'
 import { ConfirmModal } from '@cloistr/ui/components'
 import { useStash } from '../state/useStash'
 import type { StashFile, StashFolder } from '../state/types'
-import { API } from '../lib/api'
-import { Keys } from '../lib/keys'
-import { Crypto } from '../lib/crypto'
+import { readFileBytes } from '../lib/fileKey'
 
 export interface KeyboardShortcutsProps {
   /** Opens the new-folder modal. Wired when NewFolderModal is available. */
@@ -57,29 +55,7 @@ function isTypingTarget(el: EventTarget | null): boolean {
 // Fetch, optionally decrypt, and browser-download a single file.
 // Mirrors the legacy App.downloadFile() pipeline (app.js).
 async function triggerFileDownload(file: StashFile): Promise<void> {
-  const res = await fetch(API.getDownloadURL(file.sha256))
-  if (!res.ok) throw new Error(`Download failed: ${res.status}`)
-  const buf = await res.arrayBuffer()
-
-  const enc = !!(file.encrypted || (file as Record<string, unknown>).encryption)
-  let data: Uint8Array
-  if (enc) {
-    const fileId = (
-      file.id ??
-      (file as Record<string, unknown>).file_id ??
-      (file as Record<string, unknown>).fileId ??
-      (file as Record<string, unknown>).d
-    ) as string | undefined
-    if (!fileId) throw new Error('Cannot decrypt: missing file ID')
-    const folderId = file.folder as string | undefined
-    const key = folderId
-      ? await Keys.deriveFileKey(folderId, fileId)
-      : await Keys.deriveRootFileKey(fileId)
-    data = await Crypto.decryptFile(buf, key)
-    Crypto.wipeKey(key)
-  } else {
-    data = new Uint8Array(buf)
-  }
+  const data = await readFileBytes(file)
 
   const mimeType = (file.mime_type ?? 'application/octet-stream') as string
   // data is always backed by a regular ArrayBuffer (not SharedArrayBuffer);

@@ -20,6 +20,7 @@ import * as Y from 'yjs'
 import { Keys } from './keys'
 import { authPort } from './authBridge'
 import { Crypto } from './crypto'
+import { fileIdOf, fileKeyFor, type FileRef } from './fileKey'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -258,27 +259,21 @@ export const Collaboration = {
   // PRESERVED: HKDF context 'cloistr-drive-collab-v1' — changing this breaks
   //   decryption of all existing collaborative CRDT update blobs.
   async deriveSessionKey(file: CollabFile): Promise<Uint8Array> {
-    const fileId = file.file_id || file.fileId || file.d
-    const folderId = file.folder_id || file.folderId || file.folder || null
-
-    if (!fileId) {
+    if (!fileIdOf(file as FileRef)) {
       throw new Error('Cannot derive session key: missing file ID')
     }
 
-    let fileKey: Uint8Array
-    if (folderId) {
-      fileKey = await Keys.deriveFileKey(folderId, fileId)
-    } else {
-      fileKey = await Keys.deriveRootFileKey(fileId)
+    // The file's own key (wrapped, or HKDF for a legacy file, where the two are
+    // the same key, so legacy session keys are unchanged).
+    const fileKey = await fileKeyFor(file as FileRef)
+
+    try {
+      // PRESERVED: context string 'cloistr-drive-collab-v1'
+      return await Keys.deriveKey(fileKey, 'session', 'cloistr-drive-collab-v1')
+    } finally {
+      // Wipe file key from memory, on failure too
+      Crypto.wipeKey(fileKey)
     }
-
-    // PRESERVED: context string 'cloistr-drive-collab-v1'
-    const sessionKey = await Keys.deriveKey(fileKey, 'session', 'cloistr-drive-collab-v1')
-
-    // Wipe file key from memory
-    Crypto.wipeKey(fileKey)
-
-    return sessionKey
   },
 
   // Start WebRTC provider for peer-to-peer sync
