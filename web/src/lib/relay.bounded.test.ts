@@ -153,8 +153,86 @@ describe('Relay NIP-42 auth is bounded', () => {
 
     const r = await settled
     expect(r.ok).toBe(true)
-    // The auth timer was cleared: nothing fires later.
-    await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS)
+    // The auth timer was cleared: a second queued event survives past AUTH_TIMEOUT_MS.
+    const second = publishNeedingAuth('e6b')
+    let secondDone = false
+    void second.then(() => (secondDone = true))
+    await vi.advanceTimersByTimeAsync(AUTH_TIMEOUT_MS)
+    expect(secondDone).toBe(false)
+    expect(Relay.pendingAuthRetry.has('e6b')).toBe(true)
+  })
+
+  it('ignores a signer that answers after the timeout: no AUTH sent, not authenticated', async () => {
+    let answer: (e: SignedEvent) => void = () => {}
+    const auth: RelayAuthPort = {
+      isConnected: true,
+      signEvent: () => new Promise<SignedEvent>((res) => (answer = res)),
+    }
+    Relay.configure({ auth })
+
+    const settled = publishNeedingAuth('e7')
+    relayMsg(['AUTH', 'challenge-5'])
+    await vi.advanceTimersByTimeAsync(AUTH_TIMEOUT_MS)
+    expect((await settled).ok).toBe(false)
+
+    answer({ id: 'late', pubkey: 'p', created_at: 1, kind: 22242, tags: [], content: '', sig: 's' } as SignedEvent)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(socket.sent.some((m) => m[0] === 'AUTH')).toBe(false)
+    expect(Relay.authenticated).toBe(false)
+  })
+
+  it('fails every queued publish, not just one', async () => {
+    const auth: RelayAuthPort = { isConnected: true, signEvent: () => new Promise(() => {}) }
+    Relay.configure({ auth })
+
+    const all = [publishNeedingAuth('m1'), publishNeedingAuth('m2'), publishNeedingAuth('m3')]
+    expect(Relay.pendingAuthRetry.size).toBe(3)
+    relayMsg(['AUTH', 'challenge-6'])
+    await vi.advanceTimersByTimeAsync(AUTH_TIMEOUT_MS)
+
+    for (const r of await Promise.all(all)) {
+      expect(r.ok).toBe(false)
+      expect((r as { e: Error }).e).toBeInstanceOf(AuthSignerError)
+    }
+    expect(Relay.pendingAuthRetry.size).toBe(0)
+  })
+
+  it('drops a retried event from pendingPublishes when the retry send fails', async () => {
+    const auth: RelayAuthPort = {
+      isConnected: true,
+      signEvent: async (e) => ({ ...e, id: 'auth', pubkey: 'p', sig: 's' }) as SignedEvent,
+    }
+    Relay.configure({ auth })
+    const settled = publishNeedingAuth('e8')
+    // The AUTH frame goes out, then the socket dies before the retried EVENT.
+    const realSend = socket.send.bind(socket)
+    socket.send = (raw: string) => {
+      if (JSON.parse(raw)[0] === 'EVENT') throw new Error('Not connected to relay')
+      realSend(raw)
+    }
+    relayMsg(['AUTH', 'challenge-7'])
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(socket.sent.some((m) => m[0] === 'AUTH')).toBe(true)
+    expect((await settled).ok).toBe(false)
+    expect(Relay.pendingPublishes.has('e8')).toBe(false)
+    expect(Relay.pendingAuthRetry.has('e8')).toBe(false)
+  })
+})
+
+describe('Relay disconnect', () => {
+  it('fails in-flight and auth-queued publishes immediately, without waiting for the publish timer', async () => {
+    const inflight = Relay.publish(event('d1')).then(
+      () => 'ok',
+      (e: Error) => e.message,
+    )
+    const queued = publishNeedingAuth('d2')
+    Relay.disconnect()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(await inflight).toMatch(/disconnect/i)
+    expect((await queued).ok).toBe(false)
+    expect(Relay.pendingPublishes.size).toBe(0)
     expect(Relay.pendingAuthRetry.size).toBe(0)
   })
 })
@@ -166,7 +244,6 @@ describe('Relay connect timeout', () => {
     const p = Relay.connect('wss://relay.test')
     p.catch(() => {})
     const opened = Relay.socket as unknown as FakeSocket
-    opened.readyState = 0
 
     await vi.advanceTimersByTimeAsync(10000)
     await expect(p).rejects.toThrow('Connection timeout')

@@ -151,7 +151,9 @@ export const Relay = {
         case 'AUTH': {
           // NIP-42 challenge: ["AUTH", challenge]
           const challenge = message[1]
-          this.handleAuthChallenge(challenge)
+          this.handleAuthChallenge(challenge).catch((err) =>
+            console.error('Relay: Unhandled auth challenge error:', err),
+          )
           break
         }
 
@@ -261,6 +263,7 @@ export const Relay = {
       } catch (err) {
         console.error('Relay: Failed to retry event', eventId.slice(0, 8) + '...:', err)
         pending.reject(err as Error)
+        this.pendingPublishes.delete(eventId)
         this.pendingAuthRetry.delete(eventId)
       }
     }
@@ -354,6 +357,11 @@ export const Relay = {
     }
     this.connected = false
     this.authenticated = false
+    // Settle now (reject also clears each publish timer) rather than letting
+    // callers wait out PUBLISH_TIMEOUT_MS on a socket that is gone.
+    const gone = new Error('Relay disconnected')
+    for (const pending of this.pendingPublishes.values()) pending.reject(gone)
+    for (const pending of this.pendingAuthRetry.values()) pending.reject(gone)
     this.pendingPublishes.clear()
     this.pendingAuthRetry.clear()
   },
