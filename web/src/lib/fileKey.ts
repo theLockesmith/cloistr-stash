@@ -15,8 +15,10 @@ import { getSigner } from './authBridge'
 /** A file entry as the various callers hold it (relay event fields, list rows, collab refs). */
 export type FileRef = Record<string, unknown> & { sha256?: string }
 
+// `id` first: it is StashFile's canonical field and the id the migration and
+// the copy path bound each owner_key envelope to; unwrap must use the same one.
 export function fileIdOf(file: FileRef): string | undefined {
-  return (file.file_id ?? file.fileId ?? file.d ?? file.id) as string | undefined
+  return (file.id ?? file.file_id ?? file.fileId ?? file.d) as string | undefined
 }
 
 export function folderIdOf(file: FileRef): string | null {
@@ -27,7 +29,8 @@ export function folderIdOf(file: FileRef): string | null {
 export async function fileKeyFor(file: FileRef): Promise<Uint8Array> {
   const fileId = fileIdOf(file)
   if (!fileId) throw new Error('Cannot decrypt: missing file ID')
-  const ownerKey = file.owner_key as string | undefined
+  // Only a non-empty string is an envelope; anything else must not reach the signer.
+  const ownerKey = typeof file.owner_key === 'string' && file.owner_key !== '' ? file.owner_key : undefined
   return Keys.getFileKey(
     folderIdOf(file),
     fileId,

@@ -157,62 +157,65 @@ export const Versioning = {
     // The file's own key: its wrapped key, or HKDF for a legacy file.
     const fileKey = await fileKeyFor(file as FileRef)
 
-    const encryptedData = await Crypto.encryptFile(newFileData, fileKey)
-    const encryptedHash = await Crypto.hash(encryptedData)
-    const plaintextHash = await Crypto.hash(
-      newFileData instanceof Uint8Array ? newFileData : new Uint8Array(newFileData),
-    )
+    try {
+      const encryptedData = await Crypto.encryptFile(newFileData, fileKey)
+      const encryptedHash = await Crypto.hash(encryptedData)
+      const plaintextHash = await Crypto.hash(
+        newFileData instanceof Uint8Array ? newFileData : new Uint8Array(newFileData),
+      )
 
-    // Upload the new version blob
-    const authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
-    const encryptedFile = new File([encryptedData as BufferSource], `${file.name}.v${newVersionNumber}.encrypted`, {
-      type: 'application/octet-stream',
-    })
-    const uploadResult = await API.uploadFile(encryptedFile, authHeader)
-    const uploadedSha256 = uploadResult['sha256'] as string
+      // Upload the new version blob
+      const authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
+      const encryptedFile = new File([encryptedData as BufferSource], `${file.name}.v${newVersionNumber}.encrypted`, {
+        type: 'application/octet-stream',
+      })
+      const uploadResult = await API.uploadFile(encryptedFile, authHeader)
+      const uploadedSha256 = uploadResult['sha256'] as string
 
-    // Build version metadata
-    const versionMeta: FileVersion = {
-      id: `${fileId}:v${newVersionNumber}`,
-      fileId,
-      version: newVersionNumber,
-      sha256: uploadedSha256,
-      plaintextHash,
-      size: newFileData.byteLength,
-      encryptedSize: encryptedData.length,
-      timestamp: Math.floor(Date.now() / 1000),
-      pubkey: authPort.pubkey!,
-      note: versionNote,
-      autoSave,
-      previousVersion: currentVersions.length > 0 ? currentVersions[0].sha256 : null,
+      // Build version metadata
+      const versionMeta: FileVersion = {
+        id: `${fileId}:v${newVersionNumber}`,
+        fileId,
+        version: newVersionNumber,
+        sha256: uploadedSha256,
+        plaintextHash,
+        size: newFileData.byteLength,
+        encryptedSize: encryptedData.length,
+        timestamp: Math.floor(Date.now() / 1000),
+        pubkey: authPort.pubkey!,
+        note: versionNote,
+        autoSave,
+        previousVersion: currentVersions.length > 0 ? currentVersions[0].sha256 : null,
+      }
+
+      // Store version metadata locally
+      await this.storeVersionMeta(versionMeta)
+
+      // Publish updated file metadata with version tags
+      // Events.createEncryptedFileMetadataEvent adds ['v', ...] and ['current', ...]
+      // tags when `version` is present — see events.ts EncryptedFileMetadataInput.
+      const metadataEvent = await Events.createEncryptedFileMetadataEvent({
+        fileId,
+        sha256: uploadedSha256,
+        plaintextHash,
+        name: file.name,
+        size: versionMeta.size,
+        encryptedSize: versionMeta.encryptedSize,
+        mimeType: file.mime_type || file.mimeType || 'application/octet-stream',
+        folderId: folderId ?? undefined,
+        version: newVersionNumber,
+      })
+
+      await authPort.publishEvent(metadataEvent)
+
+      console.log(`Versioning: Created version ${newVersionNumber} for file ${fileId.slice(0, 8)}...`)
+
+      return versionMeta
+    } finally {
+      // Wipe key from memory, on failure too: for a wrapped file this is the
+      // file's only key, not one re-derivable from the root.
+      Crypto.wipeKey(fileKey)
     }
-
-    // Store version metadata locally
-    await this.storeVersionMeta(versionMeta)
-
-    // Publish updated file metadata with version tags
-    // Events.createEncryptedFileMetadataEvent adds ['v', ...] and ['current', ...]
-    // tags when `version` is present — see events.ts EncryptedFileMetadataInput.
-    const metadataEvent = await Events.createEncryptedFileMetadataEvent({
-      fileId,
-      sha256: uploadedSha256,
-      plaintextHash,
-      name: file.name,
-      size: versionMeta.size,
-      encryptedSize: versionMeta.encryptedSize,
-      mimeType: file.mime_type || file.mimeType || 'application/octet-stream',
-      folderId: folderId ?? undefined,
-      version: newVersionNumber,
-    })
-
-    await authPort.publishEvent(metadataEvent)
-
-    // Wipe key from memory
-    Crypto.wipeKey(fileKey)
-
-    console.log(`Versioning: Created version ${newVersionNumber} for file ${fileId.slice(0, 8)}...`)
-
-    return versionMeta
   },
 
   // Store version metadata in IndexedDB
@@ -292,27 +295,27 @@ export const Versioning = {
 
     // Decrypt with the file key (same key for all versions). A wrapped-key file
     // may also hold versions saved before 2026-10-07 under the derived key;
-    // a wrong key fails authentication cleanly, so try that one second.
-    let decryptedData: Uint8Array
+    // a wrong key fails authentication cleanly (XChaCha20-Poly1305 yields no
+    // plaintext on failure), so try that one second.
     const fileKey = await fileKeyFor(file as FileRef)
     try {
-      decryptedData = await Crypto.decryptFile(encryptedData, fileKey)
-    } catch (err) {
-      if (!(file as FileRef).owner_key) throw err
-      const legacyKey = folderId
-        ? await Keys.deriveFileKey(folderId, fileId)
-        : await Keys.deriveRootFileKey(fileId)
       try {
-        decryptedData = await Crypto.decryptFile(encryptedData, legacyKey)
-      } finally {
-        Crypto.wipeKey(legacyKey)
+        return await Crypto.decryptFile(encryptedData, fileKey)
+      } catch (err) {
+        if (!(file as FileRef).owner_key) throw err
+        const legacyKey = folderId
+          ? await Keys.deriveFileKey(folderId, fileId)
+          : await Keys.deriveRootFileKey(fileId)
+        try {
+          return await Crypto.decryptFile(encryptedData, legacyKey)
+        } finally {
+          Crypto.wipeKey(legacyKey)
+        }
       }
+    } finally {
+      // Every exit, including both attempts failing
+      Crypto.wipeKey(fileKey)
     }
-
-    // Wipe key
-    Crypto.wipeKey(fileKey)
-
-    return decryptedData
   },
 
   // Restore a previous version (creates a new version from old data)

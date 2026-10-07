@@ -267,13 +267,13 @@ export const Collaboration = {
     // the same key, so legacy session keys are unchanged).
     const fileKey = await fileKeyFor(file as FileRef)
 
-    // PRESERVED: context string 'cloistr-drive-collab-v1'
-    const sessionKey = await Keys.deriveKey(fileKey, 'session', 'cloistr-drive-collab-v1')
-
-    // Wipe file key from memory
-    Crypto.wipeKey(fileKey)
-
-    return sessionKey
+    try {
+      // PRESERVED: context string 'cloistr-drive-collab-v1'
+      return await Keys.deriveKey(fileKey, 'session', 'cloistr-drive-collab-v1')
+    } finally {
+      // Wipe file key from memory, on failure too
+      Crypto.wipeKey(fileKey)
+    }
   },
 
   // Start WebRTC provider for peer-to-peer sync

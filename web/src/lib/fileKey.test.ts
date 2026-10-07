@@ -90,6 +90,14 @@ describe('fileKeyFor (the one resolver)', () => {
     const aliased = { sha256: 'x', file_id: 'file-w', folder_id: 'folder-1', owner_key: 'env-w' }
     expect(await fileKeyFor(aliased)).toEqual(RANDOM_KEY)
   })
+  it('prefers the canonical id, the one the migration wrapped the key under', async () => {
+    await fileKeyFor({ sha256: 'x', id: 'file-l', d: 'other', file_id: 'other', folder: 'folder-1' })
+    expect(Keys.deriveFileKey).toHaveBeenCalledWith('folder-1', 'file-l')
+  })
+  it('ignores a non-string owner_key (no signer call for a malformed field)', async () => {
+    await fileKeyFor({ ...legacy, owner_key: { bogus: true } })
+    expect(Keys.unwrapFileKeyFromOwner).not.toHaveBeenCalled()
+  })
   it('throws when the entry has no file id', async () => {
     await expect(fileKeyFor({ sha256: 'x' })).rejects.toThrow(/missing file ID/)
   })
@@ -122,6 +130,23 @@ describe('version history', () => {
     vi.spyOn(Versioning, 'getVersion').mockResolvedValue({ sha256: 'v1-sha', version: 1 } as never)
     expect(text(await Versioning.downloadVersion(wrapped as never, 1))).toBe('hello from a wrapped-key file')
   })
+  it('wipes both keys when neither opens the version', async () => {
+    await put('bad-sha', Crypto.generateKey())
+    vi.spyOn(Versioning, 'getVersion').mockResolvedValue({ sha256: 'bad-sha', version: 3 } as never)
+    const wiped: Uint8Array[] = []
+    vi.spyOn(Crypto, 'wipeKey').mockImplementation((k: Uint8Array) => void wiped.push(k.slice()))
+    await expect(Versioning.downloadVersion(wrapped as never, 3)).rejects.toThrow()
+    expect(wiped).toContainEqual(RANDOM_KEY)
+    expect(wiped).toContainEqual(HKDF_KEY)
+  })
+  it('wipes the file key when saving a version fails', async () => {
+    vi.spyOn(Versioning, 'getVersionHistory').mockResolvedValue([])
+    vi.spyOn(API, 'uploadFile').mockRejectedValue(new Error('upload down'))
+    const wiped: Uint8Array[] = []
+    vi.spyOn(Crypto, 'wipeKey').mockImplementation((k: Uint8Array) => void wiped.push(k.slice()))
+    await expect(Versioning.createVersion(wrapped as never, PLAINTEXT)).rejects.toThrow()
+    expect(wiped).toContainEqual(RANDOM_KEY)
+  })
   it('encrypts a new version with the file real key', async () => {
     vi.spyOn(Versioning, 'getVersionHistory').mockResolvedValue([])
     let used: Uint8Array | null = null
@@ -143,6 +168,13 @@ describe('collaboration', () => {
     })
     await Collaboration.deriveSessionKey(wrapped as never)
     expect(seen[0]).toEqual(RANDOM_KEY)
+  })
+  it('wipes the file key when session-key derivation fails', async () => {
+    vi.spyOn(Keys, 'deriveKey').mockRejectedValue(new Error('hkdf down'))
+    const wiped: Uint8Array[] = []
+    vi.spyOn(Crypto, 'wipeKey').mockImplementation((k: Uint8Array) => void wiped.push(k.slice()))
+    await expect(Collaboration.deriveSessionKey(wrapped as never)).rejects.toThrow('hkdf down')
+    expect(wiped).toContainEqual(RANDOM_KEY)
   })
 })
 
