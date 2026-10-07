@@ -30,8 +30,7 @@
 
 import { API } from './api'
 import { authPort } from './authBridge'
-import { Crypto } from './crypto'
-import { Keys } from './keys'
+import { readFileBytes, type FileRef } from './fileKey'
 import { Relay } from './relay'
 import type { SignedEvent } from './api'
 import type { StashFile } from '../state/types'
@@ -224,37 +223,12 @@ export async function setProfilePicture(
 /**
  * Fetch a stored file and decrypt it to plaintext bytes.
  *
- * NOTE: this download-derive-decrypt sequence is duplicated in App.tsx,
- * FileInfoModal, PreviewModal and KeyboardShortcuts. This is a fifth copy, and
- * that is worth fixing — but consolidating all five is a refactor of its own
- * and does not belong inside a feature change. Flagged here rather than done
- * silently or pretended away.
+ * The five copies of this sequence (here, App.tsx, FileInfoModal, PreviewModal,
+ * KeyboardShortcuts) are now one: lib/fileKey.readFileBytes, which also uses
+ * the file's wrapped key instead of always deriving HKDF.
  */
 export async function getPlaintextBytes(file: StashFile): Promise<Uint8Array> {
-  const f = file as unknown as Record<string, unknown>
-  const sha256 = f.sha256 as string | undefined
-  if (!sha256) throw new Error('File has no content hash')
-
-  const response = await fetch(API.getDownloadURL(sha256))
-  if (!response.ok) throw new Error(`Could not fetch file: ${response.status}`)
-  const stored = await response.arrayBuffer()
-
-  const encrypted = Boolean(f.encrypted || f.encryption)
-  if (!encrypted) return new Uint8Array(stored)
-
-  const fileId = (f.file_id ?? f.fileId ?? f.d ?? f.id) as string | undefined
-  const folderId = (f.folder_id ?? f.folderId ?? f.folder ?? null) as string | null
-  if (!fileId) throw new Error('Cannot decrypt: missing file ID')
-
-  const fileKey = folderId
-    ? await Keys.deriveFileKey(folderId, fileId)
-    : await Keys.deriveRootFileKey(fileId)
-  try {
-    return await Crypto.decryptFile(stored, fileKey)
-  } finally {
-    // Always wipe, including on a decrypt failure.
-    Crypto.wipeKey(fileKey)
-  }
+  return readFileBytes(file as unknown as FileRef)
 }
 
 /** Hex SHA-256 of the given bytes. */

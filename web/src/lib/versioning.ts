@@ -10,6 +10,7 @@ import { Keys } from './keys'
 import { Events } from './events'
 import { API } from './api'
 import { authPort } from './authBridge'
+import { fileKeyFor, type FileRef } from './fileKey'
 
 // ---------------------------------------------------------------------------
 // Exported types
@@ -153,13 +154,8 @@ export const Versioning = {
     const currentVersions = await this.getVersionHistory(fileId)
     const newVersionNumber = currentVersions.length + 1
 
-    // Derive the file encryption key
-    let fileKey: Uint8Array
-    if (folderId) {
-      fileKey = await Keys.deriveFileKey(folderId, fileId)
-    } else {
-      fileKey = await Keys.deriveRootFileKey(fileId)
-    }
+    // The file's own key: its wrapped key, or HKDF for a legacy file.
+    const fileKey = await fileKeyFor(file as FileRef)
 
     const encryptedData = await Crypto.encryptFile(newFileData, fileKey)
     const encryptedHash = await Crypto.hash(encryptedData)
@@ -294,15 +290,24 @@ export const Versioning = {
 
     const encryptedData = await response.arrayBuffer()
 
-    // Decrypt with the file key (same key for all versions)
-    let fileKey: Uint8Array
-    if (folderId) {
-      fileKey = await Keys.deriveFileKey(folderId, fileId)
-    } else {
-      fileKey = await Keys.deriveRootFileKey(fileId)
+    // Decrypt with the file key (same key for all versions). A wrapped-key file
+    // may also hold versions saved before 2026-10-07 under the derived key;
+    // a wrong key fails authentication cleanly, so try that one second.
+    let decryptedData: Uint8Array
+    const fileKey = await fileKeyFor(file as FileRef)
+    try {
+      decryptedData = await Crypto.decryptFile(encryptedData, fileKey)
+    } catch (err) {
+      if (!(file as FileRef).owner_key) throw err
+      const legacyKey = folderId
+        ? await Keys.deriveFileKey(folderId, fileId)
+        : await Keys.deriveRootFileKey(fileId)
+      try {
+        decryptedData = await Crypto.decryptFile(encryptedData, legacyKey)
+      } finally {
+        Crypto.wipeKey(legacyKey)
+      }
     }
-
-    const decryptedData = await Crypto.decryptFile(encryptedData, fileKey)
 
     // Wipe key
     Crypto.wipeKey(fileKey)
