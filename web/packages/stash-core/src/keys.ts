@@ -456,7 +456,9 @@ export const Keys = {
     }
     const keyHex = await this.selfDecrypt(senderPubkey, encryptedKey)
     const folderKey = Crypto.hexToBytes(keyHex)
-    await this.storeEncryptedKey(`folder:${folderId}`, folderKey, folderId)
+    // replace: the sender's key is authoritative for their folder; after a
+    // revoke they rotate it and re-share, and the old key no longer decrypts.
+    await this.storeEncryptedKey(`folder:${folderId}`, folderKey, folderId, { replace: true })
     this.keyCache.set(`folder:${folderId}`, folderKey)
     console.log('Keys: Imported shared folder key for', folderId.slice(0, 8) + '...')
     return folderKey

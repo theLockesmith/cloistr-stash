@@ -39,9 +39,9 @@ export interface ConnectOptions {
   signer: SignerInterface | Signer
   /** Key persistence. Browser default is IndexedDB; headless callers pass FileKeyStorage or InMemoryKeyStorage. */
   storage?: KeyStorage
-  /** Stash server origin, e.g. 'https://stash.cloistr.xyz'. Browser default is same-origin (''). */
+  /** Stash server origin (your deployment's https origin). Browser default is same-origin (''). */
   apiBaseUrl?: string
-  /** Relay URL. Default wss://relay.cloistr.xyz. */
+  /** Relay URL. Default is serviceConfig's RELAY_URL. */
   relayUrl?: string
 }
 

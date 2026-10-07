@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -36,6 +35,9 @@ type Server struct {
 	mux            *http.ServeMux
 	webDir         string
 	logger         *slog.Logger
+
+	// Service addresses for the web app, served as /config.js
+	runtimeConfig RuntimeConfig
 
 	// Download counting for max-downloads links
 	downloadCounts    map[string]int
@@ -128,6 +130,7 @@ func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metad
 		mux:            http.NewServeMux(),
 		webDir:         webDir,
 		logger:         logger,
+		runtimeConfig:  runtimeConfigFromEnv(os.Getenv),
 		downloadCounts: make(map[string]int),
 	}
 
@@ -139,6 +142,9 @@ func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metad
 func (s *Server) registerRoutes() {
 	// Health check
 	s.mux.HandleFunc("GET /health", s.handleHealth)
+
+	// Runtime service configuration for the web app (outranks the "/" static route)
+	s.mux.HandleFunc("GET /config.js", s.handleConfigJS)
 
 	// Metrics endpoint
 	s.mux.Handle("GET /metrics", metrics.Handler())
@@ -397,8 +403,10 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 		encryptionMode = "e2e" // Default to e2e for Drive uploads (always client-encrypted)
 	}
 
-	// Extract pubkey from auth header for quota check
-	pubkey := extractPubkeyFromAuth(authHeader)
+	// Quota is charged to the pubkey the middleware authenticated (signature,
+	// kind 24242 t=upload, expiration all checked), never to a pubkey merely
+	// claimed in a header.
+	pubkey := auth.GetPubkeyFromContext(r.Context())
 
 	// Check quota before upload
 	if s.quota != nil && s.quota.IsEnabled() && pubkey != "" {
@@ -505,7 +513,8 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 
 	// Get Blossom auth header from request
 	authHeader := r.Header.Get("X-Blossom-Auth")
-	pubkey := extractPubkeyFromAuth(authHeader)
+	// Authenticated by the middleware (24242 t=delete, x=sha256, expiration).
+	pubkey := auth.GetPubkeyFromContext(r.Context())
 
 	// Get file size before deletion for quota update
 	var fileSize int64
@@ -660,27 +669,6 @@ func (s *Server) handlePublishMetadata(w http.ResponseWriter, r *http.Request) {
 		"event_id", event.ID[:16],
 		"pubkey", event.PubKey[:16],
 	)
-}
-
-// extractPubkeyFromAuth extracts the pubkey from a Blossom auth header
-// Format: "Nostr <base64-encoded-signed-event>"
-func extractPubkeyFromAuth(authHeader string) string {
-	if !strings.HasPrefix(authHeader, "Nostr ") {
-		return ""
-	}
-
-	eventB64 := strings.TrimPrefix(authHeader, "Nostr ")
-	eventJSON, err := base64.StdEncoding.DecodeString(eventB64)
-	if err != nil {
-		return ""
-	}
-
-	var event nostr.Event
-	if err := json.Unmarshal(eventJSON, &event); err != nil {
-		return ""
-	}
-
-	return event.PubKey
 }
 
 // handleListFolders returns all folders for a given pubkey
@@ -1312,26 +1300,40 @@ type QuotaResponse struct {
 	LimitHuman string `json:"limit_human"`
 }
 
-// handleGetQuota returns quota information for the authenticated user
+// handleGetQuota returns the caller's own quota.
+//
+// Unauthenticated, it says only whether quota is enabled, so the app need not
+// sign anything while quota is off. Per-user numbers require the caller's own
+// NIP-98 auth for this URL (or a signer session) and are only ever the
+// caller's: ?pubkey= naming anyone else is refused. It used to answer any
+// ?pubkey= for anyone.
 func (s *Server) handleGetQuota(w http.ResponseWriter, r *http.Request) {
-	pubkey := r.URL.Query().Get("pubkey")
-	if pubkey == "" {
-		// Try to get from auth header
-		authHeader := r.Header.Get("X-Blossom-Auth")
-		pubkey = extractPubkeyFromAuth(authHeader)
-	}
+	enabled := s.quota != nil && s.quota.IsEnabled()
 
+	pubkey, err := s.authMiddle.ExtractPubkey(r)
+	if err != nil {
+		http.Error(w, "Invalid authentication", http.StatusUnauthorized)
+		return
+	}
 	if pubkey == "" {
-		http.Error(w, "Pubkey required", http.StatusBadRequest)
+		if enabled {
+			http.Error(w, "Authentication required", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"enabled":false}`)
+		return
+	}
+	if q := r.URL.Query().Get("pubkey"); q != "" && !strings.EqualFold(q, pubkey) {
+		http.Error(w, "Quota is only visible to its owner", http.StatusForbidden)
 		return
 	}
 
 	response := QuotaResponse{
-		Enabled: false,
+		Enabled: enabled,
 	}
 
 	if s.quota != nil {
-		response.Enabled = s.quota.IsEnabled()
 		info := s.quota.GetQuotaInfo(pubkey)
 		response.Used = info.Used
 		response.Limit = info.Limit

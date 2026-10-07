@@ -218,8 +218,21 @@ export const API = {
     return response.json()
   },
 
-  async getQuota(pubkey: string): Promise<QuotaInfo> {
-    const response = await fetch(`${this.baseURL}/api/quota?pubkey=${pubkey}`)
+  /**
+   * The caller's own quota. The server shows per-user numbers only to their
+   * owner (NIP-98), so ask unsigned first: while quota is disabled that
+   * answer is final and no signing round trip is spent.
+   */
+  async getQuota(sign: (url: string, method: string) => Promise<string>): Promise<QuotaInfo> {
+    const path = `${this.baseURL}/api/quota`
+    const probe = await fetch(path)
+    if (!probe.ok) throw new Error(`Failed to get quota: ${probe.status}`)
+    const info = (await probe.json()) as QuotaInfo
+    if (!info.enabled) return info
+
+    // The u tag must be the absolute URL the server sees.
+    const url = new URL(path, window.location.origin).href
+    const response = await fetch(path, { headers: { Authorization: await sign(url, 'GET') } })
     if (!response.ok) throw new Error(`Failed to get quota: ${response.status}`)
     return response.json()
   },

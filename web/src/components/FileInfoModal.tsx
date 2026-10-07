@@ -21,43 +21,13 @@
 import { useEffect, useState } from 'react'
 import type { StashFile } from '../state/types'
 import { formatFileSize } from './format'
-import { API } from '@cloistr/stash-core/api'
-import { Keys } from '@cloistr/stash-core/keys'
-import { Crypto } from '@cloistr/stash-core/crypto'
+import { readFileBytes } from '@cloistr/stash-core/fileKey'
 import { publicUrlForFile, checkPublished, type PublicState } from '@cloistr/stash-core/publish'
 
 // ─── download helper ─────────────────────────────────────────────────────────
 
 async function triggerDownload(file: StashFile): Promise<void> {
-  const downloadUrl = API.getDownloadURL(file.sha256)
-  const response = await fetch(downloadUrl)
-  if (!response.ok) throw new Error(`Download failed: ${response.status}`)
-
-  const encryptedData = await response.arrayBuffer()
-  let data: Uint8Array
-
-  const enc = !!(file.encrypted || (file as Record<string, unknown>).encryption)
-  if (enc) {
-    const fileId = (
-      file.id ??
-      (file as Record<string, unknown>).file_id ??
-      (file as Record<string, unknown>).fileId ??
-      (file as Record<string, unknown>).d
-    ) as string | undefined
-    const folderId = (
-      (file as Record<string, unknown>).folder_id ??
-      (file as Record<string, unknown>).folderId ??
-      file.folder
-    ) as string | undefined
-    if (!fileId) throw new Error('Cannot decrypt: missing file ID')
-    const fileKey = folderId
-      ? await Keys.deriveFileKey(folderId, fileId)
-      : await Keys.deriveRootFileKey(fileId)
-    data = await Crypto.decryptFile(encryptedData, fileKey)
-    Crypto.wipeKey(fileKey)
-  } else {
-    data = new Uint8Array(encryptedData)
-  }
+  const data = await readFileBytes(file)
 
   const mimeType = (file.mime_type as string | undefined) ?? 'application/octet-stream'
   const blob = new Blob([data.buffer as ArrayBuffer], { type: mimeType })

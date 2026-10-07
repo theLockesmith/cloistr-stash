@@ -107,6 +107,20 @@ describe('Keys: refuse-to-overwrite with FileKeyStorage', () => {
     await expect(Keys.storeEncryptedKey('folder:f2', b, 'f2')).resolves.toBeUndefined()
   })
 
+  // The owner rotates a folder key when revoking someone and re-shares the
+  // new one. The sender's key is authoritative for their folder, so a
+  // headless recipient must take it, as the browser store already does.
+  it('importSharedFolderKey replaces a previously shared key for the folder', async () => {
+    const sender = 'f'.repeat(64)
+    const oldKey = Crypto.generateKey()
+    const newKey = Crypto.generateKey()
+    await Keys.importSharedFolderKey('shared1', `nip44:${Crypto.bytesToHex(oldKey)}`, sender)
+    await Keys.importSharedFolderKey('shared1', `nip44:${Crypto.bytesToHex(newKey)}`, sender)
+    Keys.keyCache.clear()
+    const loaded = await Keys.loadEncryptedKey('folder:shared1')
+    expect(Crypto.bytesToHex(loaded!)).toBe(Crypto.bytesToHex(newKey))
+  })
+
   it('rekey() still works (deliberate replacement)', async () => {
     const root = Crypto.generateKey()
     await Keys.storeEncryptedKey('root', root, null)

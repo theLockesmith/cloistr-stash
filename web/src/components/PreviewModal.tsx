@@ -4,8 +4,8 @@
 // Legacy behaviour reproduced here:
 //   • getPreviewType() – extension-first, then MIME type for markdown detection;
 //     same seven branches (image/video/audio/pdf/markdown/text/unsupported).
-//   • Fetch + conditional decrypt (Keys.deriveFileKey / deriveRootFileKey +
-//     Crypto.decryptFile) identical to the legacy showPreview() path.
+//   • Fetch + conditional decrypt via readFileBytes (the file's wrapped key,
+//     or the legacy derived key for pre-migration files).
 //   • Markdown: rendered via marked (gfm + breaks), two tabs (Preview / Source),
 //     Copy button writes raw source to clipboard.
 //
@@ -22,9 +22,7 @@ import { useState, useEffect, useRef } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import type { StashFile } from '../state/types'
-import { API } from '@cloistr/stash-core/api'
-import { Keys } from '@cloistr/stash-core/keys'
-import { Crypto } from '@cloistr/stash-core/crypto'
+import { readFileBytes } from '@cloistr/stash-core/fileKey'
 
 // ─── type detection ─────────────────────────────────────────────────────────
 
@@ -115,36 +113,8 @@ export function PreviewModal({ file, onClose }: { file: StashFile | null; onClos
 
     void (async () => {
       try {
-        // Fetch
-        const downloadUrl = API.getDownloadURL(file.sha256)
-        const response = await fetch(downloadUrl)
-        if (!response.ok) throw new Error(`Fetch failed: ${response.status}`)
-        const encryptedData = await response.arrayBuffer()
-
-        // Decrypt if needed
-        let data: Uint8Array
-        const enc = !!(file.encrypted || (file as Record<string, unknown>).encryption)
-        if (enc) {
-          const fileId = (
-            file.id ??
-            (file as Record<string, unknown>).file_id ??
-            (file as Record<string, unknown>).fileId ??
-            (file as Record<string, unknown>).d
-          ) as string | undefined
-          const folderId = (
-            (file as Record<string, unknown>).folder_id ??
-            (file as Record<string, unknown>).folderId ??
-            file.folder
-          ) as string | undefined
-          if (!fileId) throw new Error('Cannot decrypt: missing file ID')
-          const fileKey = folderId
-            ? await Keys.deriveFileKey(folderId, fileId)
-            : await Keys.deriveRootFileKey(fileId)
-          data = await Crypto.decryptFile(encryptedData, fileKey)
-          Crypto.wipeKey(fileKey)
-        } else {
-          data = new Uint8Array(encryptedData)
-        }
+        // Fetch + decrypt with the file's own key (wrapped or legacy HKDF)
+        const data = await readFileBytes(file)
 
         if (cancelled) return
 

@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, rename, writeFile, unlink } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readFile, rename, writeFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import type { KeyRecord, KeyStorage } from './key-storage'
@@ -26,6 +26,11 @@ export class FileKeyStorage implements KeyStorage {
 
   async init(): Promise<void> {
     await mkdir(this.dir, { recursive: true, mode: 0o700 })
+    // lstat, not stat: a symlinked key dir would let the link's owner choose
+    // where records go, and chmod would follow it onto the target.
+    const st = await lstat(this.dir)
+    if (st.isSymbolicLink()) throw new Error(`Key directory ${this.dir} is a symlink; refusing to use it`)
+    if (!st.isDirectory()) throw new Error(`Key directory ${this.dir} is not a directory`)
     await chmod(this.dir, 0o700)
   }
 

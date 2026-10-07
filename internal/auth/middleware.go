@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/platform"
-	"github.com/nbd-wtf/go-nostr"
 )
 
 // contextKey is a type for context keys
@@ -76,21 +74,22 @@ type AuthResult struct {
 	Error         string `json:"error,omitempty"`
 }
 
-// ExtractPubkey extracts and validates the pubkey from request headers
-// Checks both Authorization and X-Blossom-Auth headers
+// ExtractPubkey authenticates the request and returns the caller's pubkey, or
+// "" when it carries no credential. A `Nostr <base64-event>` header (in
+// Authorization, else X-Blossom-Auth) must pass ValidateAuthHeader for THIS
+// request; a bad one is an error, never a fallback. Without a Nostr header the
+// Cloistr signer session (cookie or Bearer) is tried.
 func (m *AuthMiddleware) ExtractPubkey(r *http.Request) (string, error) {
-	// Try Authorization header first
 	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		// Fall back to X-Blossom-Auth
+	if !strings.HasPrefix(authHeader, "Nostr ") {
 		authHeader = r.Header.Get("X-Blossom-Auth")
 	}
 
-	if authHeader != "" {
-		return ExtractPubkeyFromAuth(authHeader)
+	if strings.HasPrefix(authHeader, "Nostr ") {
+		return ValidateAuthHeader(r, authHeader, time.Now())
 	}
 
-	// Unified-auth fallback: no Blossom Nostr-event header — try the Cloistr
+	// Unified-auth fallback: no Nostr-event header — try the Cloistr
 	// signer session (.cloistr.xyz cookie or Bearer signer JWT).
 	return m.resolveSignerSession(r), nil
 }
@@ -158,33 +157,6 @@ func (m *AuthMiddleware) resolveSignerSession(r *http.Request) string {
 	m.sessionMu.Unlock()
 
 	return body.Pubkey
-}
-
-// ExtractPubkeyFromAuth extracts the pubkey from a Nostr auth header
-// Format: "Nostr <base64-encoded-signed-event>"
-func ExtractPubkeyFromAuth(authHeader string) (string, error) {
-	if !strings.HasPrefix(authHeader, "Nostr ") {
-		return "", nil
-	}
-
-	eventB64 := strings.TrimPrefix(authHeader, "Nostr ")
-	eventJSON, err := base64.StdEncoding.DecodeString(eventB64)
-	if err != nil {
-		return "", err
-	}
-
-	var event nostr.Event
-	if err := json.Unmarshal(eventJSON, &event); err != nil {
-		return "", err
-	}
-
-	// Verify the signature
-	ok, err := event.CheckSignature()
-	if err != nil || !ok {
-		return "", err
-	}
-
-	return event.PubKey, nil
 }
 
 // RequireAuth middleware requires a valid authentication header
