@@ -7,6 +7,8 @@ export interface KeyRecord {
   encryptedKey: string
   createdAt: number
   updatedAt: number
+  /** Pubkey that shared this key with us; absent for keys we own. */
+  sharedBy?: string
 }
 
 export interface KeyStorage {

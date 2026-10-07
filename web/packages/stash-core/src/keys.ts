@@ -365,7 +365,7 @@ export const Keys = {
     keyId: string,
     key: Uint8Array,
     associatedId: string | null,
-    opts?: { replace?: boolean },
+    opts?: { replace?: boolean; sharedBy?: string },
   ): Promise<void> {
     if (!this.auth || !this.auth.isConnected) {
       throw new Error('Cannot store key: signer not connected')
@@ -406,6 +406,7 @@ export const Keys = {
       encryptedKey,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      ...(opts?.sharedBy ? { sharedBy: opts.sharedBy } : {}),
     }
 
     await storage.put(record)
@@ -430,7 +431,7 @@ export const Keys = {
         if (raw.length === 32) {
           console.warn('Keys: Found legacy base64 key for', keyId, '— migrating to encrypted storage')
           if (this.auth && this.auth.isConnected) {
-            void this.storeEncryptedKey(keyId, raw, record.associatedId).catch(() => {})
+            void this.storeEncryptedKey(keyId, raw, record.associatedId, { sharedBy: record.sharedBy }).catch(() => {})
           }
           return raw
         }
@@ -456,9 +457,16 @@ export const Keys = {
     }
     const keyHex = await this.selfDecrypt(senderPubkey, encryptedKey)
     const folderKey = Crypto.hexToBytes(keyHex)
-    // replace: the sender's key is authoritative for their folder; after a
-    // revoke they rotate it and re-share, and the old key no longer decrypts.
-    await this.storeEncryptedKey(`folder:${folderId}`, folderKey, folderId, { replace: true })
+    // A key that was itself shared with us may be replaced: the sender's key is
+    // authoritative for their folder, and after a revoke they rotate it and
+    // re-share. A key we own is never replaced by a share (on stores that
+    // refuse overwrites), or anyone who learned the folder id could make the
+    // folder unreadable to us.
+    const existing = await (await this.ensureStorage()).get(`${this.userPubkey}:folder:${folderId}`)
+    await this.storeEncryptedKey(`folder:${folderId}`, folderKey, folderId, {
+      replace: !existing || !!existing.sharedBy,
+      sharedBy: senderPubkey,
+    })
     this.keyCache.set(`folder:${folderId}`, folderKey)
     console.log('Keys: Imported shared folder key for', folderId.slice(0, 8) + '...')
     return folderKey

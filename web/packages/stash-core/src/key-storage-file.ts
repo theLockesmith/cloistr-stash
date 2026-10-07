@@ -28,6 +28,9 @@ export class FileKeyStorage implements KeyStorage {
     await mkdir(this.dir, { recursive: true, mode: 0o700 })
     // lstat, not stat: a symlinked key dir would let the link's owner choose
     // where records go, and chmod would follow it onto the target.
+    // A swap between this lstat and the chmod is still possible for someone
+    // who can write the parent directory; node:fs offers no fchmod-by-path
+    // without following links, so the parent must be trusted.
     const st = await lstat(this.dir)
     if (st.isSymbolicLink()) throw new Error(`Key directory ${this.dir} is a symlink; refusing to use it`)
     if (!st.isDirectory()) throw new Error(`Key directory ${this.dir} is not a directory`)

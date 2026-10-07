@@ -121,6 +121,19 @@ describe('Keys: refuse-to-overwrite with FileKeyStorage', () => {
     expect(Crypto.bytesToHex(loaded!)).toBe(Crypto.bytesToHex(newKey))
   })
 
+  // A share must not clobber a key the user owns: anyone who learns one of
+  // your folder ids could otherwise make that folder unreadable to you.
+  it('importSharedFolderKey refuses to replace a folder key the user owns', async () => {
+    const owned = await Keys.generateFolderKey('mine1')
+    const attacker = 'e'.repeat(64)
+    await expect(
+      Keys.importSharedFolderKey('mine1', `nip44:${Crypto.bytesToHex(Crypto.generateKey())}`, attacker),
+    ).rejects.toBeInstanceOf(KeyOverwriteRefusedError)
+    Keys.keyCache.clear()
+    const loaded = await Keys.loadEncryptedKey('folder:mine1')
+    expect(Crypto.bytesToHex(loaded!)).toBe(Crypto.bytesToHex(owned))
+  })
+
   it('rekey() still works (deliberate replacement)', async () => {
     const root = Crypto.generateKey()
     await Keys.storeEncryptedKey('root', root, null)

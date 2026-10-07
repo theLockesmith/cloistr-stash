@@ -31,6 +31,8 @@ describe('who may derive a file key directly', () => {
         if (/derive(Root)?FileKey\(/.test(readFileSync(p, 'utf8'))) found.push(p.slice(web.length + 1))
       })
     }
+    // keys.ts derives by definition; finding it proves the scan reached the package.
+    expect(found).toContain('packages/stash-core/src/keys.ts')
     expect(found.filter((f) => !allowed.has(f))).toEqual([])
   })
 })
@@ -54,13 +56,16 @@ describe('service addresses', () => {
   // staging deployment of this image would quietly talk to production.
   it('names no cloistr.xyz service URL outside serviceConfig', () => {
     const offenders: string[] = []
+    let scanned = 0
     for (const root of [appSrc, coreSrc]) {
       walk(root, (p, name) => {
+        scanned++
         if (name === 'serviceConfig.ts') return
         const hits = readFileSync(p, 'utf8').match(/(?:wss?|https?):\/\/[a-z0-9.-]*cloistr\.xyz/g)
         if (hits) offenders.push(`${p}: ${[...new Set(hits)].join(', ')}`)
       })
     }
+    expect(scanned).toBeGreaterThan(20)
     expect(offenders).toEqual([])
   })
 })
