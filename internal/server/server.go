@@ -36,6 +36,9 @@ type Server struct {
 	webDir         string
 	logger         *slog.Logger
 
+	// Service addresses for the web app, served as /config.js
+	runtimeConfig RuntimeConfig
+
 	// Download counting for max-downloads links
 	downloadCounts    map[string]int
 	downloadCountsMux sync.RWMutex
@@ -127,6 +130,7 @@ func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metad
 		mux:            http.NewServeMux(),
 		webDir:         webDir,
 		logger:         logger,
+		runtimeConfig:  runtimeConfigFromEnv(os.Getenv),
 		downloadCounts: make(map[string]int),
 	}
 
@@ -138,6 +142,9 @@ func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metad
 func (s *Server) registerRoutes() {
 	// Health check
 	s.mux.HandleFunc("GET /health", s.handleHealth)
+
+	// Runtime service configuration for the web app (outranks the "/" static route)
+	s.mux.HandleFunc("GET /config.js", s.handleConfigJS)
 
 	// Metrics endpoint
 	s.mux.Handle("GET /metrics", metrics.Handler())

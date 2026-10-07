@@ -28,6 +28,7 @@ import { API } from './lib/api'
 import { Keys } from './lib/keys'
 import { Crypto } from './lib/crypto'
 import { fileIdOf, readFileBytes, type FileRef } from './lib/fileKey'
+import { SIGNER_URL } from './lib/serviceConfig'
 
 /**
  * Stash application shell.
@@ -222,7 +223,7 @@ export default function App() {
 
   return (
     <div className="stash-app">
-      <Header activeServiceId="files" />
+      <Header activeServiceId="files" signerUrl={SIGNER_URL} />
       <main className="stash-main">
         {isConnected ? (
           <AppShell

@@ -37,6 +37,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNostrAuth } from '@cloistr/auth'
 import { useToast } from '@cloistr/ui/components'
+import { SIGNER_URL } from '../lib/serviceConfig'
+
+const SIGNER_HOST = new URL(SIGNER_URL).host
 
 type NIP46Status =
   | { kind: 'idle' }
@@ -193,8 +196,8 @@ export function NIP46Dialog() {
           </button>
           <p className="auth-help">
             Need a Nostr identity?{' '}
-            <a href="https://signer.cloistr.xyz" target="_blank" rel="noopener noreferrer">
-              Get one at signer.cloistr.xyz
+            <a href={SIGNER_URL} target="_blank" rel="noopener noreferrer">
+              Get one at {SIGNER_HOST}
             </a>
           </p>
         </div>
@@ -239,8 +242,8 @@ export function NIP46Dialog() {
             />
             <p className="modal-help">
               Get a bunker URL from{' '}
-              <a href="https://signer.cloistr.xyz" target="_blank" rel="noopener noreferrer">
-                signer.cloistr.xyz
+              <a href={SIGNER_URL} target="_blank" rel="noopener noreferrer">
+                {SIGNER_HOST}
               </a>{' '}
               or other remote signers like{' '}
               <a href="https://nsec.app" target="_blank" rel="noopener noreferrer">

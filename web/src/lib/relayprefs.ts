@@ -9,6 +9,7 @@
 
 import { Relay } from './relay'
 import type { SignedEvent, UnsignedEvent } from './relay'
+import { DISCOVERY_URL, RELAY_URL } from './serviceConfig'
 
 export interface RelayPreferences {
   readRelays: string[]
@@ -31,8 +32,8 @@ export interface RelayPrefsAuthPort {
 }
 
 export const RelayPrefs = {
-  DISCOVERY_URL: 'https://discover.cloistr.xyz',
-  DEFAULT_RELAY: 'wss://relay.cloistr.xyz',
+  DISCOVERY_URL,
+  DEFAULT_RELAY: RELAY_URL,
 
   cache: new Map<string, RelayPreferences>(),
   CACHE_TTL: 60 * 60 * 1000, // 1 hour

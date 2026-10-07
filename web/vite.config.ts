@@ -70,6 +70,7 @@ export default defineConfig({
       '/api': proxyEntry,
       '/public': proxyEntry,
       '/health': proxyEntry,
+      '/config.js': proxyEntry,
     },
   },
   build: {

@@ -32,6 +32,7 @@ import { API } from './api'
 import { authPort } from './authBridge'
 import { readFileBytes, type FileRef } from './fileKey'
 import { Relay } from './relay'
+import { BLOB_HOST } from './serviceConfig'
 import type { SignedEvent } from './api'
 import type { StashFile } from '../state/types'
 
@@ -41,9 +42,9 @@ import type { StashFile } from '../state/types'
  * blossom.cloistr.xyz and files.cloistr.xyz both route to the same service;
  * blossom is used here because it names what the URL is — a Blossom BUD-01
  * blob endpoint — and it is the form we want to see in other people's profile
- * metadata.
+ * metadata. Configurable per environment (serviceConfig.BLOB_HOST).
  */
-export const PUBLIC_BLOB_HOST = 'https://blossom.cloistr.xyz'
+export const PUBLIC_BLOB_HOST = BLOB_HOST
 
 /** The public, unauthenticated URL for an unencrypted blob. */
 export function publicBlobUrl(sha256: string, host: string = PUBLIC_BLOB_HOST): string {
