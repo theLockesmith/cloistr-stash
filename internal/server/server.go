@@ -1293,27 +1293,40 @@ type QuotaResponse struct {
 	LimitHuman string `json:"limit_human"`
 }
 
-// handleGetQuota returns quota information for the authenticated user
+// handleGetQuota returns the caller's own quota.
+//
+// Unauthenticated, it says only whether quota is enabled, so the app need not
+// sign anything while quota is off. Per-user numbers require the caller's own
+// NIP-98 auth for this URL (or a signer session) and are only ever the
+// caller's: ?pubkey= naming anyone else is refused. It used to answer any
+// ?pubkey= for anyone.
 func (s *Server) handleGetQuota(w http.ResponseWriter, r *http.Request) {
-	pubkey := r.URL.Query().Get("pubkey")
-	if pubkey == "" {
-		// Try to get from auth header
-		// Signature-verified only: this selects whose usage to SHOW, which
-		// ?pubkey= already allows; nothing is changed on this route.
-		pubkey = auth.VerifiedPubkeyFromHeader(r.Header.Get("X-Blossom-Auth"))
-	}
+	enabled := s.quota != nil && s.quota.IsEnabled()
 
+	pubkey, err := s.authMiddle.ExtractPubkey(r)
+	if err != nil {
+		http.Error(w, "Invalid authentication", http.StatusUnauthorized)
+		return
+	}
 	if pubkey == "" {
-		http.Error(w, "Pubkey required", http.StatusBadRequest)
+		if enabled {
+			http.Error(w, "Authentication required", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"enabled":false}`)
+		return
+	}
+	if q := r.URL.Query().Get("pubkey"); q != "" && !strings.EqualFold(q, pubkey) {
+		http.Error(w, "Quota is only visible to its owner", http.StatusForbidden)
 		return
 	}
 
 	response := QuotaResponse{
-		Enabled: false,
+		Enabled: enabled,
 	}
 
 	if s.quota != nil {
-		response.Enabled = s.quota.IsEnabled()
 		info := s.quota.GetQuotaInfo(pubkey)
 		response.Used = info.Used
 		response.Limit = info.Limit

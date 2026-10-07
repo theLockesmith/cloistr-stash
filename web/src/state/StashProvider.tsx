@@ -1064,9 +1064,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
   // Fetch storage quota when connected. Mirrors legacy App.displayStorageUsage
   // at app.js:6069, which drives the #storage-bar-fill / #storage-details DOM.
   useEffect(() => {
-    const pubkey = authPort.pubkey
-    if (!authPort.isConnected || !pubkey) return
-    API.getQuota(pubkey)
+    if (!authPort.isConnected || !authPort.pubkey) return
+    API.getQuota((url, method) => authPort.createHttpAuth(url, method))
       .then((q) => {
         const raw = q as Record<string, unknown>
         const enabled = !!raw.enabled

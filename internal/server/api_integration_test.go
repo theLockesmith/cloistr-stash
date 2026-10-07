@@ -594,14 +594,21 @@ func TestAPI_ShareEndpoints(t *testing.T) {
 func TestAPI_QuotaEndpoint(t *testing.T) {
 	srv, pubkey := setupAPITestServer(t)
 
-	t.Run("Get quota without pubkey fails", func(t *testing.T) {
+	// Unauthenticated callers learn only whether quota is on (see
+	// quota_auth_test.go); with no quota manager that is "disabled".
+	t.Run("Get quota without auth reports disabled only", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/quota", nil)
 		w := httptest.NewRecorder()
 
 		srv.Handler().ServeHTTP(w, req)
 
-		if w.Code != http.StatusBadRequest {
-			t.Errorf("Expected status 400, got %d", w.Code)
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", w.Code)
+		}
+		var response map[string]interface{}
+		_ = json.Unmarshal(w.Body.Bytes(), &response)
+		if response["enabled"] != false || response["used"] != nil {
+			t.Errorf("Expected only enabled:false, got %v", response)
 		}
 	})
 
