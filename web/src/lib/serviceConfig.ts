@@ -22,7 +22,9 @@ export const DISCOVERY_URL: string = config.discoveryUrl
 /**
  * Host that serves blobs by hash (public, unencrypted copies). Stash's own
  * default is blossom.cloistr.xyz; the shared reader's generic default
- * (a third-party Blossom server) is not used.
+ * (a third-party Blossom server) is not used. That is why this one reads
+ * the runtime value directly instead of config.blossomUrl: same priority
+ * order (runtime, then VITE_BLOSSOM_URL, then default), different default.
  */
 export const BLOB_HOST: string =
   runtime.blossomUrl || import.meta.env.VITE_BLOSSOM_URL || 'https://blossom.cloistr.xyz'

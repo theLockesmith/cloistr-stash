@@ -58,6 +58,13 @@ describe('serviceConfig', () => {
   })
 })
 
+describe('a malformed configured value', () => {
+  it('does not stop the login dialog module from loading', async () => {
+    await load({ signerUrl: 'signer.staging.cloistr.xyz' }) // scheme forgotten
+    await expect(import('../components/NIP46Dialog')).resolves.toBeDefined()
+  })
+})
+
 describe('app source', () => {
   // Every production service address must come through serviceConfig, or a
   // staging deployment of this image would quietly talk to production.

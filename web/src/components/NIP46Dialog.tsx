@@ -39,7 +39,15 @@ import { useNostrAuth } from '@cloistr/auth'
 import { useToast } from '@cloistr/ui/components'
 import { SIGNER_URL } from '../lib/serviceConfig'
 
-const SIGNER_HOST = new URL(SIGNER_URL).host
+// Display label only. A malformed configured value must not throw at module
+// load (that would blank the login screen); show it as given instead.
+const SIGNER_HOST = (() => {
+  try {
+    return new URL(SIGNER_URL).host
+  } catch {
+    return SIGNER_URL
+  }
+})()
 
 type NIP46Status =
   | { kind: 'idle' }
