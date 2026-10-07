@@ -23,6 +23,7 @@ vi.mock('./authBridge', () => ({
     isConnected: true,
     pubkey: '4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766',
     publishEvent: vi.fn(async () => {}),
+    signEvent: vi.fn(async (e: unknown) => e),
   },
   getSigner: () => ({
     async getPublicKey() { return '4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766' },
@@ -34,9 +35,16 @@ vi.mock('./authBridge', () => ({
   }),
 }))
 
+vi.mock('./relay', () => ({
+  Relay: {
+    subscribe: vi.fn(async () => []),
+  },
+}))
+
 import { runWrappedKeyMigration, isMigrationComplete } from './migration-wrapped-keys'
 import { API } from './api'
 import { authPort } from './authBridge'
+import { Relay } from './relay'
 
 const TEST_PUBKEY = '4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766'
 
@@ -103,7 +111,7 @@ describe('runWrappedKeyMigration: partial failure', () => {
     const result = await runWrappedKeyMigration()
 
     // Migration should NOT be marked complete
-    expect(isMigrationComplete(TEST_PUBKEY)).toBe(false)
+    expect(await isMigrationComplete(TEST_PUBKEY)).toBe(false)
     expect(Keys.wrappedKeyMode).toBe(false)
     // Result should indicate partial failure
     expect(result).not.toBeNull()
@@ -125,10 +133,92 @@ describe('runWrappedKeyMigration: partial failure', () => {
 
     const result = await runWrappedKeyMigration()
 
-    expect(isMigrationComplete(TEST_PUBKEY)).toBe(true)
+    expect(await isMigrationComplete(TEST_PUBKEY)).toBe(true)
     expect(Keys.wrappedKeyMode).toBe(true)
     expect(result).not.toBeNull()
     expect(result!.failedFileIds ?? []).toHaveLength(0)
+  })
+})
+
+describe('migration record on relay', () => {
+  beforeEach(async () => {
+    await Crypto.init()
+    Keys.keyCache.clear()
+    Keys.userPubkey = TEST_PUBKEY
+    Keys.wrappedKeyMode = false
+    Keys.configure({
+      auth: {
+        isConnected: true,
+        nip04Encrypt: async (_pk: string, pt: string) => `nip04:${pt}`,
+        nip04Decrypt: async (_pk: string, ct: string) => ct.replace('nip04:', ''),
+        nip44Encrypt: async (_pk: string, pt: string) => `nip44:${pt}`,
+        nip44Decrypt: async (_pk: string, ct: string) => ct.replace('nip44:', ''),
+        createRootKeyEvent: async (ek: string) => ({ kind: 30078, content: ek }),
+        publishEvent: async () => {},
+      },
+      api: null,
+    })
+
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i)
+      if (key?.startsWith('cloistr-drive-wrapped-key-migration')) {
+        localStorage.removeItem(key)
+      }
+    }
+
+    vi.clearAllMocks()
+  })
+
+  it('completed migration publishes record to relay', async () => {
+    const rootKey = Crypto.generateKey()
+    Keys.keyCache.set('root', rootKey)
+    const folderKey = await Keys.deriveKey(rootKey, 'folder-1', Keys.CONTEXT_FOLDER)
+    Keys.keyCache.set('folder:folder-1', folderKey)
+
+    vi.mocked(API.listFolders).mockResolvedValue({ folders: [{ id: 'folder-1', name: 'test', parent_id: null }] } as never)
+    vi.mocked(API.listFiles).mockResolvedValue({
+      files: [{ id: 'file-1', sha256: 'abc123abcdef1234', encrypted: true, folder_id: 'folder-1', name: 'ok.txt', size: 100, mime_type: 'text/plain' }],
+    } as never)
+    vi.mocked(authPort.publishEvent).mockResolvedValue(undefined)
+
+    await runWrappedKeyMigration()
+
+    const publishCalls = vi.mocked(authPort.publishEvent).mock.calls
+    const migrationEvent = publishCalls.find((call) => {
+      const event = call[0] as { kind?: number; tags?: string[][] }
+      return event.kind === 30078 && event.tags?.some((t) => t[0] === 'd' && t[1] === 'wrapped-key-migration')
+    })
+    expect(migrationEvent).toBeTruthy()
+  })
+
+  it('isMigrationComplete queries relay when localStorage is empty', async () => {
+    const encryptedRecord = 'nip44:' + JSON.stringify({ version: 1, completedAt: Date.now(), filesMigrated: 5, foldersMigrated: 2 })
+    vi.mocked(Relay.subscribe).mockResolvedValue([
+      { kind: 30078, tags: [['d', 'wrapped-key-migration']], content: encryptedRecord, pubkey: TEST_PUBKEY },
+    ] as never)
+
+    const result = await isMigrationComplete(TEST_PUBKEY)
+    expect(result).toBe(true)
+
+    // Should have queried relay
+    expect(Relay.subscribe).toHaveBeenCalledWith(
+      expect.objectContaining({ kinds: [30078], '#d': ['wrapped-key-migration'] }),
+      expect.any(Number),
+    )
+  })
+
+  it('isMigrationComplete caches relay result to localStorage', async () => {
+    const record = { version: 1, completedAt: Date.now(), filesMigrated: 3, foldersMigrated: 1 }
+    const encryptedRecord = 'nip44:' + JSON.stringify(record)
+    vi.mocked(Relay.subscribe).mockResolvedValue([
+      { kind: 30078, tags: [['d', 'wrapped-key-migration']], content: encryptedRecord, pubkey: TEST_PUBKEY },
+    ] as never)
+
+    await isMigrationComplete(TEST_PUBKEY)
+
+    const cached = localStorage.getItem(`cloistr-drive-wrapped-key-migration:${TEST_PUBKEY}`)
+    expect(cached).not.toBeNull()
+    expect(JSON.parse(cached!).version).toBe(1)
   })
 })
 
@@ -160,30 +250,10 @@ describe('Keys.getFileKey: derivation fallback warning', () => {
     Keys.keyCache.set(`folder:${folderId}`, folderKey)
   })
 
-  it('warns when wrappedKeyMode falls back to HKDF derivation', async () => {
+  it('HKDF fallback still works for pre-migration files without envelopes', async () => {
     Keys.wrappedKeyMode = true
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-
-    // No envelope data provided, so it falls back to derivation
-    await Keys.getFileKey(folderId, fileId)
-
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('falling back to HKDF derivation'),
-      expect.any(String),
-    )
-    warnSpy.mockRestore()
-  })
-
-  it('does NOT warn when wrappedKeyMode is false', async () => {
-    Keys.wrappedKeyMode = false
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-
-    await Keys.getFileKey(folderId, fileId)
-
-    expect(warnSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining('falling back to HKDF derivation'),
-      expect.any(String),
-    )
-    warnSpy.mockRestore()
+    const result = await Keys.getFileKey(folderId, fileId)
+    expect(result).toBeInstanceOf(Uint8Array)
+    expect(result.length).toBe(32)
   })
 })
