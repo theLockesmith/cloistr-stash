@@ -147,18 +147,3 @@ func TestRequireWhitelistRefusesReplay(t *testing.T) {
 		t.Fatalf("nip98: want handler reached as %s, got %q (status %d)", pk[:8], ctxPubkey, w.Code)
 	}
 }
-
-func TestVerifiedPubkeyFromHeader(t *testing.T) {
-	sk := nostr.GeneratePrivateKey()
-	pk, _ := nostr.GetPublicKey(sk)
-	ev := signed(t, sk, 24242, time.Now(), blossomTags("upload", "", time.Now().Add(time.Minute)))
-	if got := VerifiedPubkeyFromHeader(header(t, ev)); got != pk {
-		t.Fatalf("valid signature: want %s got %q", pk[:8], got)
-	}
-	// Unsigned claim of someone else's pubkey (the old quota path trusted this).
-	forged := *ev
-	forged.PubKey = "f" + pk[1:]
-	if got := VerifiedPubkeyFromHeader(header(t, &forged)); got != "" {
-		t.Fatalf("forged pubkey accepted: %q", got)
-	}
-}

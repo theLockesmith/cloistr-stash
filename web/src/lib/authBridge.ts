@@ -132,6 +132,21 @@ const authPort = {
     })
     return `Nostr ${btoa(JSON.stringify(signed))}`
   },
+
+  // NIP-98 HTTP auth (kind 27235) for one request: u = absolute URL, method.
+  // The server accepts it within 60s of created_at, for that URL+method only.
+  async createHttpAuth(url: string, method: string): Promise<string> {
+    const signed = await requireSigner().signEvent({
+      kind: 27235,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ['u', url],
+        ['method', method],
+      ],
+      content: '',
+    })
+    return `Nostr ${btoa(JSON.stringify(signed))}`
+  },
 }
 
 export type AuthPortImpl = typeof authPort

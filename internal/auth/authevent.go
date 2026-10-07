@@ -111,18 +111,6 @@ func ValidateAuthHeader(r *http.Request, header string, now time.Time) (string, 
 	return "", ErrAuthKind
 }
 
-// VerifiedPubkeyFromHeader returns the pubkey of a `Nostr <base64-event>`
-// header only if the event's signature verifies, else "". It checks nothing
-// else, so use it only where the pubkey selects data the caller may already
-// read (GET /api/quota); routes that ACT must use ValidateAuthHeader.
-func VerifiedPubkeyFromHeader(header string) string {
-	ev, err := decodeAuthEvent(header)
-	if err != nil || !verified(ev) {
-		return ""
-	}
-	return ev.PubKey
-}
-
 // blobOperation maps the request to its Blossom operation: ("upload", "") for
 // POST /api/files, ("delete", sha256) for DELETE /api/files/{sha256}, else "".
 func blobOperation(r *http.Request) (op, sha string) {
