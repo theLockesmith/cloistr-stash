@@ -10,6 +10,11 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Service addresses written by the server at start (no-store). A plain
+         script, not a fetch: modules read it at import, so it must run first.
+         In the Vite dev server it is proxied to the Go server, or 404s and
+         the app falls back to production defaults. -->
+    <script src="/config.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

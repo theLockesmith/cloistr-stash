@@ -35,6 +35,9 @@ export default defineConfig({
       includeAssets: ['favicon.svg', 'favicon.ico', 'apple-touch-icon.png'],
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        // /config.js is per-environment and served no-store by the Go server;
+        // a precached copy would pin one environment's addresses forever.
+        globIgnores: ['config.js'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallback: '/index.html',
       },
@@ -70,6 +73,7 @@ export default defineConfig({
       '/api': proxyEntry,
       '/public': proxyEntry,
       '/health': proxyEntry,
+      '/config.js': proxyEntry,
     },
   },
   build: {

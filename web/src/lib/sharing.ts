@@ -514,7 +514,7 @@ export const Sharing = {
     const keyBase64url = Crypto.bytesToBase64url(fileKey)
 
     // Build the public link URL
-    // Format: https://stash.cloistr.xyz/public/{sha256}#{key}
+    // Format: {origin}/public/{sha256}#{key}
     const publicUrl = `${baseUrl}/public/${file.sha256}#${keyBase64url}`
 
     // Optionally create a share record for tracking/expiration

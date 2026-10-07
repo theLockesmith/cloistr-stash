@@ -19,6 +19,7 @@ import {
   PUBLISH_TIMEOUT_MS,
 } from '@cloistr/collab-common/core'
 import type { SignedEvent } from './api'
+import { RELAY_URL } from './serviceConfig'
 
 // Re-export so the data-layer modules can source both event types from './relay'.
 export type { SignedEvent } from './api'
@@ -52,7 +53,7 @@ interface PendingSubscription {
 }
 
 export const Relay = {
-  defaultUrl: 'wss://relay.cloistr.xyz',
+  defaultUrl: RELAY_URL,
 
   socket: null as WebSocket | null,
   url: null as string | null,
