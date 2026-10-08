@@ -3,7 +3,7 @@ module git.aegis-hq.xyz/coldforge/cloistr-stash
 go 1.26.6
 
 require (
-	git.aegis-hq.xyz/coldforge/cloistr-common v0.3.2
+	git.aegis-hq.xyz/coldforge/cloistr-common v0.4.0
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.12.3
 	github.com/nbd-wtf/go-nostr v0.52.3

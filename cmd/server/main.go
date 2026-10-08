@@ -80,7 +80,13 @@ func main() {
 
 	// Initialize relay preferences client for user-preferred relay publishing
 	// Reads config from environment variables: DISCOVERY_INTERNAL, RELAY_LIST, etc.
-	relayPrefsClient := relayprefs.NewClientFromEnv()
+	// USE_CLOISTR_FALLBACK is required; when true, so are RELAYPREFS_CLOISTR_DISCOVERY
+	// and RELAYPREFS_CLOISTR_RELAY. The error names the missing variable.
+	relayPrefsClient, err := relayprefs.NewClientFromEnv()
+	if err != nil {
+		logger.Error("invalid relay preferences configuration", "error", err)
+		os.Exit(1)
+	}
 	if err := relayPrefsClient.Validate(); err != nil {
 		logger.Warn("relay preferences not fully configured", "error", err)
 	} else {
