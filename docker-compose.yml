@@ -14,6 +14,7 @@ services:
       DRIVE_PUBLIC_URL: "https://drive.cloistr.xyz"
       DRIVE_BLOSSOM_URL: "https://blossom.cloistr.xyz"
       DRIVE_RELAY_URL: "wss://relay.cloistr.xyz"
+      USE_CLOISTR_FALLBACK: "false"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
