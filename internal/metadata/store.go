@@ -3,6 +3,7 @@ package metadata
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -41,9 +42,9 @@ type Store struct {
 	cache map[string][]*FileMetadata
 
 	// Connection management
-	connMu      sync.Mutex
-	baseCtx     context.Context
-	cancelFunc  context.CancelFunc
+	connMu     sync.Mutex
+	baseCtx    context.Context
+	cancelFunc context.CancelFunc
 
 	// Connection health tracking
 	consecutiveFailures int
@@ -279,10 +280,10 @@ func CreateFileEvent(file *FileMetadata) *nostr.Event {
 		PubKey:    file.Pubkey,
 		CreatedAt: nostr.Timestamp(file.CreatedAt.Unix()),
 		Tags: nostr.Tags{
-			{"d", file.Identifier},           // Parameterized replaceable event identifier
-			{"x", file.SHA256},               // File hash
-			{"url", file.URL},                // Blossom URL
-			{"m", file.MimeType},             // MIME type
+			{"d", file.Identifier},                 // Parameterized replaceable event identifier
+			{"x", file.SHA256},                     // File hash
+			{"url", file.URL},                      // Blossom URL
+			{"m", file.MimeType},                   // MIME type
 			{"size", fmt.Sprintf("%d", file.Size)}, // File size
 		},
 		Content: string(content),
@@ -1049,6 +1050,47 @@ func (s *Store) CalculateStorageUsage(ctx context.Context, pubkey string) (int64
 	return totalSize, nil
 }
 
+// ErrRelayNoAnswer means the relay did not finish answering a query (timeout,
+// CLOSED, or dropped connection). It is never the same as "no events".
+var ErrRelayNoAnswer = errors.New("relay did not answer")
+
+// queryUntilEOSE returns the stored events matching filter, or an error unless
+// the relay positively ended the stored set with EOSE.
+func (s *Store) queryUntilEOSE(ctx context.Context, filter nostr.Filter) ([]*nostr.Event, error) {
+	sub, err := s.relay.Subscribe(ctx, nostr.Filters{filter})
+	if err != nil {
+		return nil, err
+	}
+	defer sub.Unsub()
+
+	var events []*nostr.Event
+	for {
+		select {
+		case ev, ok := <-sub.Events:
+			if !ok {
+				return nil, fmt.Errorf("%w: subscription ended before EOSE", ErrRelayNoAnswer)
+			}
+			events = append(events, ev)
+		case <-sub.EndOfStoredEvents:
+			for {
+				select {
+				case ev, ok := <-sub.Events:
+					if ok {
+						events = append(events, ev)
+						continue
+					}
+				default:
+				}
+				return events, nil
+			}
+		case reason := <-sub.ClosedReason:
+			return nil, fmt.Errorf("%w: CLOSED: %s", ErrRelayNoAnswer, reason)
+		case <-ctx.Done():
+			return nil, fmt.Errorf("%w: %v", ErrRelayNoAnswer, ctx.Err())
+		}
+	}
+}
+
 // GetRootKey retrieves the encrypted root key event for a user
 // The root key is stored as a kind 30078 event with d='root-key'
 func (s *Store) GetRootKey(ctx context.Context, pubkey string) (string, error) {
@@ -1066,13 +1108,17 @@ func (s *Store) GetRootKey(ctx context.Context, pubkey string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	events, err := s.relay.QuerySync(ctx, filter)
+	// "" with a nil error tells the client this user has NO root key, and the
+	// client then generates and publishes a new one, replacing the real key.
+	// So only a completed answer (EOSE) may mean "none"; QuerySync cannot be
+	// used here because it returns no events and no error on a timeout.
+	events, err := s.queryUntilEOSE(ctx, filter)
 	if err != nil {
 		return "", fmt.Errorf("failed to query root key event: %w", err)
 	}
 
 	if len(events) == 0 {
-		return "", nil // No root key stored yet
+		return "", nil // The relay answered: no root key stored yet
 	}
 
 	// Get the most recent event

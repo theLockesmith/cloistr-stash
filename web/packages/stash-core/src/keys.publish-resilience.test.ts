@@ -15,7 +15,7 @@ function makeAuthStub(overrides: Partial<AuthPort> = {}): AuthPort {
   return {
     isConnected: true,
     nip04Encrypt: async (_pk: string, pt: string) => `enc:${pt}`,
-    nip04Decrypt: async (_pk: string, ct: string) => ct.replace('enc:', ''),
+    nip04Decrypt: async (_pk: string, ct: string) => ct.replace('enc:', '').replace(/\?iv=.*$/, ''),
     createRootKeyEvent: async (ek: string) => ({ kind: 30078, content: ek }),
     publishEvent: async () => {},
     ...overrides,
@@ -41,7 +41,9 @@ beforeEach(() => {
   Keys._localOnlyListeners.clear()
   Keys.userPubkey = 'aa'.repeat(32)
   Keys.nip44Writes = false
-  Keys.api = null
+  Keys.rootKeyConflict = false
+  // The relay answered: this user has no root key yet (a completed answer).
+  Keys.api = { getKeyring: async () => ({}) }
   stubStorage()
   // Stub Crypto.generateKey so generateRootKey tests don't need libsodium.
   ;(Crypto as Record<string, unknown>).generateKey = () => {
@@ -176,7 +178,7 @@ describe('restoreRootKeyFromNostr (migration path)', () => {
     Keys.rootKeyLocalOnly = true
     Keys.configure({
       auth: makeAuthStub(),
-      api: { getKeyring: async () => ({ encrypted_root_key: 'enc:bb'.repeat(16) }) },
+      api: { getKeyring: async () => ({ encrypted_root_key: `enc:${'bb'.repeat(32)}?iv=x` }) },
     })
 
     await Keys.restoreRootKeyFromNostr()
