@@ -134,18 +134,10 @@ describe('Keys: refuse-to-overwrite with FileKeyStorage', () => {
     expect(Crypto.bytesToHex(loaded!)).toBe(Crypto.bytesToHex(owned))
   })
 
-  it('rekey() still works (deliberate replacement)', async () => {
-    const root = Crypto.generateKey()
-    await Keys.storeEncryptedKey('root', root, null)
-    Keys.keyCache.set('root', root)
-    const folder = Crypto.generateKey()
-    await Keys.storeEncryptedKey('folder:f3', folder, 'f3')
-    Keys.keyCache.set('folder:f3', folder)
-
-    const { rootKey } = await Keys.rekey()
-    Keys.keyCache.clear()
-    const loaded = await Keys.loadEncryptedKey('root')
-    expect(Crypto.bytesToHex(loaded!)).toBe(Crypto.bytesToHex(rootKey))
+  // rekey() replaced the root key locally and never published it (no callers).
+  // Removed 2026-10-09: a root key must never change without the relay check.
+  it('has no whole-root rekey', () => {
+    expect('rekey' in Keys).toBe(false)
   })
 })
 

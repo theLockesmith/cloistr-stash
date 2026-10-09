@@ -150,6 +150,9 @@ export const Keys = {
   // True when this device's root key differs from the one on the relay. Neither
   // is overwritten; the UI should tell the user.
   rootKeyConflict: false as boolean,
+  // One first-time root key resolution at a time: concurrent getRootKey calls
+  // on a new device must not each generate (and store) a different key.
+  _rootKeyInFlight: null as Promise<Uint8Array> | null,
   // The error message from the most recent publish failure, or null when the
   // last attempt succeeded. Shown to the user so they can distinguish "relay
   // down" from "auth-required" from "rate limit" without opening devtools.
@@ -405,7 +408,12 @@ export const Keys = {
     }
     // No local key: generateRootKey adopts the relay copy, creates one only on
     // a completed "none", and throws RootKeyUnavailableError otherwise.
-    return this.generateRootKey()
+    if (!this._rootKeyInFlight) {
+      this._rootKeyInFlight = this.generateRootKey().finally(() => {
+        this._rootKeyInFlight = null
+      })
+    }
+    return this._rootKeyInFlight
   },
 
   async generateFolderKey(folderId: string): Promise<Uint8Array> {
@@ -952,6 +960,7 @@ export const Keys = {
     this.unverifiedFolders.clear()
     this.rootKeyRelayAnswer = null
     this.rootKeyConflict = false
+    this._rootKeyInFlight = null
     this.userPubkey = null
     this.wrappedKeyMode = false
     console.log('Keys: Cache cleared')
@@ -983,31 +992,6 @@ export const Keys = {
       }
       request.onerror = () => reject(request.error)
     })
-  },
-
-  // Re-encrypt all keys after revocation (new root key)
-  async rekey(): Promise<{ rootKey: Uint8Array; rekeyedFolders: number }> {
-    console.log('Keys: Starting full re-key operation...')
-    const newRootKey = Crypto.generateKey()
-
-    const folderKeys: string[] = []
-    for (const [keyId] of this.keyCache) {
-      if (keyId.startsWith('folder:')) {
-        folderKeys.push(keyId.replace('folder:', ''))
-      }
-    }
-
-    for (const folderId of folderKeys) {
-      const newFolderKey = Crypto.generateKey()
-      this.keyCache.set(`folder:${folderId}`, newFolderKey)
-      await this.storeEncryptedKey(`folder:${folderId}`, newFolderKey, folderId, { replace: true })
-    }
-
-    this.keyCache.set('root', newRootKey)
-    await this.storeEncryptedKey('root', newRootKey, null, { replace: true })
-
-    console.log('Keys: Re-key complete')
-    return { rootKey: newRootKey, rekeyedFolders: folderKeys.length }
   },
 
   async hasFolderKey(folderId: string): Promise<boolean> {

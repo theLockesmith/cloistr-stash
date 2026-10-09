@@ -1079,6 +1079,8 @@ func (s *Store) queryUntilEOSE(ctx context.Context, filter nostr.Filter) ([]*nos
 						events = append(events, ev)
 						continue
 					}
+				case <-ctx.Done():
+					return nil, fmt.Errorf("%w: %v", ErrRelayNoAnswer, ctx.Err())
 				default:
 				}
 				return events, nil

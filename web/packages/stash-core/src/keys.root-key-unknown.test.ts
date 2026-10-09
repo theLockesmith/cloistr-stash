@@ -96,6 +96,15 @@ describe('a new device with no local root key', () => {
     expect(publishEvent).toHaveBeenCalledOnce()
   })
 
+  it('concurrent first loads on a new device generate ONE key, not one each', async () => {
+    relayHasNone()
+    const [a, b, c] = await Promise.all([Keys.getRootKey(), Keys.getRootKey(), Keys.getFolderKey('f-1')])
+    expect(hex(a)).toBe(hex(b))
+    expect(publishEvent).toHaveBeenCalledOnce()
+    expect(hex(c)).toBe(hex(await Keys.deriveKey(a, 'f-1', Keys.CONTEXT_FOLDER)))
+    expect(Keys.rootKeyConflict).toBe(false)
+  })
+
   it('an answer that arrives after an account switch is not used for the new account', async () => {
     getKeyring.mockImplementation(async () => {
       Keys.userPubkey = OTHER
