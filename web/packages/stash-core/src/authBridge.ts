@@ -174,12 +174,22 @@ export async function updateAuth(signer: Signer | null, state: AuthSnapshot): Pr
   await Crypto.init()
 
   const wasConnected = currentState.isConnected && !!currentSigner
+  const previousPubkey = currentState.pubkey
+  const previousSigner = currentSigner
   currentSigner = signer
   currentState = state
   wireOnce()
 
   const isConnected = state.isConnected && !!signer
-  if (isConnected && state.pubkey && !wasConnected) {
+  // The shared Header can switch account (or signer) with no sign-out in
+  // between. Everything loaded is keyed on pubkey+signer, so a switch is a
+  // sign-out followed by a sign-in: drop the old account's keys and answers.
+  const switched = wasConnected && isConnected && (state.pubkey !== previousPubkey || signer !== previousSigner)
+  if (switched) {
+    Keys.clearCache()
+    Relay.disconnect()
+  }
+  if (isConnected && state.pubkey && (!wasConnected || switched)) {
     await Keys.init(state.pubkey)
     // Trigger wrapped-key migration after keys are initialized (best-effort, non-blocking).
     import('./migration-wrapped-keys').then(({ runWrappedKeyMigration }) =>

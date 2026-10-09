@@ -71,6 +71,19 @@ function parentsFirst<T extends { id: string; parent_id?: string }>(folders: T[]
   return folders.map((f) => ({ f, d: depth(f) })).sort((a, b) => a.d - b.d).map((x) => x.f)
 }
 
+/**
+ * Thrown when this device has no root key and the relay did not positively
+ * answer whether one exists. A new root key is only ever created after the
+ * relay said "none"; on a timeout or error creating one would replace the
+ * user's real key and orphan everything derived from it.
+ */
+export class RootKeyUnavailableError extends Error {
+  constructor(detail: string) {
+    super(`Could not load your encryption key from the relay (${detail}). Nothing was changed; try again.`)
+    this.name = 'RootKeyUnavailableError'
+  }
+}
+
 /** Minimal Nostr signer/relay surface this module needs (provided by the auth layer). */
 export interface AuthPort {
   readonly isConnected: boolean
@@ -131,6 +144,15 @@ export const Keys = {
   // encrypted under it are unrecoverable from any other device. The UI should
   // surface this as a persistent warning and offer a retry.
   rootKeyLocalOnly: false as boolean,
+  // The relay's last COMPLETED answer about this user's root key ('encrypted'
+  // is null when the relay answered "none"). Null when it has not answered.
+  rootKeyRelayAnswer: null as { pubkey: string; encrypted: string | null } | null,
+  // True when this device's root key differs from the one on the relay. Neither
+  // is overwritten; the UI should tell the user.
+  rootKeyConflict: false as boolean,
+  // One first-time root key resolution at a time: concurrent getRootKey calls
+  // on a new device must not each generate (and store) a different key.
+  _rootKeyInFlight: null as Promise<Uint8Array> | null,
   // The error message from the most recent publish failure, or null when the
   // last attempt succeeded. Shown to the user so they can distinguish "relay
   // down" from "auth-required" from "rate limit" without opening devtools.
@@ -177,7 +199,40 @@ export const Keys = {
     console.log('Keys: Initialized for', pubkey.slice(0, 8) + '...')
   },
 
-  // Sync root key between local storage and Nostr for cross-device persistence
+  /**
+   * Ask the server (which asks the relay) for this user's root-key event. Throws
+   * RootKeyUnavailableError unless the answer is complete: the server returns
+   * an error, never "none", when the relay times out or refuses.
+   */
+  async fetchRootKeyAnswer(): Promise<{ encrypted: string | null }> {
+    const pubkey = this.userPubkey
+    if (!pubkey) throw new RootKeyUnavailableError('not signed in')
+    if (!this.api) throw new RootKeyUnavailableError('no keyring service')
+    let res: { encrypted_root_key?: string } | null
+    try {
+      res = await this.api.getKeyring(pubkey)
+    } catch (err) {
+      throw new RootKeyUnavailableError((err as Error).message)
+    }
+    if (!res || typeof res !== 'object') throw new RootKeyUnavailableError('empty keyring response')
+    // A sign-in switch while we waited: this answer is not about the current user.
+    if (this.userPubkey !== pubkey) throw new RootKeyUnavailableError('account changed')
+    const answer = { encrypted: res.encrypted_root_key || null }
+    this.rootKeyRelayAnswer = { pubkey, ...answer }
+    return answer
+  },
+
+  /** Decrypt the relay copy, save it locally and cache it. */
+  async adoptRelayRootKey(encrypted: string): Promise<Uint8Array> {
+    const rootKey = Crypto.hexToBytes(await this.selfDecrypt(this.userPubkey!, encrypted))
+    await this.storeEncryptedKey('root', rootKey, null, { replace: true })
+    this.keyCache.set('root', rootKey)
+    this._setRootKeyLocalOnly(false)
+    return rootKey
+  },
+
+  // Sync root key between local storage and Nostr for cross-device persistence.
+  // Nothing is published or generated unless the relay completed its answer.
   async restoreRootKeyFromNostr(): Promise<void> {
     if (!this.userPubkey) return
     if (!this.auth || !this.auth.isConnected) {
@@ -187,19 +242,34 @@ export const Keys = {
 
     try {
       const localKey = await this.loadEncryptedKey('root')
-      const nostrResult = this.api ? await this.api.getKeyring(this.userPubkey) : null
-      const hasNostrKey = !!(nostrResult && nostrResult.encrypted_root_key)
+      if (localKey) this.keyCache.set('root', localKey)
 
-      if (localKey && hasNostrKey) {
+      let answer: { encrypted: string | null }
+      try {
+        answer = await this.fetchRootKeyAnswer()
+      } catch (err) {
+        console.warn('Keys: Root key status unknown (relay did not answer); changing nothing:', (err as Error).message)
+        return
+      }
+
+      if (localKey && answer.encrypted) {
+        const relayKey = Crypto.hexToBytes(await this.selfDecrypt(this.userPubkey, answer.encrypted))
+        if (Crypto.bytesToHex(relayKey) !== Crypto.bytesToHex(localKey)) {
+          // Never overwrite either copy: files may exist under both.
+          console.error('Keys: This device\'s root key differs from the relay copy; neither was changed')
+          this.rootKeyConflict = true
+          // Surface it through the existing root-key warning banner.
+          this.lastPublishError = 'this device\'s root key differs from the one on the relay; neither was replaced'
+          this._setRootKeyLocalOnly(true)
+          return
+        }
         console.log('Keys: Root key present locally and in Nostr')
-        this.keyCache.set('root', localKey)
         this._setRootKeyLocalOnly(false)
         return
       }
 
-      if (localKey && !hasNostrKey) {
-        console.log('Keys: Migrating local root key to Nostr...')
-        this.keyCache.set('root', localKey)
+      if (localKey) {
+        console.log('Keys: Relay has no root key; publishing this device\'s key...')
         const published = await this.publishRootKeyToNostr(localKey)
         if (!published) {
           console.warn('Keys: Migration publish failed. Root key is local-only.')
@@ -207,14 +277,10 @@ export const Keys = {
         return
       }
 
-      if (!localKey && hasNostrKey) {
+      if (answer.encrypted) {
         console.log('Keys: Restoring root key from Nostr...')
-        const keyHex = await this.selfDecrypt(this.userPubkey, nostrResult!.encrypted_root_key!)
-        const rootKey = Crypto.hexToBytes(keyHex)
-        await this.storeEncryptedKey('root', rootKey, null)
-        this.keyCache.set('root', rootKey)
+        await this.adoptRelayRootKey(answer.encrypted)
         console.log('Keys: Restored root key from Nostr')
-        this._setRootKeyLocalOnly(false)
         return
       }
 
@@ -229,9 +295,16 @@ export const Keys = {
   },
 
   // Generate the root key for a user. Master key from which all others derive.
+  // Only after a fresh, COMPLETED relay answer of "none": if the relay has a
+  // key we adopt it, and if it does not answer we throw rather than guess.
   async generateRootKey(): Promise<Uint8Array> {
     if (!this.userPubkey) {
       throw new Error('User not initialized')
+    }
+    const answer = await this.fetchRootKeyAnswer()
+    if (answer.encrypted) {
+      console.log('Keys: Relay already has a root key; using it instead of generating one')
+      return this.adoptRelayRootKey(answer.encrypted)
     }
     const rootKey = Crypto.generateKey()
     await this.storeEncryptedKey('root', rootKey, null)
@@ -281,6 +354,20 @@ export const Keys = {
       return false
     }
     try {
+      // The root-key event is replaceable: publishing over a different key the
+      // relay holds would orphan everything under it. Check first; an
+      // unanswered check refuses (the key stays local-only, retry later).
+      const answer = await this.fetchRootKeyAnswer()
+      if (answer.encrypted) {
+        const relayKey = Crypto.hexToBytes(await this.selfDecrypt(this.userPubkey!, answer.encrypted))
+        if (Crypto.bytesToHex(relayKey) === Crypto.bytesToHex(rootKey)) {
+          this.lastPublishError = null
+          this._setRootKeyLocalOnly(false)
+          return true
+        }
+        this.rootKeyConflict = true
+        throw new Error('the relay already holds a different root key; not replacing it')
+      }
       const keyHex = Crypto.bytesToHex(rootKey)
       const encryptedKey = await this.selfEncrypt(this.userPubkey!, keyHex)
       const signedEvent = await this.auth.createRootKeyEvent(encryptedKey)
@@ -319,7 +406,14 @@ export const Keys = {
       this.keyCache.set('root', stored)
       return stored
     }
-    return this.generateRootKey()
+    // No local key: generateRootKey adopts the relay copy, creates one only on
+    // a completed "none", and throws RootKeyUnavailableError otherwise.
+    if (!this._rootKeyInFlight) {
+      this._rootKeyInFlight = this.generateRootKey().finally(() => {
+        this._rootKeyInFlight = null
+      })
+    }
+    return this._rootKeyInFlight
   },
 
   async generateFolderKey(folderId: string): Promise<Uint8Array> {
@@ -864,6 +958,9 @@ export const Keys = {
     }
     this.keyCache.clear()
     this.unverifiedFolders.clear()
+    this.rootKeyRelayAnswer = null
+    this.rootKeyConflict = false
+    this._rootKeyInFlight = null
     this.userPubkey = null
     this.wrappedKeyMode = false
     console.log('Keys: Cache cleared')
@@ -895,31 +992,6 @@ export const Keys = {
       }
       request.onerror = () => reject(request.error)
     })
-  },
-
-  // Re-encrypt all keys after revocation (new root key)
-  async rekey(): Promise<{ rootKey: Uint8Array; rekeyedFolders: number }> {
-    console.log('Keys: Starting full re-key operation...')
-    const newRootKey = Crypto.generateKey()
-
-    const folderKeys: string[] = []
-    for (const [keyId] of this.keyCache) {
-      if (keyId.startsWith('folder:')) {
-        folderKeys.push(keyId.replace('folder:', ''))
-      }
-    }
-
-    for (const folderId of folderKeys) {
-      const newFolderKey = Crypto.generateKey()
-      this.keyCache.set(`folder:${folderId}`, newFolderKey)
-      await this.storeEncryptedKey(`folder:${folderId}`, newFolderKey, folderId, { replace: true })
-    }
-
-    this.keyCache.set('root', newRootKey)
-    await this.storeEncryptedKey('root', newRootKey, null, { replace: true })
-
-    console.log('Keys: Re-key complete')
-    return { rootKey: newRootKey, rekeyedFolders: folderKeys.length }
   },
 
   async hasFolderKey(folderId: string): Promise<boolean> {
