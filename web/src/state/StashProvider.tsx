@@ -21,6 +21,7 @@ import { Keys } from '@cloistr/stash-core/keys'
 import { Crypto } from '@cloistr/stash-core/crypto'
 import { Events } from '@cloistr/stash-core/events'
 import { authPort } from '@cloistr/stash-core/authBridge'
+import { EventUnavailableError } from '@cloistr/stash-core/editEvent'
 import {
   delay,
   deleteFolders,
@@ -178,6 +179,11 @@ export interface StashContextValue {
 }
 
 export const StashContext = createContext<StashContextValue | null>(null)
+
+/** An edit that could not load the current record changed nothing; say so, so the user knows a retry is safe. */
+function editFailure(err: unknown, fallback: string): string {
+  return err instanceof EventUnavailableError ? err.message : fallback
+}
 
 /**
  * Check own folder keys against their relay copies on every load: restores
@@ -509,7 +515,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
         await reloadCurrentView()
       } catch (err) {
         console.error('deleteFile failed', err)
-        setError('Failed to delete file')
+        setError(editFailure(err, 'Failed to delete file'))
       } finally {
         setLoading(false)
       }
@@ -557,7 +563,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       await Promise.all([reloadCurrentView(), loadFolderTree()])
     } catch (err) {
       console.error('deleteSelected failed', err)
-      setError('Failed to delete selection')
+      setError(editFailure(err, 'Failed to delete selection'))
     } finally {
       setLoading(false)
     }
@@ -586,7 +592,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
         await reloadCurrentView()
       } catch (err) {
         console.error('moveSelected failed', err)
-        setError('Failed to move selection')
+        setError(editFailure(err, 'Failed to move selection'))
       } finally {
         setLoading(false)
       }
@@ -603,7 +609,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
         await loadSpecialView('trash')
       } catch (err) {
         console.error('restoreFile failed', err)
-        setError('Failed to restore file')
+        setError(editFailure(err, 'Failed to restore file'))
       } finally {
         setLoading(false)
       }
@@ -658,7 +664,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
         await reloadCurrentView()
       } catch (err) {
         console.error('renameFile failed', err)
-        setError('Failed to rename file')
+        setError(editFailure(err, 'Failed to rename file'))
       }
     },
     [reloadCurrentView],
@@ -672,7 +678,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
         await Promise.all([reloadCurrentView(), loadFolderTree()])
       } catch (err) {
         console.error('renameFolder failed', err)
-        setError('Failed to rename folder')
+        setError(editFailure(err, 'Failed to rename folder'))
       }
     },
     [reloadCurrentView, loadFolderTree],
@@ -686,7 +692,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
         await reloadCurrentView()
       } catch (err) {
         console.error('moveFile failed', err)
-        setError('Failed to move file')
+        setError(editFailure(err, 'Failed to move file'))
       }
     },
     [reloadCurrentView],
@@ -718,7 +724,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
         await reloadCurrentView()
       } catch (err) {
         console.error('setFileTags failed', err)
-        setError('Failed to update tags')
+        setError(editFailure(err, 'Failed to update tags'))
       }
     },
     [reloadCurrentView],

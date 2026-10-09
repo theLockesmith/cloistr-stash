@@ -12,6 +12,7 @@ import { Crypto } from './crypto'
 import { API } from './api'
 import { Events } from './events'
 import { Relay } from './relay'
+import { editOwnEvent, loadOwnEvent, setTag } from './editEvent'
 import { authPort, getSigner } from './authBridge'
 import type { StashFile, StashFolder } from './types'
 
@@ -51,26 +52,28 @@ function getLocalMigrationRecord(pubkey: string): MigrationRecord | null {
   }
 }
 
+/**
+ * The relay's migration record, or null ONLY when the relay answered that
+ * there is none. A timeout or an unreadable record throws: treating either as
+ * "not migrated" re-ran the migration on sign-in (found 2026-10-09).
+ */
 async function getRelayMigrationRecord(pubkey: string): Promise<MigrationRecord | null> {
-  try {
-    const events = await Relay.subscribe(
-      { kinds: [30078], authors: [pubkey], '#d': [MIGRATION_D_TAG], limit: 1 },
-      10_000,
-    )
-    if (events.length === 0) return null
+  // Relay.subscribe rejects on a timeout; [] only after EOSE.
+  const events = await Relay.subscribe(
+    { kinds: [30078], authors: [pubkey], '#d': [MIGRATION_D_TAG], limit: 1 },
+    10_000,
+  )
+  if (events.length === 0) return null
 
-    const event = events[0] as { content?: string; pubkey?: string }
-    if (!event.content) return null
+  const event = events[0] as { content?: string; pubkey?: string }
+  if (!event.content) throw new Error('migration record has no content')
 
-    const decrypted = await Keys.selfDecrypt(pubkey, event.content)
-    const record = JSON.parse(decrypted) as MigrationRecord
+  const decrypted = await Keys.selfDecrypt(pubkey, event.content)
+  const record = JSON.parse(decrypted) as MigrationRecord
 
-    // Cache to localStorage for fast access next time
-    localCache()?.setItem(migrationKey(pubkey), JSON.stringify(record))
-    return record
-  } catch {
-    return null
-  }
+  // Cache to localStorage for fast access next time
+  localCache()?.setItem(migrationKey(pubkey), JSON.stringify(record))
+  return record
 }
 
 async function saveMigrationRecord(pubkey: string, record: MigrationRecord): Promise<void> {
@@ -98,10 +101,27 @@ export async function isMigrationComplete(pubkey: string): Promise<boolean> {
   return relay !== null && relay.version >= MIGRATION_VERSION
 }
 
+/** Add owner_key to a file's CURRENT event; an existing owner_key is never replaced. */
+async function addOwnerKey(fileId: string, ownerEnvelope: string): Promise<void> {
+  await editOwnEvent(30078, fileId, (draft) => {
+    if (draft.tags.some((t) => t[0] === 'owner_key' && !!t[1])) return false
+    setTag(draft, 'owner_key', ownerEnvelope)
+  })
+}
+
 export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> {
   if (!authPort.isConnected || !authPort.pubkey) return null
   const pubkey = authPort.pubkey!
-  if (await isMigrationComplete(pubkey)) {
+  let complete: boolean
+  try {
+    complete = await isMigrationComplete(pubkey)
+  } catch (err) {
+    // Unknown is not "not migrated": running again would rewrite folder and
+    // file events. Leave everything as it is and try on the next sign-in.
+    console.warn('WrappedKeyMigration: status unknown (relay did not answer); not running:', (err as Error).message)
+    return null
+  }
+  if (complete) {
     Keys.wrappedKeyMode = true
     return null
   }
@@ -144,7 +164,17 @@ export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> 
       continue
     }
 
-    const folderKey = await Keys.resolveOwnFolderKey(folder.id, folder.encrypted_key, folder.parent_id ?? null)
+    // The folder event must load before anything in it is touched: its wk tags
+    // are merged into, never rebuilt from the list row.
+    let folderKey: Uint8Array
+    try {
+      await loadOwnEvent(30079, folder.id)
+      folderKey = await Keys.resolveOwnFolderKey(folder.id, folder.encrypted_key, folder.parent_id ?? null)
+    } catch (err) {
+      console.warn('WrappedKeyMigration: skipping folder', folder.id, '-', (err as Error).message)
+      for (const file of folderFiles) failedFileIds.push((file.id ?? file.file_id ?? file.fileId ?? file.d) as string)
+      continue
+    }
     const wrappedKeys: Array<{ subject: string; envelope: string }> = []
 
     for (const file of folderFiles) {
@@ -163,20 +193,7 @@ export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> 
         // Wrap to the owner (asymmetric) and re-publish the file event
         const ownerEnvelope = await Keys.wrapFileKeyForOwner(fileKey, fileId, signer)
 
-        const metaEvent = await Events.createEncryptedFileMetadataEvent({
-          fileId,
-          sha256: file.sha256,
-          plaintextHash: (file.plaintext_hash ?? file.plaintextHash) as string | undefined,
-          name: file.name,
-          size: file.size,
-          encryptedSize: (file.encrypted_size ?? file.encryptedSize) as number | undefined,
-          mimeType: file.mime_type,
-          folderId: folder.id,
-          deletedAt: (file.deleted_at ?? file.deletedAt) as number | undefined,
-          userTags: file.tags ?? [],
-          ownerEnvelope,
-        })
-        await authPort.publishEvent(metaEvent)
+        await addOwnerKey(fileId, ownerEnvelope)
 
         Crypto.wipeKey(fileKey)
         filesMigrated++
@@ -186,19 +203,24 @@ export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> 
       }
     }
 
-    // Re-publish the folder event with wrapped keys
+    // Merge the new wrapped keys into the folder's CURRENT event; every
+    // existing wk (files migrated or uploaded earlier) is kept.
     const folderKeyHex = Crypto.bytesToHex(folderKey)
     const encryptedFolderKey = await Keys.selfEncrypt(pubkey, folderKeyHex)
-
-    const folderEvent = await Events.createEncryptedFolderEvent({
-      id: folder.id,
-      name: folder.name,
-      description: folder.description ?? '',
-      parentId: folder.parent_id ?? undefined,
-      encryptedFolderKey,
-      wrappedKeys,
-    })
-    await authPort.publishEvent(folderEvent)
+    try {
+      await editOwnEvent(30079, folder.id, (draft) => {
+        const fresh = new Set(wrappedKeys.map((w) => w.subject))
+        draft.tags = draft.tags.filter((t) => !(t[0] === 'wk' && fresh.has(t[1])))
+        for (const w of wrappedKeys) draft.tags.push(['wk', w.subject, w.envelope])
+        if (!draft.tags.some((t) => t[0] === 'key')) draft.tags.push(['key', encryptedFolderKey])
+        if (!draft.tags.some((t) => t[0] === 'encrypted')) draft.tags.push(['encrypted', 'true'])
+        draft.content.encrypted = true
+      })
+    } catch (err) {
+      console.warn('WrappedKeyMigration: could not update folder', folder.id, '-', (err as Error).message)
+      for (const w of wrappedKeys) failedFileIds.push(w.subject)
+      continue
+    }
     foldersMigrated++
   }
 
@@ -213,20 +235,7 @@ export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> 
       const fileKey = await Keys.deriveRootFileKey(fileId)
       const ownerEnvelope = await Keys.wrapFileKeyForOwner(fileKey, fileId, signer)
 
-      const metaEvent = await Events.createEncryptedFileMetadataEvent({
-        fileId,
-        sha256: file.sha256,
-        plaintextHash: (file.plaintext_hash ?? file.plaintextHash) as string | undefined,
-        name: file.name,
-        size: file.size,
-        encryptedSize: (file.encrypted_size ?? file.encryptedSize) as number | undefined,
-        mimeType: file.mime_type,
-        folderId: undefined,
-        deletedAt: (file.deleted_at ?? file.deletedAt) as number | undefined,
-        userTags: file.tags ?? [],
-        ownerEnvelope,
-      })
-      await authPort.publishEvent(metaEvent)
+      await addOwnerKey(fileId, ownerEnvelope)
 
       Crypto.wipeKey(fileKey)
       filesMigrated++

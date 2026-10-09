@@ -49,6 +49,17 @@ import { InMemoryKeyStorage } from './key-storage'
 
 const TEST_PUBKEY = '4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766'
 
+// A relay holding the user's current folder/file events (keyed by d tag) and
+// no migration record. Tests put events in `relayEvents` to shape what it holds.
+let relayEvents: Record<string, { kind: number; created_at: number; tags: string[][]; content: string }> = {}
+function relayHoldsEvents() {
+  vi.mocked(Relay.subscribe).mockImplementation((async (f: { kinds: number[]; '#d'?: string[] }) => {
+    const d = f['#d']?.[0] ?? ''
+    if (d === 'wrapped-key-migration') return []
+    return [relayEvents[d] ?? { kind: f.kinds[0], created_at: 1, tags: [['d', d]], content: '{"name":"x"}' }]
+  }) as never)
+}
+
 describe('runWrappedKeyMigration: partial failure', () => {
   beforeEach(async () => {
     await Crypto.init()
@@ -85,6 +96,8 @@ describe('runWrappedKeyMigration: partial failure', () => {
     }
 
     vi.clearAllMocks()
+    relayEvents = {}
+    relayHoldsEvents()
   })
 
   it('does NOT mark migration complete when a file fails', async () => {
@@ -172,6 +185,8 @@ describe('migration record on relay', () => {
     }
 
     vi.clearAllMocks()
+    relayEvents = {}
+    relayHoldsEvents()
   })
 
   it('completed migration publishes record to relay', async () => {
@@ -296,5 +311,109 @@ describe('Keys.getFileKey: derivation fallback warning', () => {
     const result = await Keys.getFileKey(folderId, fileId)
     expect(result).toBeInstanceOf(Uint8Array)
     expect(result.length).toBe(32)
+  })
+})
+
+// Sweep item #10 (2026-10-09): a relay that did not answer read as "not
+// migrated", so the migration re-ran on sign-in and rewrote each folder event
+// with only the files it migrated that time, dropping every earlier wk tag.
+describe('migration: unknown is not "not migrated", and re-runs never drop data', () => {
+  beforeEach(async () => {
+    await Crypto.init()
+    Keys.keyCache.clear()
+    Keys.setStorage(new InMemoryKeyStorage())
+    Keys.userPubkey = TEST_PUBKEY
+    Keys.wrappedKeyMode = false
+    Keys.configure({
+      auth: {
+        isConnected: true,
+        nip04Encrypt: async (_pk: string, pt: string) => `nip04:${pt}`,
+        nip04Decrypt: async (_pk: string, ct: string) => ct.replace('nip04:', ''),
+        nip44Encrypt: async (_pk: string, pt: string) => `nip44:${pt}`,
+        nip44Decrypt: async (_pk: string, ct: string) => ct.replace('nip44:', ''),
+        createRootKeyEvent: async (ek: string) => ({ kind: 30078, content: ek }),
+        publishEvent: async () => {},
+      },
+      api: null,
+    })
+    const rootKey = Crypto.generateKey()
+    Keys.keyCache.set('root', rootKey)
+    Keys.keyCache.set('folder:folder-1', await Keys.deriveKey(rootKey, 'folder-1', Keys.CONTEXT_FOLDER))
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i)
+      if (key?.startsWith('cloistr-drive-wrapped-key-migration')) localStorage.removeItem(key)
+    }
+    vi.clearAllMocks()
+    relayEvents = {}
+    relayHoldsEvents()
+    vi.mocked(API.listFolders).mockResolvedValue({ folders: [{ id: 'folder-1', name: 'test', parent_id: null }] } as never)
+    vi.mocked(API.listFiles).mockResolvedValue({
+      files: [{ id: 'file-new', sha256: 'abc123abcdef1234', encrypted: true, folder_id: 'folder-1', name: 'n.txt', size: 1, mime_type: 'text/plain' }],
+    } as never)
+  })
+
+  it('relay does not answer the migration-record query: isMigrationComplete throws, the migration does not run', async () => {
+    vi.mocked(Relay.subscribe).mockRejectedValue(new Error('Subscription timeout'))
+    await expect(isMigrationComplete(TEST_PUBKEY)).rejects.toThrow()
+    expect(await runWrappedKeyMigration()).toBeNull()
+    expect(vi.mocked(authPort.publishEvent)).not.toHaveBeenCalled()
+    expect(Keys.wrappedKeyMode).toBe(false)
+  })
+
+  it('a re-run merges into the folder event: earlier wk tags and other tags survive', async () => {
+    relayEvents['folder-1'] = {
+      kind: 30079,
+      created_at: 1,
+      tags: [['d', 'folder-1'], ['encrypted', 'true'], ['key', 'KEYTAG'], ['wk', 'file-old', 'OLD-ENVELOPE'], ['x-future', 'kept']],
+      content: JSON.stringify({ name: 'test', description: 'd', encrypted: true }),
+    }
+    await runWrappedKeyMigration()
+    const folderEvent = vi.mocked(authPort.publishEvent).mock.calls
+      .map((c) => c[0] as { kind: number; tags: string[][] })
+      .find((e) => e.kind === 30079)!
+    expect(folderEvent.tags).toContainEqual(['wk', 'file-old', 'OLD-ENVELOPE'])
+    expect(folderEvent.tags.some((t) => t[0] === 'wk' && t[1] === 'file-new')).toBe(true)
+    expect(folderEvent.tags).toContainEqual(['key', 'KEYTAG'])
+    expect(folderEvent.tags).toContainEqual(['x-future', 'kept'])
+  })
+
+  it('a file re-published by the migration keeps its version history and existing tags', async () => {
+    relayEvents['file-new'] = {
+      kind: 30078,
+      created_at: 1,
+      tags: [['d', 'file-new'], ['x', 'abc123abcdef1234'], ['encrypted', 'xchacha20-poly1305'], ['folder', 'folder-1'], ['v', 'abc123abcdef1234', '3', '1', TEST_PUBKEY], ['current', 'abc123abcdef1234']],
+      content: JSON.stringify({ name: 'n.txt', size: 1, encrypted: true }),
+    }
+    await runWrappedKeyMigration()
+    const fileEvent = vi.mocked(authPort.publishEvent).mock.calls
+      .map((c) => c[0] as { kind: number; tags: string[][] })
+      .find((e) => e.kind === 30078 && e.tags.some((t) => t[0] === 'd' && t[1] === 'file-new'))!
+    expect(fileEvent.tags).toContainEqual(['v', 'abc123abcdef1234', '3', '1', TEST_PUBKEY])
+    expect(fileEvent.tags).toContainEqual(['current', 'abc123abcdef1234'])
+    expect(fileEvent.tags.some((t) => t[0] === 'owner_key' && !!t[1])).toBe(true)
+  })
+
+  it('a file whose relay event already has owner_key is not re-wrapped', async () => {
+    relayEvents['file-new'] = {
+      kind: 30078, created_at: 1,
+      tags: [['d', 'file-new'], ['encrypted', 'xchacha20-poly1305'], ['folder', 'folder-1'], ['owner_key', 'REAL-ENVELOPE']],
+      content: '{"name":"n.txt"}',
+    }
+    await runWrappedKeyMigration()
+    const fileEvents = vi.mocked(authPort.publishEvent).mock.calls
+      .map((c) => c[0] as { kind: number; tags: string[][] })
+      .filter((e) => e.kind === 30078 && e.tags.some((t) => t[0] === 'd' && t[1] === 'file-new'))
+    expect(fileEvents).toEqual([])
+  })
+
+  it('a folder whose event cannot be loaded is skipped and the migration is not marked complete', async () => {
+    vi.mocked(Relay.subscribe).mockImplementation((async (f: { '#d'?: string[] }) => {
+      if (f['#d']?.[0] === 'wrapped-key-migration') return []
+      throw new Error('Subscription timeout')
+    }) as never)
+    const result = await runWrappedKeyMigration()
+    expect(result?.failedFileIds).toContain('file-new')
+    expect(vi.mocked(authPort.publishEvent)).not.toHaveBeenCalled()
+    expect(Keys.wrappedKeyMode).toBe(false)
   })
 })

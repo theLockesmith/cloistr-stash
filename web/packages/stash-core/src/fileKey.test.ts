@@ -6,6 +6,10 @@
 // Real XChaCha20 here, so a wrong key genuinely fails to decrypt.
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 
+// Saving a version merges into the file's current relay event (editEvent.ts).
+vi.mock('./relay', () => ({
+  Relay: { subscribe: async () => [{ kind: 30078, created_at: 1, tags: [['d', 'f']], content: '{}' }] },
+}))
 vi.mock('./authBridge', () => ({
   authPort: { isConnected: true, pubkey: 'owner-pubkey' },
   getSigner: () => ({ signEvent: async (e: unknown) => e }),
