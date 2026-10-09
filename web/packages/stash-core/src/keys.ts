@@ -289,7 +289,7 @@ export const Keys = {
 
   async generateFolderKey(folderId: string): Promise<Uint8Array> {
     const folderKey = Crypto.generateKey()
-    await this.storeEncryptedKey(`folder:${folderId}`, folderKey, folderId)
+    await this.storeEncryptedKey(`folder:${folderId}`, folderKey, folderId, { sharedBy: this.userPubkey ?? undefined })
     this.keyCache.set(`folder:${folderId}`, folderKey)
     console.log('Keys: Generated folder key for', folderId.slice(0, 8) + '...')
     return folderKey
@@ -365,7 +365,7 @@ export const Keys = {
     keyId: string,
     key: Uint8Array,
     associatedId: string | null,
-    opts?: { replace?: boolean; sharedBy?: string },
+    opts?: { replace?: boolean; sharedBy?: string; verifiedTag?: string },
   ): Promise<void> {
     if (!this.auth || !this.auth.isConnected) {
       throw new Error('Cannot store key: signer not connected')
@@ -407,6 +407,7 @@ export const Keys = {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       ...(opts?.sharedBy ? { sharedBy: opts.sharedBy } : {}),
+      ...(opts?.verifiedTag ? { verifiedTag: opts.verifiedTag } : {}),
     }
 
     await storage.put(record)
@@ -431,7 +432,7 @@ export const Keys = {
         if (raw.length === 32) {
           console.warn('Keys: Found legacy base64 key for', keyId, '— migrating to encrypted storage')
           if (this.auth && this.auth.isConnected) {
-            void this.storeEncryptedKey(keyId, raw, record.associatedId, { sharedBy: record.sharedBy }).catch(() => {})
+            void this.storeEncryptedKey(keyId, raw, record.associatedId, { sharedBy: record.sharedBy, verifiedTag: record.verifiedTag }).catch(() => {})
           }
           return raw
         }
@@ -447,36 +448,154 @@ export const Keys = {
     await storage.delete(`${this.userPubkey}:${keyId}`)
   },
 
+  /**
+   * Store a folder key received in a share. One provenance rule for every key
+   * store (the browser's IndexedDB never refuses an overwrite on its own):
+   *  - no local key: store it, remembering the sender;
+   *  - the identical key: nothing to do;
+   *  - a key from the same sender: replace (they rotate after a revoke);
+   *  - a key we own, or from a different sender: refuse;
+   *  - a key saved before provenance existed: replace only if `isOwnFolder`
+   *    says the folder is not ours; no checker, or a checker error, refuses.
+   * Found 2026-10-09: without this, anyone who learned one of our folder ids
+   * could share it to us, and once accepted, new uploads into our folder were
+   * wrapped under their key in the folder event's public 'wk' tags.
+   */
   async importSharedFolderKey(
     folderId: string,
     encryptedKey: string,
     senderPubkey: string,
+    opts?: { isOwnFolder?: () => Promise<boolean> },
   ): Promise<Uint8Array> {
     if (!this.auth || !this.auth.isConnected) {
       throw new Error('Not connected')
     }
+    // Our own self-encrypted copy (a folder event's 'key' tag) is authoritative.
+    if (senderPubkey === this.userPubkey) {
+      return this.resolveOwnFolderKey(folderId, encryptedKey, null)
+    }
+    const keyId = `folder:${folderId}`
     const keyHex = await this.selfDecrypt(senderPubkey, encryptedKey)
     const folderKey = Crypto.hexToBytes(keyHex)
-    // A key that was itself shared with us may be replaced: the sender's key is
-    // authoritative for their folder, and after a revoke they rotate it and
-    // re-share. A key we own is never replaced by a share (on stores that
-    // refuse overwrites), or anyone who learned the folder id could make the
-    // folder unreadable to us.
-    const existing = await (await this.ensureStorage()).get(`${this.userPubkey}:folder:${folderId}`)
-    await this.storeEncryptedKey(`folder:${folderId}`, folderKey, folderId, {
-      replace: !existing || !!existing.sharedBy,
-      sharedBy: senderPubkey,
-    })
-    this.keyCache.set(`folder:${folderId}`, folderKey)
+
+    const existing = await (await this.ensureStorage()).get(`${this.userPubkey}:${keyId}`)
+    if (existing) {
+      const current = await this.loadEncryptedKey(keyId)
+      if (current && Crypto.bytesToHex(current) === keyHex) {
+        this.keyCache.set(keyId, current)
+        return current
+      }
+      if (!(await this.shareMayReplace(existing, senderPubkey, opts?.isOwnFolder))) {
+        console.warn('Keys: refused a folder share that would replace an existing key for', folderId.slice(0, 8) + '...')
+        throw new KeyOverwriteRefusedError(keyId)
+      }
+    }
+    await this.storeEncryptedKey(keyId, folderKey, folderId, { replace: true, sharedBy: senderPubkey })
+    this.keyCache.set(keyId, folderKey)
     console.log('Keys: Imported shared folder key for', folderId.slice(0, 8) + '...')
     return folderKey
   },
 
-  async exportFolderKeyForSharing(folderId: string, recipientPubkey: string): Promise<string> {
-    const folderKey = await this.getFolderKey(folderId)
-    const keyHex = Crypto.bytesToHex(folderKey)
-    if (!this.auth) throw new Error('Not connected')
-    return this.selfEncrypt(recipientPubkey, keyHex)
+  async shareMayReplace(
+    existing: KeyRecord,
+    senderPubkey: string,
+    isOwnFolder?: () => Promise<boolean>,
+  ): Promise<boolean> {
+    if (existing.sharedBy) return existing.sharedBy === senderPubkey
+    if (!isOwnFolder) return false
+    try {
+      return !(await isOwnFolder())
+    } catch {
+      return false
+    }
+  },
+
+  /**
+   * The key for a folder WE own. Its self-encrypted copy in the folder event's
+   * 'key' tag is authoritative (only we can produce a self-encryption that
+   * decrypts for us), so a local key that disagrees is replaced: this is what
+   * repairs a browser poisoned before provenance existed. Without a tag, a
+   * local key that came from someone else is dropped and the key is derived.
+   */
+  async resolveOwnFolderKey(
+    folderId: string,
+    keyTag: string | undefined,
+    parentId: string | null,
+  ): Promise<Uint8Array> {
+    return (await this.resolveOwnFolderKeyStatus(folderId, keyTag, parentId)).key
+  },
+
+  async resolveOwnFolderKeyStatus(
+    folderId: string,
+    keyTag: string | undefined,
+    parentId: string | null,
+  ): Promise<{ key: Uint8Array; status: 'ok' | 'restored' | 'repaired' }> {
+    const keyId = `folder:${folderId}`
+    const storage = await this.ensureStorage()
+    const record = await storage.get(`${this.userPubkey}:${keyId}`)
+    const foreign = !!record?.sharedBy && record.sharedBy !== this.userPubkey
+
+    if (keyTag) {
+      if (record && !foreign && record.verifiedTag === keyTag) {
+        const local = await this.loadEncryptedKey(keyId)
+        if (local) {
+          this.keyCache.set(keyId, local)
+          return { key: local, status: 'ok' }
+        }
+      }
+      const real = Crypto.hexToBytes(await this.selfDecrypt(this.userPubkey!, keyTag))
+      const local = record ? await this.loadEncryptedKey(keyId) : null
+      const same = !!local && Crypto.bytesToHex(local) === Crypto.bytesToHex(real)
+      await this.storeEncryptedKey(keyId, real, folderId, {
+        replace: true,
+        sharedBy: this.userPubkey ?? undefined,
+        verifiedTag: keyTag,
+      })
+      this.keyCache.set(keyId, real)
+      if (local && !same) {
+        console.warn('Keys: repaired folder key for', folderId.slice(0, 8) + '...', '(local key did not match the relay copy)')
+      }
+      return { key: real, status: !record ? 'restored' : same ? 'ok' : 'repaired' }
+    }
+
+    if (foreign) {
+      await this.deleteKey(keyId)
+      console.warn('Keys: dropped a shared-in key for own folder', folderId.slice(0, 8) + '...')
+      return { key: await this.getFolderKey(folderId, parentId), status: 'repaired' }
+    }
+    return { key: await this.getFolderKey(folderId, parentId), status: 'ok' }
+  },
+
+  /**
+   * Check every listed OWN folder's local key against its relay copy, on every
+   * load. Restores missing keys and repairs ones that disagree; each tag is
+   * decrypted once (verifiedTag), so steady-state loads cost no signer calls.
+   */
+  async restoreOwnFolderKeys(
+    folders: Array<{ id: string; encrypted_key?: string; parent_id?: string; [k: string]: unknown }>,
+  ): Promise<{ restored: number; repaired: number; errors: number }> {
+    const result = { restored: 0, repaired: 0, errors: 0 }
+    if (!this.auth?.isConnected || !this.userPubkey) return result
+    const storage = await this.ensureStorage()
+    for (const folder of folders) {
+      try {
+        if (!folder.encrypted_key) {
+          // Untagged: only act if a shared-in key sits on our own folder.
+          const rec = await storage.get(`${this.userPubkey}:folder:${folder.id}`)
+          if (!rec?.sharedBy || rec.sharedBy === this.userPubkey) continue
+        }
+        const { status } = await this.resolveOwnFolderKeyStatus(folder.id, folder.encrypted_key, folder.parent_id ?? null)
+        if (status === 'restored') result.restored++
+        if (status === 'repaired') result.repaired++
+      } catch (err) {
+        console.error('Keys: could not verify folder key for', folder.id, ':', (err as Error).message)
+        result.errors++
+      }
+    }
+    if (result.restored || result.repaired || result.errors) {
+      console.log(`Keys: own folder keys: ${result.restored} restored, ${result.repaired} repaired, ${result.errors} errors`)
+    }
+    return result
   },
 
   // ── Envelope key wrapping (derivation → wrapping migration) ────────────

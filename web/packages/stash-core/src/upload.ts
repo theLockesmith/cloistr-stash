@@ -305,7 +305,8 @@ export async function addWrappedKeyToFolder(
     folderDescription = (content.description as string) ?? ''
   } catch { /* use defaults */ }
 
-  const folderKey = await Keys.getFolderKey(folderId, parentId ?? null)
+  // Our folder (authors: [pubkey] above): its relay key tag is authoritative.
+  const folderKey = await Keys.resolveOwnFolderKey(folderId, encryptedFolderKey, parentId ?? null)
   const envelope = Keys.wrapFileKeyForFolder(fileKey, fileId, folderKey)
 
   // Replace or add this file's wrapped key

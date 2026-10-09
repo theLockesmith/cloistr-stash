@@ -7,8 +7,14 @@ export interface KeyRecord {
   encryptedKey: string
   createdAt: number
   updatedAt: number
-  /** Pubkey that shared this key with us; absent for keys we own. */
+  /**
+   * Pubkey this key came from: the sharer, or our own pubkey for a key we
+   * created or restored from our own relay copy. Absent on records written
+   * before 2026-10-08 (provenance unknown).
+   */
   sharedBy?: string
+  /** The relay 'key' tag this own key was last checked against (avoids re-decrypting it every load). */
+  verifiedTag?: string
 }
 
 export interface KeyStorage {
