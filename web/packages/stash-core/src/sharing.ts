@@ -781,14 +781,14 @@ export const Sharing = {
       const folderKey = Crypto.hexToBytes(folderKeyHex)
       void folderKey // unused per legacy logic; importSharedFolderKey re-decrypts internally
 
-      // Import the shared folder key
-      // The ownership check only matters for keys saved before provenance
-      // existed; a relay error makes it refuse (Relay.subscribe rejects).
+      // Import the shared folder key. A local key saved before provenance
+      // existed is replaced only on positive proof that it came from this same
+      // sender (their earlier share of this folder carried exactly that key).
+      // No such share, or a relay error, is unknown, and unknown refuses.
       const folderId = content.folderId!
-      await Keys.importSharedFolderKey(folderId, content.folderKey, share.owner_pubkey, {
-        isOwnFolder: async () =>
-          (await Relay.subscribe({ kinds: [30079], authors: [authPort.pubkey!], '#d': [folderId], limit: 1 }, 5000))
-            .length > 0,
+      const sender = share.owner_pubkey
+      await Keys.importSharedFolderKey(folderId, content.folderKey, sender, {
+        existingCameFromSender: (existingKeyHex) => this.senderSharedFolderKey(sender, folderId, existingKeyHex),
       })
 
       console.log('Sharing: Accepted folder share', share.id.slice(0, 8) + '...')
@@ -801,6 +801,27 @@ export const Sharing = {
     }
 
     throw new Error('Unknown share type')
+  },
+
+  /** True only if `sender` has a folder share to us for `folderId` whose key is exactly `keyHex`. */
+  async senderSharedFolderKey(sender: string, folderId: string, keyHex: string): Promise<boolean> {
+    const me = authPort.pubkey
+    if (!me) return false
+    const events = await Relay.subscribe({ kinds: [30080], authors: [sender], '#p': [me] }, 5000)
+    for (const event of events) {
+      try {
+        const content = JSON.parse(await this.decryptFromSender(sender, event.content as string)) as {
+          type?: string
+          folderId?: string
+          folderKey?: string
+        }
+        if (content.type !== this.SHARE_TYPE_FOLDER || content.folderId !== folderId || !content.folderKey) continue
+        if ((await this.decryptFromSender(sender, content.folderKey)) === keyHex) return true
+      } catch {
+        // undecryptable: not proof
+      }
+    }
+    return false
   },
 
   // Create expiring share link with server-side validation.
