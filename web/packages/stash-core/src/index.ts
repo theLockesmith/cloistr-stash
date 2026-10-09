@@ -18,7 +18,7 @@ export type { SignerInterface }
 export { API } from './api'
 export type { ApiClient, SignedEvent, FileMetadata, FolderMetadata, ShareInfo, QuotaInfo } from './api'
 export { Crypto } from './crypto'
-export { Keys, KeyOverwriteRefusedError, FolderKeyUnverifiedError } from './keys'
+export { Keys, KeyOverwriteRefusedError, FolderKeyUnverifiedError, RootKeyUnavailableError } from './keys'
 export type { AuthPort, ApiPort } from './keys'
 export { IndexedDBKeyStorage, InMemoryKeyStorage } from './key-storage'
 export type { KeyRecord, KeyStorage } from './key-storage'
