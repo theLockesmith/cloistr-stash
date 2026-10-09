@@ -144,7 +144,7 @@ export async function runWrappedKeyMigration(): Promise<MigrationRecord | null> 
       continue
     }
 
-    const folderKey = await Keys.getFolderKey(folder.id, folder.parent_id ?? null)
+    const folderKey = await Keys.resolveOwnFolderKey(folder.id, folder.encrypted_key, folder.parent_id ?? null)
     const wrappedKeys: Array<{ subject: string; envelope: string }> = []
 
     for (const file of folderFiles) {

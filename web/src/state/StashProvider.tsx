@@ -173,27 +173,13 @@ export interface StashContextValue {
 
 export const StashContext = createContext<StashContextValue | null>(null)
 
-/** Restore self-encrypted folder keys into the key store (ported from app.js). */
+/**
+ * Check own folder keys against their relay copies on every load: restores
+ * missing ones and repairs any a share overwrote (see Keys.restoreOwnFolderKeys).
+ */
 async function restoreFolderKeys(folders: StashFolder[]): Promise<void> {
-  const pubkey = authPort.pubkey
-  if (!authPort.isConnected || !pubkey || folders.length === 0) return
-
-  let restored = 0
-  let errors = 0
-  for (const folder of folders) {
-    if (!folder.encrypted_key) continue
-    if (await Keys.hasFolderKey(folder.id)) continue
-    try {
-      await Keys.importSharedFolderKey(folder.id, folder.encrypted_key, pubkey)
-      restored++
-    } catch (err) {
-      console.error('Failed to restore folder key for', folder.id, ':', (err as Error).message)
-      errors++
-    }
-  }
-  if (restored > 0 || errors > 0) {
-    console.log(`restoreFolderKeys: Restored ${restored} keys, ${errors} errors`)
-  }
+  if (!authPort.isConnected || !authPort.pubkey || folders.length === 0) return
+  await Keys.restoreOwnFolderKeys(folders)
 }
 
 // Keep root-key/config events and deleted/trashed files out of the my-files view

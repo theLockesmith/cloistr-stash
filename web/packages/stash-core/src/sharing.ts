@@ -406,8 +406,11 @@ export const Sharing = {
       throw new Error('Cannot share: missing folder ID')
     }
 
-    // Get the folder key
-    const folderKey = await Keys.getFolderKey(folderId, folder.parent_id ?? null)
+    // Own folders carry their self-encrypted key tag, which is authoritative;
+    // never hand a recipient a key that disagrees with it.
+    const folderKey = folder.encrypted_key
+      ? await Keys.resolveOwnFolderKey(folderId, folder.encrypted_key, folder.parent_id ?? null)
+      : await Keys.getFolderKey(folderId, folder.parent_id ?? null)
 
     // Encrypt the folder key for the recipient (NIP-44 preferred, NIP-04 fallback)
     const folderKeyHex = Crypto.bytesToHex(folderKey)
@@ -779,7 +782,14 @@ export const Sharing = {
       void folderKey // unused per legacy logic; importSharedFolderKey re-decrypts internally
 
       // Import the shared folder key
-      await Keys.importSharedFolderKey(content.folderId!, content.folderKey, share.owner_pubkey)
+      // The ownership check only matters for keys saved before provenance
+      // existed; a relay error makes it refuse (Relay.subscribe rejects).
+      const folderId = content.folderId!
+      await Keys.importSharedFolderKey(folderId, content.folderKey, share.owner_pubkey, {
+        isOwnFolder: async () =>
+          (await Relay.subscribe({ kinds: [30079], authors: [authPort.pubkey!], '#d': [folderId], limit: 1 }, 5000))
+            .length > 0,
+      })
 
       console.log('Sharing: Accepted folder share', share.id.slice(0, 8) + '...')
 
