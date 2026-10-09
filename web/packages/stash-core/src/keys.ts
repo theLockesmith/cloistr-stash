@@ -589,6 +589,9 @@ export const Keys = {
    * a pre-provenance local key that is not the derived key cannot be told
    * apart from a planted one, so it is 'unverified' and refused for writes.
    */
+  // For WRITES into an own folder (wrap, share, migrate): throws
+  // FolderKeyUnverifiedError rather than hand out an unverifiable key. Reads
+  // use getFolderKey / fileKeyFor.
   async resolveOwnFolderKey(
     folderId: string,
     keyTag: string | undefined,
@@ -632,6 +635,14 @@ export const Keys = {
         return { key: real, status: 'repaired', replaced: local }
       }
       return { key: real, status: !record ? 'restored' : 'ok' }
+    }
+
+    // Untagged: any key here hangs off the parent's (or root's) key. Under an
+    // unverified parent nothing can be vouched for, whatever is stored.
+    this.unverifiedFolders.delete(folderId)
+    if (parentId && this.unverifiedFolders.has(parentId)) {
+      this.unverifiedFolders.add(folderId)
+      return { key: await this.getFolderKey(folderId, parentId), status: 'unverified' }
     }
 
     if (foreign) {
@@ -696,10 +707,12 @@ export const Keys = {
     parentId: string,
     replaced: Uint8Array,
     real: Uint8Array,
+    visited: Set<string> = new Set([parentId]),
   ): Promise<number> {
     let count = 0
     for (const child of folders) {
-      if (child.parent_id !== parentId || child.encrypted_key) continue
+      if (child.parent_id !== parentId || child.encrypted_key || visited.has(child.id)) continue
+      visited.add(child.id)
       const keyId = `folder:${child.id}`
       this.keyCache.delete(keyId)
       const stored = await this.loadEncryptedKey(keyId)
@@ -714,7 +727,7 @@ export const Keys = {
       this.keyCache.set(keyId, fixed)
       this.unverifiedFolders.delete(child.id)
       console.warn('Keys: re-derived subfolder key for', child.id.slice(0, 8) + '...', '(its parent key was repaired)')
-      count += 1 + (await this.rederiveChildFolderKeys(folders, child.id, stored, fixed))
+      count += 1 + (await this.rederiveChildFolderKeys(folders, child.id, stored, fixed, visited))
     }
     return count
   },
@@ -732,9 +745,12 @@ export const Keys = {
     const result = { restored: 0, repaired: 0, errors: 0, unverified: [] as string[] }
     if (!this.auth?.isConnected || !this.userPubkey) return result
     const storage = await this.ensureStorage()
+    // Recomputed below for every listed folder, so a flag never outlives its cause.
+    for (const folder of folders) this.unverifiedFolders.delete(folder.id)
     for (const folder of parentsFirst(folders)) {
       try {
-        if (!folder.encrypted_key) {
+        const parentUnverified = !!folder.parent_id && this.unverifiedFolders.has(folder.parent_id)
+        if (!folder.encrypted_key && !parentUnverified) {
           // Untagged: only act on a key that is not already known to be ours.
           const rec = await storage.get(`${this.userPubkey}:folder:${folder.id}`)
           if (!rec || rec.sharedBy === this.userPubkey) continue

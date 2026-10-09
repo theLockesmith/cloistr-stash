@@ -189,6 +189,8 @@ describe('(b) repairing a parent re-derives the subfolders derived from the bad 
     ])
     expect(await stored('folder:c')).toBe(hex(own))
     expect(await stored('folder:u')).toBe(hex(loose))
+    // kept, but not the derivation from the real parent: unverified, not silently used
+    expect(() => Keys.assertFolderKeyUsable('u')).toThrow(FolderKeyUnverifiedError)
   })
 })
 
@@ -215,13 +217,31 @@ describe('(d) untagged own folder with a pre-provenance key that is not the deri
     expect(hex(await Keys.getFolderKey('f-old'))).toBe(hex(odd))
   })
 
-  it('a subfolder under an unverified folder is not vouched for either', async () => {
+  it('subfolders under an unverified folder are unverified too, stored key or not, and uploads into them are refused', async () => {
     const odd = Crypto.generateKey()
     await Keys.storeEncryptedKey('folder:p', odd, 'p')
     await Keys.storeEncryptedKey('folder:c', await derive(odd, 'c'), 'c')
-    const result = await Keys.restoreOwnFolderKeys([{ id: 'c', parent_id: 'p' }, { id: 'p' }])
-    expect(result.unverified).toEqual(['p'])
+    const result = await Keys.restoreOwnFolderKeys([
+      { id: 'g', parent_id: 'c' }, // no local key yet: would be derived from the unverified chain
+      { id: 'c', parent_id: 'p' },
+      { id: 'p' },
+    ])
+    expect(result.unverified.sort()).toEqual(['c', 'g', 'p'])
+    for (const id of ['p', 'c', 'g']) expect(() => Keys.assertFolderKeyUsable(id)).toThrow(FolderKeyUnverifiedError)
+    await expect(Keys.resolveOwnFolderKey('c', undefined, 'p')).rejects.toBeInstanceOf(FolderKeyUnverifiedError)
     expect((await storage.get(`${ME}:folder:c`))?.sharedBy).toBeUndefined()
+  })
+
+  it('a flag clears on the next load once its cause is gone', async () => {
+    const odd = Crypto.generateKey()
+    await Keys.storeEncryptedKey('folder:p', odd, 'p')
+    await Keys.restoreOwnFolderKeys([{ id: 'p' }, { id: 'c', parent_id: 'p' }])
+    expect(() => Keys.assertFolderKeyUsable('c')).toThrow(FolderKeyUnverifiedError)
+    // the parent's real key turns up (its tag is published); the child follows
+    const real = Crypto.generateKey()
+    await Keys.restoreOwnFolderKeys([{ id: 'p', encrypted_key: enc(real) }, { id: 'c', parent_id: 'p' }])
+    expect(() => Keys.assertFolderKeyUsable('p')).not.toThrow()
+    expect(() => Keys.assertFolderKeyUsable('c')).not.toThrow()
   })
 
   it('checking a subfolder never invents a key for a parent this device does not hold', async () => {
