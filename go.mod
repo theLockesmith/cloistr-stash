@@ -4,7 +4,7 @@ go 1.26.6
 
 require (
 	git.aegis-hq.xyz/coldforge/cloistr-common v0.4.0
-	github.com/coder/websocket v1.8.14
+	github.com/coder/websocket v1.8.15
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.12.3
 	github.com/nbd-wtf/go-nostr v0.52.3
