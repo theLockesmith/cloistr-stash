@@ -16,7 +16,7 @@
   "dependencies": {
     "@cloistr/auth": "^1.4.1",
     "@cloistr/stash-core": "^0.1.0",
-    "@cloistr/collab-common": "^0.7.1",
+    "@cloistr/collab-common": "^0.7.2",
     "@cloistr/ui": "^0.46.0",
     "dompurify": "^3.4.16",
     "libsodium-wrappers": "^0.8.4",
