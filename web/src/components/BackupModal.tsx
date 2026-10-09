@@ -68,7 +68,10 @@ export function BackupModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
       const text = await file.text()
       const backup = JSON.parse(text) as { encrypted: string; hash: string; pubkey: string }
       const result = await Keys.importBackup(backup)
-      setStatus({ text: `Backup restored! Imported ${result.imported} of ${result.total} keys.`, kind: 'success' })
+      const kept = result.refused
+        ? ` Kept ${result.refused} key${result.refused === 1 ? '' : 's'} already on this device that differ from the backup.`
+        : ''
+      setStatus({ text: `Backup restored! Imported ${result.imported} of ${result.total} keys.${kept}`, kind: 'success' })
     } catch (err) {
       setStatus({ text: `Import failed: ${(err as Error).message}`, kind: 'error' })
     } finally {

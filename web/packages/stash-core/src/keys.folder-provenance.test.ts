@@ -102,39 +102,59 @@ describe('importSharedFolderKey: an incoming share never replaces a key it does 
       await Keys.storeEncryptedKey(`folder:${folderId}`, key, folderId)
     }
 
-    it('refuses when the folder is the user\'s own', async () => {
+    // Residual (c), 2026-10-09: an empty or failed ownership answer is
+    // UNKNOWN. Only positive proof that the local key came from this sender
+    // lets a share replace it.
+    it('refuses with no proof: no checker, a checker that finds nothing, or a checker error', async () => {
       const k = Crypto.generateKey()
       await legacy('f-old', k)
-      await expect(
-        Keys.importSharedFolderKey('f-old', enc(Crypto.generateKey()), MALLORY, { isOwnFolder: async () => true }),
-      ).rejects.toBeInstanceOf(KeyOverwriteRefusedError)
-      expect(await stored('f-old')).toBe(hex(k))
-    })
-
-    it('refuses when ownership cannot be checked (fails closed)', async () => {
-      const k = Crypto.generateKey()
-      await legacy('f-old', k)
-      await expect(Keys.importSharedFolderKey('f-old', enc(Crypto.generateKey()), MALLORY)).rejects.toBeInstanceOf(
-        KeyOverwriteRefusedError,
-      )
-      await expect(
-        Keys.importSharedFolderKey('f-old', enc(Crypto.generateKey()), MALLORY, {
-          isOwnFolder: async () => {
+      for (const opts of [
+        undefined,
+        { existingCameFromSender: async () => false },
+        {
+          existingCameFromSender: async () => {
             throw new Error('relay timeout')
           },
-        }),
-      ).rejects.toBeInstanceOf(KeyOverwriteRefusedError)
+        },
+      ]) {
+        await expect(
+          Keys.importSharedFolderKey('f-old', enc(Crypto.generateKey()), MALLORY, opts),
+        ).rejects.toBeInstanceOf(KeyOverwriteRefusedError)
+      }
       expect(await stored('f-old')).toBe(hex(k))
     })
 
-    it('accepts when the folder is someone else\'s, and pins that sharer from then on', async () => {
+    it('hands the checker the existing local key, so the proof is about that exact key', async () => {
+      const k = Crypto.generateKey()
+      await legacy('f-old', k)
+      const check = vi.fn(async () => false)
+      await expect(
+        Keys.importSharedFolderKey('f-old', enc(Crypto.generateKey()), ALICE, { existingCameFromSender: check }),
+      ).rejects.toBeInstanceOf(KeyOverwriteRefusedError)
+      expect(check).toHaveBeenCalledWith(hex(k))
+    })
+
+    it('accepts with proof the local key came from this sender, and pins that sharer from then on', async () => {
       await legacy('f-theirs', Crypto.generateKey())
       const rotated = Crypto.generateKey()
-      await Keys.importSharedFolderKey('f-theirs', enc(rotated), ALICE, { isOwnFolder: async () => false })
+      await Keys.importSharedFolderKey('f-theirs', enc(rotated), ALICE, { existingCameFromSender: async () => true })
       expect(await stored('f-theirs')).toBe(hex(rotated))
+      expect((await storage.get(`${ME}:folder:f-theirs`))?.sharedBy).toBe(ALICE)
       await expect(
-        Keys.importSharedFolderKey('f-theirs', enc(Crypto.generateKey()), MALLORY, { isOwnFolder: async () => false }),
+        Keys.importSharedFolderKey('f-theirs', enc(Crypto.generateKey()), MALLORY, {
+          existingCameFromSender: async () => true,
+        }),
       ).rejects.toBeInstanceOf(KeyOverwriteRefusedError)
+    })
+
+    it('a proof never overrides a key we own', async () => {
+      const mine = await Keys.generateFolderKey('f-mine')
+      await expect(
+        Keys.importSharedFolderKey('f-mine', enc(Crypto.generateKey()), MALLORY, {
+          existingCameFromSender: async () => true,
+        }),
+      ).rejects.toBeInstanceOf(KeyOverwriteRefusedError)
+      expect(await stored('f-mine')).toBe(hex(mine))
     })
   })
 })

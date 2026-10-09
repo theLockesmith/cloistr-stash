@@ -39,6 +39,38 @@ export class KeyOverwriteRefusedError extends Error {
   }
 }
 
+/**
+ * Thrown when new files would go into an own folder whose local key cannot be
+ * verified (no relay copy, and not the derived key): it may have been planted
+ * by a folder share accepted before 2026-10-09.
+ */
+export class FolderKeyUnverifiedError extends Error {
+  constructor(public readonly folderId: string) {
+    super(
+      `This folder's key on this device cannot be verified, so new files are not ` +
+        `being added to it. Existing files still open. Upload into a different folder.`,
+    )
+    this.name = 'FolderKeyUnverifiedError'
+  }
+}
+
+export type OwnFolderKeyStatus = 'ok' | 'restored' | 'repaired' | 'unverified'
+
+/** Order folders so every parent in the list comes before its children. */
+function parentsFirst<T extends { id: string; parent_id?: string }>(folders: T[]): T[] {
+  const byId = new Map(folders.map((f) => [f.id, f]))
+  const depth = (f: T): number => {
+    let d = 0
+    const seen = new Set<string>()
+    for (let p = f.parent_id; p && byId.has(p) && !seen.has(p); p = byId.get(p)!.parent_id) {
+      seen.add(p)
+      d++
+    }
+    return d
+  }
+  return folders.map((f) => ({ f, d: depth(f) })).sort((a, b) => a.d - b.d).map((x) => x.f)
+}
+
 /** Minimal Nostr signer/relay surface this module needs (provided by the auth layer). */
 export interface AuthPort {
   readonly isConnected: boolean
@@ -73,6 +105,9 @@ export const Keys = {
   storage: null as KeyStorage | null,
   db: null as IDBDatabase | null,
   keyCache: new Map<string, Uint8Array>(),
+  // Own folders whose local key could not be verified this session (see
+  // resolveOwnFolderKeyStatus); new files are not added to them.
+  unverifiedFolders: new Set<string>(),
   userPubkey: null as string | null,
 
   // Injected dependencies (formerly globals Auth / API)
@@ -442,6 +477,19 @@ export const Keys = {
     }
   },
 
+  /** Decode a self-encrypted (or legacy base64) key record payload; null if neither. */
+  async decodeStoredKey(encryptedKey: string): Promise<Uint8Array | null> {
+    try {
+      return Crypto.hexToBytes(await this.selfDecrypt(this.userPubkey!, encryptedKey))
+    } catch {
+      try {
+        const raw = Crypto.base64ToBytes(encryptedKey)
+        if (raw.length === 32) return raw
+      } catch { /* neither */ }
+      return null
+    }
+  },
+
   async deleteKey(keyId: string): Promise<void> {
     const storage = await this.ensureStorage()
     this.keyCache.delete(keyId)
@@ -449,23 +497,72 @@ export const Keys = {
   },
 
   /**
-   * Store a folder key received in a share. One provenance rule for every key
-   * store (the browser's IndexedDB never refuses an overwrite on its own):
-   *  - no local key: store it, remembering the sender;
+   * The one admission rule for a folder key arriving from outside this
+   * browser's own derivation: an incoming share, or an entry in a backup file.
+   * The browser's IndexedDB never refuses an overwrite on its own, so the rule
+   * lives here and every store gets it:
+   *  - no local key: store it. `from` is recorded as its provenance only when
+   *    it names someone else; a key claiming to be ours must earn that from
+   *    the relay copy (resolveOwnFolderKeyStatus), never from the caller;
    *  - the identical key: nothing to do;
-   *  - a key from the same sender: replace (they rotate after a revoke);
-   *  - a key we own, or from a different sender: refuse;
-   *  - a key saved before provenance existed: replace only if `isOwnFolder`
-   *    says the folder is not ours; no checker, or a checker error, refuses.
+   *  - a different key: replace only when `rotation` is allowed and the local
+   *    key came from that same sender (they rotate after a revoke), or when
+   *    `existingCameFromSender` positively proves a pre-provenance local key
+   *    came from them. Ours, another sharer's, or unknown provenance: refuse.
+   *    An empty or failed proof is UNKNOWN, and unknown refuses.
    * Found 2026-10-09: without this, anyone who learned one of our folder ids
    * could share it to us, and once accepted, new uploads into our folder were
    * wrapped under their key in the folder event's public 'wk' tags.
+   */
+  async admitFolderKey(
+    folderId: string,
+    key: Uint8Array,
+    from: string | undefined,
+    opts: { rotation: boolean; existingCameFromSender?: (existingKeyHex: string) => Promise<boolean> },
+  ): Promise<Uint8Array> {
+    const keyId = `folder:${folderId}`
+    const keyHex = Crypto.bytesToHex(key)
+    const foreignFrom = from && from !== this.userPubkey ? from : undefined
+    const existing = await (await this.ensureStorage()).get(`${this.userPubkey}:${keyId}`)
+    if (existing) {
+      const current = await this.loadEncryptedKey(keyId)
+      if (current && Crypto.bytesToHex(current) === keyHex) {
+        this.keyCache.set(keyId, current)
+        return current
+      }
+      let mayReplace = false
+      if (opts.rotation && foreignFrom) {
+        if (existing.sharedBy) {
+          mayReplace = existing.sharedBy === foreignFrom
+        } else if (current && opts.existingCameFromSender) {
+          try {
+            mayReplace = (await opts.existingCameFromSender(Crypto.bytesToHex(current))) === true
+          } catch {
+            mayReplace = false
+          }
+        }
+      }
+      if (!mayReplace) {
+        console.warn('Keys: refused a folder key that would replace an existing key for', folderId.slice(0, 8) + '...')
+        throw new KeyOverwriteRefusedError(keyId)
+      }
+    }
+    await this.storeEncryptedKey(keyId, key, folderId, { replace: true, sharedBy: foreignFrom })
+    this.keyCache.set(keyId, key)
+    return key
+  },
+
+  /**
+   * Store a folder key received in a share (see admitFolderKey for the rule).
+   * `existingCameFromSender` is the only way to replace a local key saved
+   * before provenance existed: it must find this sender's earlier share of the
+   * folder carrying exactly the local key.
    */
   async importSharedFolderKey(
     folderId: string,
     encryptedKey: string,
     senderPubkey: string,
-    opts?: { isOwnFolder?: () => Promise<boolean> },
+    opts?: { existingCameFromSender?: (existingKeyHex: string) => Promise<boolean> },
   ): Promise<Uint8Array> {
     if (!this.auth || !this.auth.isConnected) {
       throw new Error('Not connected')
@@ -474,40 +571,13 @@ export const Keys = {
     if (senderPubkey === this.userPubkey) {
       return this.resolveOwnFolderKey(folderId, encryptedKey, null)
     }
-    const keyId = `folder:${folderId}`
-    const keyHex = await this.selfDecrypt(senderPubkey, encryptedKey)
-    const folderKey = Crypto.hexToBytes(keyHex)
-
-    const existing = await (await this.ensureStorage()).get(`${this.userPubkey}:${keyId}`)
-    if (existing) {
-      const current = await this.loadEncryptedKey(keyId)
-      if (current && Crypto.bytesToHex(current) === keyHex) {
-        this.keyCache.set(keyId, current)
-        return current
-      }
-      if (!(await this.shareMayReplace(existing, senderPubkey, opts?.isOwnFolder))) {
-        console.warn('Keys: refused a folder share that would replace an existing key for', folderId.slice(0, 8) + '...')
-        throw new KeyOverwriteRefusedError(keyId)
-      }
-    }
-    await this.storeEncryptedKey(keyId, folderKey, folderId, { replace: true, sharedBy: senderPubkey })
-    this.keyCache.set(keyId, folderKey)
+    const folderKey = Crypto.hexToBytes(await this.selfDecrypt(senderPubkey, encryptedKey))
+    const key = await this.admitFolderKey(folderId, folderKey, senderPubkey, {
+      rotation: true,
+      existingCameFromSender: opts?.existingCameFromSender,
+    })
     console.log('Keys: Imported shared folder key for', folderId.slice(0, 8) + '...')
-    return folderKey
-  },
-
-  async shareMayReplace(
-    existing: KeyRecord,
-    senderPubkey: string,
-    isOwnFolder?: () => Promise<boolean>,
-  ): Promise<boolean> {
-    if (existing.sharedBy) return existing.sharedBy === senderPubkey
-    if (!isOwnFolder) return false
-    try {
-      return !(await isOwnFolder())
-    } catch {
-      return false
-    }
+    return key
   },
 
   /**
@@ -515,27 +585,35 @@ export const Keys = {
    * 'key' tag is authoritative (only we can produce a self-encryption that
    * decrypts for us), so a local key that disagrees is replaced: this is what
    * repairs a browser poisoned before provenance existed. Without a tag, a
-   * local key that came from someone else is dropped and the key is derived.
+   * local key that came from someone else is dropped and the key is derived;
+   * a pre-provenance local key that is not the derived key cannot be told
+   * apart from a planted one, so it is 'unverified' and refused for writes.
    */
+  // For WRITES into an own folder (wrap, share, migrate): throws
+  // FolderKeyUnverifiedError rather than hand out an unverifiable key. Reads
+  // use getFolderKey / fileKeyFor.
   async resolveOwnFolderKey(
     folderId: string,
     keyTag: string | undefined,
     parentId: string | null,
   ): Promise<Uint8Array> {
-    return (await this.resolveOwnFolderKeyStatus(folderId, keyTag, parentId)).key
+    const { key, status } = await this.resolveOwnFolderKeyStatus(folderId, keyTag, parentId)
+    if (status === 'unverified') throw new FolderKeyUnverifiedError(folderId)
+    return key
   },
 
   async resolveOwnFolderKeyStatus(
     folderId: string,
     keyTag: string | undefined,
     parentId: string | null,
-  ): Promise<{ key: Uint8Array; status: 'ok' | 'restored' | 'repaired' }> {
+  ): Promise<{ key: Uint8Array; status: OwnFolderKeyStatus; replaced?: Uint8Array }> {
     const keyId = `folder:${folderId}`
     const storage = await this.ensureStorage()
     const record = await storage.get(`${this.userPubkey}:${keyId}`)
     const foreign = !!record?.sharedBy && record.sharedBy !== this.userPubkey
 
     if (keyTag) {
+      this.unverifiedFolders.delete(folderId)
       if (record && !foreign && record.verifiedTag === keyTag) {
         const local = await this.loadEncryptedKey(keyId)
         if (local) {
@@ -554,48 +632,155 @@ export const Keys = {
       this.keyCache.set(keyId, real)
       if (local && !same) {
         console.warn('Keys: repaired folder key for', folderId.slice(0, 8) + '...', '(local key did not match the relay copy)')
+        return { key: real, status: 'repaired', replaced: local }
       }
-      return { key: real, status: !record ? 'restored' : same ? 'ok' : 'repaired' }
+      return { key: real, status: !record ? 'restored' : 'ok' }
+    }
+
+    // Untagged: any key here hangs off the parent's (or root's) key. Under an
+    // unverified parent nothing can be vouched for, whatever is stored.
+    this.unverifiedFolders.delete(folderId)
+    if (parentId && this.unverifiedFolders.has(parentId)) {
+      this.unverifiedFolders.add(folderId)
+      return { key: await this.getFolderKey(folderId, parentId), status: 'unverified' }
     }
 
     if (foreign) {
+      const local = await this.loadEncryptedKey(keyId)
       await this.deleteKey(keyId)
+      this.unverifiedFolders.delete(folderId)
       console.warn('Keys: dropped a shared-in key for own folder', folderId.slice(0, 8) + '...')
-      return { key: await this.getFolderKey(folderId, parentId), status: 'repaired' }
+      const derived = await this.getFolderKey(folderId, parentId)
+      await this.storeEncryptedKey(keyId, derived, folderId, { replace: true, sharedBy: this.userPubkey ?? undefined })
+      return { key: derived, status: 'repaired', ...(local ? { replaced: local } : {}) }
+    }
+
+    if (record && !record.sharedBy) {
+      // Pre-provenance record on an untagged own folder. Untagged own folders
+      // are derived (every folder we generate a key for gets a 'key' tag), so
+      // the derived key is the only one we can vouch for.
+      const local = await this.loadEncryptedKey(keyId)
+      const expected = local ? await this.expectedDerivedFolderKey(folderId, parentId) : null
+      if (local && expected && Crypto.bytesToHex(local) === Crypto.bytesToHex(expected)) {
+        await this.storeEncryptedKey(keyId, local, folderId, { replace: true, sharedBy: this.userPubkey ?? undefined })
+        this.keyCache.set(keyId, local)
+        this.unverifiedFolders.delete(folderId)
+        return { key: local, status: 'ok' }
+      }
+      if (local && expected) {
+        console.warn('Keys: cannot verify the local key for own folder', folderId.slice(0, 8) + '...', '(no relay copy, not the derived key)')
+        this.unverifiedFolders.add(folderId)
+        this.keyCache.set(keyId, local)
+        return { key: local, status: 'unverified' }
+      }
     }
     return { key: await this.getFolderKey(folderId, parentId), status: 'ok' }
   },
 
   /**
+   * The key an untagged own folder would have by derivation, or null when that
+   * cannot be computed here without inventing a key (no local root or parent
+   * key, or the parent's own key is itself unverified).
+   */
+  async expectedDerivedFolderKey(folderId: string, parentId: string | null): Promise<Uint8Array | null> {
+    let base: Uint8Array | null
+    if (parentId) {
+      if (this.unverifiedFolders.has(parentId)) return null
+      // Never derive the parent here: a tagged parent's key comes from its tag,
+      // and inventing one would store a wrong key for it.
+      base = this.keyCache.get(`folder:${parentId}`) ?? (await this.loadEncryptedKey(`folder:${parentId}`))
+    } else {
+      base = this.keyCache.get('root') ?? (await this.loadEncryptedKey('root'))
+    }
+    if (!base) return null
+    return this.deriveKey(base, folderId, this.CONTEXT_FOLDER)
+  },
+
+  /**
+   * After a folder's key was replaced, re-derive the untagged subfolders whose
+   * stored keys were derived from the replaced key (and so are wrong too). A
+   * child key is only touched when it provably equals the derivation from the
+   * replaced key; any other stored key is left alone.
+   */
+  async rederiveChildFolderKeys(
+    folders: Array<{ id: string; encrypted_key?: string; parent_id?: string }>,
+    parentId: string,
+    replaced: Uint8Array,
+    real: Uint8Array,
+    visited: Set<string> = new Set([parentId]),
+  ): Promise<number> {
+    let count = 0
+    for (const child of folders) {
+      if (child.parent_id !== parentId || child.encrypted_key || visited.has(child.id)) continue
+      visited.add(child.id)
+      const keyId = `folder:${child.id}`
+      this.keyCache.delete(keyId)
+      const stored = await this.loadEncryptedKey(keyId)
+      if (!stored) continue
+      const fromReplaced = await this.deriveKey(replaced, child.id, this.CONTEXT_FOLDER)
+      if (Crypto.bytesToHex(stored) !== Crypto.bytesToHex(fromReplaced)) {
+        this.keyCache.set(keyId, stored)
+        continue
+      }
+      const fixed = await this.deriveKey(real, child.id, this.CONTEXT_FOLDER)
+      await this.storeEncryptedKey(keyId, fixed, child.id, { replace: true, sharedBy: this.userPubkey ?? undefined })
+      this.keyCache.set(keyId, fixed)
+      this.unverifiedFolders.delete(child.id)
+      console.warn('Keys: re-derived subfolder key for', child.id.slice(0, 8) + '...', '(its parent key was repaired)')
+      count += 1 + (await this.rederiveChildFolderKeys(folders, child.id, stored, fixed, visited))
+    }
+    return count
+  },
+
+  /**
    * Check every listed OWN folder's local key against its relay copy, on every
-   * load. Restores missing keys and repairs ones that disagree; each tag is
-   * decrypted once (verifiedTag), so steady-state loads cost no signer calls.
+   * load. Restores missing keys, repairs ones that disagree (and the derived
+   * subfolders under them), and reports own folders whose key cannot be
+   * verified. Parents are handled before children. Each tag is decrypted once
+   * (verifiedTag), so steady-state loads cost no signer calls.
    */
   async restoreOwnFolderKeys(
     folders: Array<{ id: string; encrypted_key?: string; parent_id?: string; [k: string]: unknown }>,
-  ): Promise<{ restored: number; repaired: number; errors: number }> {
-    const result = { restored: 0, repaired: 0, errors: 0 }
+  ): Promise<{ restored: number; repaired: number; errors: number; unverified: string[] }> {
+    const result = { restored: 0, repaired: 0, errors: 0, unverified: [] as string[] }
     if (!this.auth?.isConnected || !this.userPubkey) return result
     const storage = await this.ensureStorage()
-    for (const folder of folders) {
+    // Recomputed below for every listed folder, so a flag never outlives its cause.
+    for (const folder of folders) this.unverifiedFolders.delete(folder.id)
+    for (const folder of parentsFirst(folders)) {
       try {
-        if (!folder.encrypted_key) {
-          // Untagged: only act if a shared-in key sits on our own folder.
+        const parentUnverified = !!folder.parent_id && this.unverifiedFolders.has(folder.parent_id)
+        if (!folder.encrypted_key && !parentUnverified) {
+          // Untagged: only act on a key that is not already known to be ours.
           const rec = await storage.get(`${this.userPubkey}:folder:${folder.id}`)
-          if (!rec?.sharedBy || rec.sharedBy === this.userPubkey) continue
+          if (!rec || rec.sharedBy === this.userPubkey) continue
         }
-        const { status } = await this.resolveOwnFolderKeyStatus(folder.id, folder.encrypted_key, folder.parent_id ?? null)
+        const { key, status, replaced } = await this.resolveOwnFolderKeyStatus(
+          folder.id,
+          folder.encrypted_key,
+          folder.parent_id ?? null,
+        )
         if (status === 'restored') result.restored++
         if (status === 'repaired') result.repaired++
+        if (status === 'unverified') result.unverified.push(folder.id)
+        if (replaced) result.repaired += await this.rederiveChildFolderKeys(folders, folder.id, replaced, key)
       } catch (err) {
         console.error('Keys: could not verify folder key for', folder.id, ':', (err as Error).message)
         result.errors++
       }
     }
-    if (result.restored || result.repaired || result.errors) {
-      console.log(`Keys: own folder keys: ${result.restored} restored, ${result.repaired} repaired, ${result.errors} errors`)
+    if (result.restored || result.repaired || result.errors || result.unverified.length) {
+      console.log(
+        `Keys: own folder keys: ${result.restored} restored, ${result.repaired} repaired, ` +
+          `${result.unverified.length} unverified, ${result.errors} errors`,
+      )
     }
     return result
+  },
+
+  /** Throws FolderKeyUnverifiedError if new files must not go into this folder. */
+  assertFolderKeyUsable(folderId: string): void {
+    if (this.unverifiedFolders.has(folderId)) throw new FolderKeyUnverifiedError(folderId)
   },
 
   // ── Envelope key wrapping (derivation → wrapping migration) ────────────
@@ -678,6 +863,7 @@ export const Keys = {
       Crypto.wipeKey(key)
     }
     this.keyCache.clear()
+    this.unverifiedFolders.clear()
     this.userPubkey = null
     this.wrappedKeyMode = false
     console.log('Keys: Cache cleared')
@@ -799,6 +985,7 @@ export const Keys = {
         type: k.type,
         associatedId: k.associatedId,
         encryptedKey: k.encryptedKey,
+        ...(k.sharedBy && k.sharedBy !== this.userPubkey ? { sharedBy: k.sharedBy } : {}),
       })),
     }
 
@@ -819,21 +1006,17 @@ export const Keys = {
     encrypted: string
     hash: string
     pubkey: string
-  }): Promise<{ imported: number; total: number }> {
+  }): Promise<{ imported: number; total: number; refused: number }> {
     if (!this.auth || !this.auth.isConnected) {
       throw new Error('Not connected')
     }
     if (backupData.pubkey !== this.userPubkey) {
       throw new Error('Backup is for a different user')
     }
-    if (!this.db) {
-      throw new Error('Backup requires browser storage')
-    }
-
     const decryptedString = await this.selfDecrypt(this.userPubkey!, backupData.encrypted)
     const backup = JSON.parse(decryptedString) as {
       createdAt: number
-      keys: Array<{ keyId: string; type: string; associatedId: string | null; encryptedKey: string }>
+      keys: Array<{ keyId: string; type: string; associatedId: string | null; encryptedKey: string; sharedBy?: string }>
     }
 
     const computedHash = await Crypto.hash(new TextEncoder().encode(decryptedString))
@@ -841,37 +1024,42 @@ export const Keys = {
       console.warn('Keys: Backup hash mismatch (may be truncated/modified)')
     }
 
+    // A backup only ever fills in keys this device lacks. Folder keys go
+    // through admitFolderKey (the same rule as an incoming share, with no
+    // rotation); any other key is never replaced by different bytes. A key the
+    // backup calls ours is stored without provenance and has to be confirmed
+    // against the relay copy on the next load, like any pre-provenance key.
+    const storage = await this.ensureStorage()
     let imported = 0
+    let refused = 0
     for (const keyData of backup.keys) {
       try {
-        const record: KeyRecord = {
-          id: `${this.userPubkey}:${keyData.keyId}`,
-          pubkey: this.userPubkey!,
-          keyId: keyData.keyId,
-          type: keyData.type,
-          associatedId: keyData.associatedId,
-          encryptedKey: keyData.encryptedKey,
-          createdAt: backup.createdAt,
-          updatedAt: Date.now(),
+        const key = await this.decodeStoredKey(keyData.encryptedKey)
+        if (!key) throw new Error('undecryptable key')
+        if (keyData.type === 'folder' && keyData.keyId.startsWith('folder:')) {
+          const folderId = keyData.keyId.slice('folder:'.length)
+          await this.admitFolderKey(folderId, key, keyData.sharedBy, { rotation: false })
+        } else {
+          const existing = await storage.get(`${this.userPubkey}:${keyData.keyId}`)
+          const current = existing ? await this.loadEncryptedKey(keyData.keyId) : null
+          if (existing && (!current || Crypto.bytesToHex(current) !== Crypto.bytesToHex(key))) {
+            throw new KeyOverwriteRefusedError(keyData.keyId)
+          }
+          if (!existing) await this.storeEncryptedKey(keyData.keyId, key, keyData.associatedId, { replace: true })
         }
-        await new Promise<void>((resolve, reject) => {
-          const tx = this.db!.transaction(this.STORE_NAME, 'readwrite')
-          const store = tx.objectStore(this.STORE_NAME)
-          const request = store.put(record)
-          request.onsuccess = () => resolve()
-          request.onerror = () => reject(request.error)
-        })
         imported++
       } catch (err) {
-        console.warn(`Keys: Failed to import key ${keyData.keyId}:`, err)
+        if (err instanceof KeyOverwriteRefusedError) refused++
+        console.warn(`Keys: Did not import key ${keyData.keyId}:`, (err as Error).message)
       }
     }
+    if (refused) console.warn(`Keys: backup import kept ${refused} existing keys that differ from the backup`)
 
     this.clearCache()
     this.userPubkey = backupData.pubkey
 
     console.log(`Keys: Imported ${imported} keys from backup`)
-    return { imported, total: backup.keys.length }
+    return { imported, total: backup.keys.length, refused }
   },
 }
 

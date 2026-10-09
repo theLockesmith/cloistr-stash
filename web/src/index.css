@@ -806,6 +806,15 @@ body {
   color: var(--cloistr-error);
 }
 
+.fb-key-warning {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--cloistr-error);
+  border-radius: 6px;
+  color: var(--cloistr-error);
+  font-size: 0.9rem;
+}
+
 .fb-list {
   display: flex;
   flex-direction: column;

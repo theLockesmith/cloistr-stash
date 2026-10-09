@@ -71,6 +71,7 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
     if (i > 0) await new Promise((r) => setTimeout(r, RELAY_UPLOAD_DELAY_MS))
 
     try {
+      if (folderId) Keys.assertFolderKeyUsable(folderId)
       const fileBuffer = await item.file.arrayBuffer()
       const fileData = new Uint8Array(fileBuffer)
 
@@ -196,6 +197,7 @@ export async function uploadEncryptedBytes(
   folderId?: string | null,
 ): Promise<void> {
   await Crypto.init()
+  if (folderId) Keys.assertFolderKeyUsable(folderId)
 
   const fileId = Crypto.generateFileId()
   const plaintextHash = await Crypto.hash(data)

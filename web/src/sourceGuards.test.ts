@@ -72,6 +72,22 @@ describe('own folder keys come from the relay copy', () => {
   it('folder sharing uses the relay copy for own folders', () => {
     expect(readFileSync(join(coreSrc, 'sharing.ts'), 'utf8')).toMatch(/folder\.encrypted_key\s*\?\s*await Keys\.resolveOwnFolderKey\(/)
   })
+
+  // Residual (d): a folder whose key cannot be verified is refused for new
+  // files in stash-core; the app must say so rather than fail silently.
+  it('every key check on load refreshes the unverified set, and the file browser shows it', () => {
+    const provider = readFileSync(join(appSrc, 'state/StashProvider.tsx'), 'utf8')
+    const checks = provider.match(/await restoreFolderKeys\([^)]*\)\n\s*setUnverifiedFolders\(snapshotUnverified\(\)\)/g) ?? []
+    expect(checks.length).toBe((provider.match(/await restoreFolderKeys\(/g) ?? []).length)
+    expect(checks.length).toBeGreaterThan(0)
+    const browser = readFileSync(join(appSrc, 'components/FileBrowser.tsx'), 'utf8')
+    expect(browser).toMatch(/unverifiedFolders\.has\(currentFolderId\)/)
+  })
+
+  it('both upload entry points refuse an unverified folder before encrypting', () => {
+    const src = readFileSync(join(coreSrc, 'upload.ts'), 'utf8')
+    expect((src.match(/if \(folderId\) Keys\.assertFolderKeyUsable\(folderId\)/g) ?? []).length).toBe(2)
+  })
 })
 
 describe('service addresses', () => {
