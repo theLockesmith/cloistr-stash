@@ -76,10 +76,15 @@ func fakeRelay(t *testing.T, mode string) string {
 func connectedStore(t *testing.T, url string) *Store {
 	t.Helper()
 	s := NewStore(url, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err := s.Connect(context.Background()); err != nil {
+	// End the connection by cancelling its context, not Store.Close: go-nostr
+	// v0.52.3's Relay.close reads r.Connection while its write loop nils it,
+	// which the race detector reports (a library race, not this package's).
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := s.Connect(ctx); err != nil {
+		cancel()
 		t.Fatalf("connect: %v", err)
 	}
-	t.Cleanup(s.Close)
+	t.Cleanup(cancel)
 	return s
 }
 
