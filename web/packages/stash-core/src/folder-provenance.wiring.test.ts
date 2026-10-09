@@ -120,6 +120,20 @@ describe('accepting a folder share', () => {
     expect(hex((await Keys.loadEncryptedKey('folder:f-old'))!)).toBe(hex(local))
   })
 
+  it('refuses to replace a pre-provenance key when the relay query FAILS (failed answer is unknown, not proof)', async () => {
+    const local = Crypto.generateKey()
+    await Keys.storeEncryptedKey('folder:f-old', local, 'f-old')
+    subscribe.mockRejectedValueOnce(new Error('Subscription timeout'))
+    decryptPassthrough()
+
+    await expect(
+      Sharing.acceptShare(folderShare('f-old', Crypto.generateKey()) as never),
+    ).rejects.toBeInstanceOf(KeyOverwriteRefusedError)
+    expect(subscribe).toHaveBeenCalled()
+    Keys.keyCache.clear()
+    expect(hex((await Keys.loadEncryptedKey('folder:f-old'))!)).toBe(hex(local))
+  })
+
   it('refuses when the sender\'s earlier share carried a different key than the local one', async () => {
     await Keys.storeEncryptedKey('folder:f-old', Crypto.generateKey(), 'f-old')
     relay.events = [earlierShare('f-old', Crypto.generateKey())]
