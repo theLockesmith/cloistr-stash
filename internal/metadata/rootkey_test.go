@@ -76,9 +76,11 @@ func fakeRelay(t *testing.T, mode string) string {
 func connectedStore(t *testing.T, url string) *Store {
 	t.Helper()
 	s := NewStore(url, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	// End the connection by cancelling its context, not Store.Close: go-nostr
-	// v0.52.3's Relay.close reads r.Connection while its write loop nils it,
-	// which the race detector reports (a library race, not this package's).
+	// Never call Store.Close here: go-nostr v0.52.3's Relay.close reads
+	// r.Connection while the goroutine its cancel wakes sets it to nil (library
+	// race, see !170). RelayConnect ties the connection to context.Background,
+	// so it ends when the fake relay's server shuts down (fakeRelay's cleanup),
+	// which go-nostr handles by closing itself; ctx only bounds the dial.
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := s.Connect(ctx); err != nil {
 		cancel()
