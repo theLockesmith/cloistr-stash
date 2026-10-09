@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { mergeProfilePicture, publicBlobUrl, publicUrlForFile, checkPublished, PUBLIC_BLOB_HOST } from './publish'
 import type { ProfileRead } from './publish'
+import { readProfile, type ProfileSources } from './publish'
+import { RELAY_URL } from './serviceConfig'
 
 describe('publicBlobUrl', () => {
   it('builds a plain hash URL with no fragment', () => {
@@ -170,5 +172,47 @@ describe('publicUrlForFile / checkPublished', () => {
   it('reports unknown on a 500, NOT not-published', async () => {
     const err = (async () => ({ ok: false, status: 500 })) as unknown as typeof fetch
     expect(await checkPublished('u', err)).toBe('unknown')
+  })
+})
+
+// Sweep item #5 (2026-10-09): readProfile asked only our relay, so a user
+// whose profile lives on their own relays read as "absent" and the kind-0 we
+// published replaced their whole profile.
+
+describe('readProfile reads our relay AND the user’s relays; no answer is never "absent"', () => {
+  const PK = 'a'.repeat(64)
+  const theirs = 'wss://their.relay'
+  const sources = (over: Partial<ProfileSources> & { on?: Record<string, unknown[] | Error> }): ProfileSources => ({
+    relayList: over.relayList ?? (async () => [theirs]),
+    query: over.query ?? (async (url) => {
+      const r = over.on?.[url] ?? []
+      if (r instanceof Error) throw r
+      return r as never
+    }),
+  })
+
+  it('finds a profile that exists only on the user’s own relay (the reported bug)', async () => {
+    const r = await readProfile(PK, sources({ on: { [RELAY_URL]: [], [theirs]: [{ created_at: 5, content: '{"name":"me"}' }] } }))
+    expect(r).toEqual({ status: 'found', content: '{"name":"me"}' })
+  })
+
+  it('newest wins across relays', async () => {
+    const r = await readProfile(PK, sources({ on: { [RELAY_URL]: [{ created_at: 9, content: 'new' }], [theirs]: [{ created_at: 5, content: 'old' }] } }))
+    expect(r).toEqual({ status: 'found', content: 'new' })
+  })
+
+  it('a relay that does not answer makes it unreadable, not absent', async () => {
+    const r = await readProfile(PK, sources({ on: { [RELAY_URL]: [], [theirs]: new Error('no answer') } }))
+    expect(r.status).toBe('unreadable')
+  })
+
+  it('an unknown relay list makes it unreadable, not absent', async () => {
+    const r = await readProfile(PK, sources({ relayList: async () => { throw new Error('timeout') } }))
+    expect(r.status).toBe('unreadable')
+  })
+
+  it('absent only when every relay answered with nothing', async () => {
+    const r = await readProfile(PK, sources({ on: { [RELAY_URL]: [], [theirs]: [] } }))
+    expect(r).toEqual({ status: 'absent' })
   })
 })

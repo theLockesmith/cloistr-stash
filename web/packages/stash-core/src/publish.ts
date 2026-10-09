@@ -32,7 +32,8 @@ import { API } from './api'
 import { authPort } from './authBridge'
 import { readFileBytes, type FileRef } from './fileKey'
 import { Relay } from './relay'
-import { BLOB_HOST } from './serviceConfig'
+import { BLOB_HOST, DISCOVERY_URL, RELAY_URL } from './serviceConfig'
+import { RelayPrefs } from './relayprefs'
 import type { SignedEvent } from './api'
 import type { StashFile } from './types'
 
@@ -140,22 +141,114 @@ export type ProfileRead =
   | { status: 'absent' }
   | { status: 'unreadable'; reason: string }
 
-export async function readProfile(pubkey: string): Promise<ProfileRead> {
-  let events
+type ProfileEvent = { created_at?: number; content?: unknown }
+
+/**
+ * Where a user's profile may live, and how to ask one relay for it. Both throw
+ * when they cannot answer; neither ever turns "no answer" into "nothing there".
+ */
+export interface ProfileSources {
+  /** The user's own relays (NIP-65 / cloistr-relays), excluding ours. Throws if unknown. */
+  relayList(pubkey: string): Promise<string[]>
+  /** kind-0 events for pubkey on one relay. Throws unless the relay finished answering (EOSE). */
+  query(url: string, pubkey: string): Promise<ProfileEvent[]>
+}
+
+/**
+ * Read the user's profile from our relay AND the user's own relays (found
+ * 2026-10-09: reading only ours, a user whose profile lives elsewhere read as
+ * "absent", and the kind-0 we then published replaced their whole profile).
+ *
+ *   found      — some relay has a kind-0; the newest wins
+ *   absent     — every relay answered, and none has one; safe to create
+ *   unreadable — the relay list, or any relay, did not answer; refuse
+ */
+export async function readProfile(pubkey: string, sources: ProfileSources = defaultProfileSources()): Promise<ProfileRead> {
+  let urls: string[]
   try {
-    events = await Relay.subscribe({ kinds: [0], authors: [pubkey], limit: 1 })
+    urls = [...new Set([RELAY_URL, ...(await sources.relayList(pubkey))])]
   } catch (err) {
-    // A failed query is NOT an empty profile.
-    return { status: 'unreadable', reason: err instanceof Error ? err.message : String(err) }
+    return { status: 'unreadable', reason: `could not look up your relays: ${err instanceof Error ? err.message : String(err)}` }
   }
-  if (!events || !events.length) return { status: 'absent' }
-  // Newest wins if a relay hands back more than one.
-  const newest = events.reduce((a, b) => ((b.created_at ?? 0) > (a.created_at ?? 0) ? b : a))
-  return { status: 'found', content: typeof newest.content === 'string' ? newest.content : '' }
+  const answers = await Promise.allSettled(urls.map((url) => sources.query(url, pubkey)))
+  const found = answers.flatMap((a) => (a.status === 'fulfilled' ? a.value : []))
+  if (found.length) {
+    // Newest wins if relays disagree.
+    const newest = found.reduce((a, b) => ((b.created_at ?? 0) > (a.created_at ?? 0) ? b : a))
+    return { status: 'found', content: typeof newest.content === 'string' ? newest.content : '' }
+  }
+  const failed = answers.filter((a) => a.status === 'rejected').length
+  if (failed) return { status: 'unreadable', reason: `${failed} of ${urls.length} relays did not answer` }
+  return { status: 'absent' }
+}
+
+/** One REQ to one relay; resolves only on EOSE. */
+function queryOneRelay(url: string, filter: Record<string, unknown>, timeoutMs = 8000): Promise<ProfileEvent[]> {
+  return new Promise((resolve, reject) => {
+    let ws: WebSocket
+    try {
+      ws = new WebSocket(url)
+    } catch (err) {
+      reject(err)
+      return
+    }
+    const subId = 'p' + Math.random().toString(36).slice(2, 10)
+    const events: ProfileEvent[] = []
+    const done = (err?: Error) => {
+      clearTimeout(timer)
+      try { ws.close() } catch { /* already closed */ }
+      if (err) reject(err)
+      else resolve(events)
+    }
+    const timer = setTimeout(() => done(new Error(`${url}: no answer`)), timeoutMs)
+    ws.onopen = () => ws.send(JSON.stringify(['REQ', subId, filter]))
+    ws.onerror = () => done(new Error(`${url}: connection failed`))
+    ws.onclose = () => done(new Error(`${url}: closed before answering`))
+    ws.onmessage = (msg) => {
+      try {
+        const m = JSON.parse(String(msg.data)) as unknown[]
+        if (m[1] !== subId) return
+        if (m[0] === 'EVENT') events.push(m[2] as ProfileEvent)
+        else if (m[0] === 'EOSE') { ws.onclose = null; done() }
+        else if (m[0] === 'CLOSED') done(new Error(`${url}: ${String(m[2])}`))
+      } catch { /* ignore malformed frames */ }
+    }
+  })
+}
+
+function defaultProfileSources(): ProfileSources {
+  return {
+    async relayList(pubkey) {
+      const relays = (prefs: { readRelays: string[]; writeRelays: string[] } | null) =>
+        prefs ? [...prefs.writeRelays, ...prefs.readRelays] : []
+      // Discovery first; a 404 means it has no list, anything else is no answer.
+      try {
+        const res = await fetch(`${DISCOVERY_URL}/api/v1/relay-prefs/${pubkey}`, { headers: { Accept: 'application/json' } })
+        if (res.ok) {
+          const list = relays(RelayPrefs.parseDiscoveryResponse(await res.json()))
+          if (list.length) return list
+        }
+      } catch { /* fall through to our relay */ }
+      // Our relay's copies of the lists. Relay.subscribe rejects on a timeout,
+      // so reaching the return means it answered (possibly with none).
+      const [nip65, cloistr] = await Promise.all([
+        Relay.subscribe({ kinds: [10002], authors: [pubkey], limit: 1 }, 5000),
+        Relay.subscribe({ kinds: [30078], authors: [pubkey], '#d': ['cloistr-relays'], limit: 1 }, 5000),
+      ])
+      return [...nip65, ...cloistr].flatMap((e) => relays(RelayPrefs.parseRelayTags((e as { tags: string[][] }).tags)))
+    },
+    async query(url, pubkey) {
+      const filter = { kinds: [0], authors: [pubkey], limit: 1 }
+      if (url === RELAY_URL) return (await Relay.subscribe(filter)) as ProfileEvent[]
+      return queryOneRelay(url, filter)
+    },
+  }
 }
 
 export interface SetProfilePictureDeps {
   pubkey: string
+  /** Where to read the existing profile from (defaults to our relay + the user's relays). */
+  sources?: ProfileSources
   signEvent: (event: {
     kind: number
     created_at: number
@@ -197,7 +290,7 @@ export async function setProfilePicture(
   deps: SetProfilePictureDeps = defaultProfileDeps(),
   allowEmptyProfile = false,
 ): Promise<void> {
-  const existing = await readProfile(deps.pubkey)
+  const existing = await readProfile(deps.pubkey, deps.sources)
 
   // Refuse ONLY when we genuinely could not look. An absent profile has nothing
   // to overwrite, so creating one is safe and is the common case for a new user.

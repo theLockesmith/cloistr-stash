@@ -7,8 +7,8 @@
 
 import { Crypto } from './crypto'
 import { Keys } from './keys'
-import { Events } from './events'
 import { API } from './api'
+import { editOwnEvent, loadOwnEvent, setTag } from './editEvent'
 import { authPort } from './authBridge'
 import { fileKeyFor, type FileRef } from './fileKey'
 
@@ -154,6 +154,10 @@ export const Versioning = {
     const currentVersions = await this.getVersionHistory(fileId)
     const newVersionNumber = currentVersions.length + 1
 
+    // Refuse before uploading anything if the file's current event cannot be
+    // loaded: the new version is merged into it (see below).
+    await loadOwnEvent(30078, fileId)
+
     // The file's own key: its wrapped key, or HKDF for a legacy file.
     const fileKey = await fileKeyFor(file as FileRef)
 
@@ -191,22 +195,19 @@ export const Versioning = {
       // Store version metadata locally
       await this.storeVersionMeta(versionMeta)
 
-      // Publish updated file metadata with version tags
-      // Events.createEncryptedFileMetadataEvent adds ['v', ...] and ['current', ...]
-      // tags when `version` is present — see events.ts EncryptedFileMetadataInput.
-      const metadataEvent = await Events.createEncryptedFileMetadataEvent({
-        fileId,
-        sha256: uploadedSha256,
-        plaintextHash,
-        name: file.name,
-        size: versionMeta.size,
-        encryptedSize: versionMeta.encryptedSize,
-        mimeType: file.mime_type || file.mimeType || 'application/octet-stream',
-        folderId: folderId ?? undefined,
-        version: newVersionNumber,
+      // Merge the new version into the file's CURRENT event: owner_key (the
+      // same key encrypted this version), earlier 'v' entries, tags and any
+      // other field are kept; only the blob-specific fields change.
+      // (Rebuilding it from `file` dropped owner_key: found 2026-10-09.)
+      await editOwnEvent(30078, fileId, (draft) => {
+        setTag(draft, 'x', uploadedSha256)
+        setTag(draft, 'ox', plaintextHash)
+        setTag(draft, 'size', String(versionMeta.size))
+        draft.content.size = versionMeta.size
+        draft.content.encrypted_size = versionMeta.encryptedSize
+        draft.tags.push(['v', uploadedSha256, String(newVersionNumber), String(versionMeta.timestamp), authPort.pubkey!])
+        setTag(draft, 'current', uploadedSha256)
       })
-
-      await authPort.publishEvent(metadataEvent)
 
       console.log(`Versioning: Created version ${newVersionNumber} for file ${fileId.slice(0, 8)}...`)
 
