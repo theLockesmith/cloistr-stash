@@ -598,13 +598,6 @@ export const Keys = {
     return result
   },
 
-  async exportFolderKeyForSharing(folderId: string, recipientPubkey: string): Promise<string> {
-    const folderKey = await this.getFolderKey(folderId)
-    const keyHex = Crypto.bytesToHex(folderKey)
-    if (!this.auth) throw new Error('Not connected')
-    return this.selfEncrypt(recipientPubkey, keyHex)
-  },
-
   // ── Envelope key wrapping (derivation → wrapping migration) ────────────
 
   generateFileKey(): Uint8Array {
