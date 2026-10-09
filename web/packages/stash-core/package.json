@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@cloistr/auth": "^1.4.1",
-    "@cloistr/collab-common": "^0.7.1",
+    "@cloistr/collab-common": "^0.7.2",
     "libsodium-wrappers": "^0.8.4",
     "yjs": "^13.6.33"
   },
