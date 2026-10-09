@@ -27,11 +27,11 @@ vi.mock('./authBridge', () => ({
   getSigner: () => ({}),
 }))
 
-import { Keys, KeyOverwriteRefusedError } from './keys'
+import { Keys, KeyOverwriteRefusedError, FolderKeyUnverifiedError } from './keys'
 import type { AuthPort } from './keys'
 import { Crypto } from './crypto'
 import { InMemoryKeyStorage } from './key-storage'
-import { addWrappedKeyToFolder } from './upload'
+import { addWrappedKeyToFolder, uploadEncryptedBytes, uploadFiles } from './upload'
 import { Sharing } from './sharing'
 
 const enc = (key: Uint8Array) => `nip44:${Crypto.bytesToHex(key)}`
@@ -56,6 +56,7 @@ beforeEach(async () => {
   Keys.userPubkey = ME
   Keys.nip44Writes = true
   Keys.keyCache.clear()
+  Keys.unverifiedFolders?.clear()
   published.length = 0
   relay.events = []
   subscribe.mockClear()
@@ -92,19 +93,79 @@ describe('accepting a folder share', () => {
     encrypted_content: JSON.stringify({ type: 'folder', folderId, folderName: 'x', folderKey: enc(key) }),
   })
 
-  it('asks the relay whether the folder is the user\'s own (authors = me, #d = folder id)', async () => {
-    await Keys.storeEncryptedKey('folder:f-old', Crypto.generateKey(), 'f-old') // pre-provenance record
-    relay.events = [{ kind: 30079, tags: [['d', 'f-old']], content: '{}' }]
+  const decryptPassthrough = () =>
     vi.spyOn(Sharing, 'decryptFromSender').mockImplementation(async (_pk: string, ct: string) =>
       ct.startsWith('nip44:') ? ct.replace('nip44:', '') : ct,
     )
+  const earlierShare = (folderId: string, key: Uint8Array) => ({
+    kind: 30080,
+    tags: [['p', ME]],
+    content: JSON.stringify({ type: 'folder', folderId, folderKey: enc(key) }),
+  })
+
+  it('refuses to replace a pre-provenance key when the relay has no proof (empty answer is unknown)', async () => {
+    const local = Crypto.generateKey()
+    await Keys.storeEncryptedKey('folder:f-old', local, 'f-old') // pre-provenance record
+    relay.events = []
+    decryptPassthrough()
 
     await expect(
       Sharing.acceptShare(folderShare('f-old', Crypto.generateKey()) as never),
     ).rejects.toBeInstanceOf(KeyOverwriteRefusedError)
     expect(subscribe).toHaveBeenCalledWith(
-      expect.objectContaining({ kinds: [30079], authors: [ME], '#d': ['f-old'] }),
+      expect.objectContaining({ kinds: [30080], authors: [MALLORY], '#p': [ME] }),
       expect.any(Number),
     )
+    Keys.keyCache.clear()
+    expect(hex((await Keys.loadEncryptedKey('folder:f-old'))!)).toBe(hex(local))
+  })
+
+  it('refuses when the sender\'s earlier share carried a different key than the local one', async () => {
+    await Keys.storeEncryptedKey('folder:f-old', Crypto.generateKey(), 'f-old')
+    relay.events = [earlierShare('f-old', Crypto.generateKey())]
+    decryptPassthrough()
+    await expect(
+      Sharing.acceptShare(folderShare('f-old', Crypto.generateKey()) as never),
+    ).rejects.toBeInstanceOf(KeyOverwriteRefusedError)
+  })
+
+  it('accepts a rotation when the sender\'s earlier share carried exactly the local key', async () => {
+    const local = Crypto.generateKey()
+    const rotated = Crypto.generateKey()
+    await Keys.storeEncryptedKey('folder:f-old', local, 'f-old')
+    relay.events = [earlierShare('f-old', local)]
+    decryptPassthrough()
+
+    await Sharing.acceptShare(folderShare('f-old', rotated) as never)
+    Keys.keyCache.clear()
+    expect(hex((await Keys.loadEncryptedKey('folder:f-old'))!)).toBe(hex(rotated))
+  })
+})
+
+describe('uploading into an own folder whose key cannot be verified', () => {
+  it('refuses before encrypting or uploading anything', async () => {
+    const odd = Crypto.generateKey()
+    await Keys.storeEncryptedKey('folder:f-odd', odd, 'f-odd') // pre-provenance, not derived
+    await Keys.storeEncryptedKey('root', Crypto.generateKey(), null)
+    const result = await Keys.restoreOwnFolderKeys([{ id: 'f-odd' }])
+    expect(result.unverified).toEqual(['f-odd'])
+
+    await expect(uploadEncryptedBytes(new Uint8Array([1, 2, 3]), 'a.txt', 'text/plain', 'f-odd')).rejects.toBeInstanceOf(
+      FolderKeyUnverifiedError,
+    )
+    const items = await uploadFiles([new File(['hi'], 'b.txt')], { folderId: 'f-odd' })
+    expect(items[0].status).toBe('error')
+    expect(items[0].error).toMatch(/cannot be verified/)
+    expect(published).toEqual([])
+  })
+
+  it('in wrapped-key mode, does not wrap a new file key under an unverified folder key', async () => {
+    await Keys.storeEncryptedKey('folder:f-odd', Crypto.generateKey(), 'f-odd')
+    await Keys.storeEncryptedKey('root', Crypto.generateKey(), null)
+    relay.events = [{ kind: 30079, tags: [['d', 'f-odd']], content: '{"name":"odd"}' }]
+    await expect(addWrappedKeyToFolder('f-odd', 'file-1', Crypto.generateKey())).rejects.toBeInstanceOf(
+      FolderKeyUnverifiedError,
+    )
+    expect(published).toEqual([])
   })
 })

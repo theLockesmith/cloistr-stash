@@ -86,6 +86,8 @@ export function FileBrowser() {
     allTags,
     sortPrefs,
     setSortPrefs,
+    currentFolderId,
+    unverifiedFolders,
   } = useStash()
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [infoFile, setInfoFile] = useState<StashFile | null>(null)
@@ -459,6 +461,13 @@ export function FileBrowser() {
   return (
     <div className="file-browser">
       <SelectionToolbar />
+
+      {view === 'my-files' && currentFolderId && unverifiedFolders.has(currentFolderId) && (
+        <div className="fb-key-warning" role="alert">
+          This folder&apos;s key on this device could not be verified, so new files can&apos;t be added to it here.
+          Files already in it still open. Upload into another folder instead.
+        </div>
+      )}
 
       <div className="fb-toolbar" role="group" aria-label="View and sort controls">
         <button

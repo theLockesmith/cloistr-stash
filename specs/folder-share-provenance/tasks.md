@@ -9,3 +9,15 @@
 - [ ] T4 typecheck, both suites, build, node proof; review
 - [ ] T5 Live: poison a throwaway victim on the pre-fix build
 - [ ] T6 Merge, deploy, live: self-repair + new upload wraps under the real key
+
+## Residuals (orchestrator, 2026-10-09)
+
+- [x] R-a importBackup through admitFolderKey; root/other keys never replaced
+  - Evidence: keys.folder-residuals (a) 7 tests; on the old code with an IndexedDB stand-in 6 of 7 fail (old import overwrote an own folder key and the root key).
+- [x] R-b re-derive subfolders of a repaired parent
+  - Evidence: (b) 3 tests; 2 of 3 fail on old code (the third asserts nothing is touched).
+- [x] R-c empty/failed ownership answer is unknown -> refuse; positive proof only
+  - Evidence: keys.folder-provenance pre-provenance block + 3 wiring tests against a stubbed relay.
+- [x] R-d untagged pre-provenance key that is not derived -> unverified, uploads refused, UI notice
+  - Evidence: (d) 4 tests, 2 wiring upload tests, 2 sourceGuards.
+- [ ] Review, MR, merge, deploy, live check

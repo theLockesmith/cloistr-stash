@@ -162,6 +162,12 @@ export interface StashContextValue {
    * Storage quota from the server. null while loading or when the server
    * returns no quota. Fields mirror the legacy quota API response.
    */
+  /**
+   * Own folders whose key on this device cannot be verified (no relay copy,
+   * not the derived key). New files are not added to them; see
+   * Keys.resolveOwnFolderKeyStatus.
+   */
+  unverifiedFolders: ReadonlySet<string>
   quota: {
     enabled: boolean
     usedHuman: string
@@ -181,6 +187,8 @@ async function restoreFolderKeys(folders: StashFolder[]): Promise<void> {
   if (!authPort.isConnected || !authPort.pubkey || folders.length === 0) return
   await Keys.restoreOwnFolderKeys(folders)
 }
+
+const snapshotUnverified = (): ReadonlySet<string> => new Set(Keys.unverifiedFolders)
 
 // Keep root-key/config events and deleted/trashed files out of the my-files view
 // (ported verbatim from app.js loadFiles).
@@ -216,6 +224,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [files, setFiles] = useState<StashFile[]>([])
   const [folders, setFolders] = useState<StashFolder[]>([])
   const [folderTreeData, setFolderTreeData] = useState<StashFolder[]>([])
+  const [unverifiedFolders, setUnverifiedFolders] = useState<ReadonlySet<string>>(() => new Set())
   const [specialFiles, setSpecialFiles] = useState<StashFile[]>([])
   const [currentFolderId, setCurrentFolderId] = useState('')
   const [folderPath, setFolderPath] = useState<FolderPathItem[]>([])
@@ -280,6 +289,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       const visibleFiles = ((filesResponse.files || []) as StashFile[]).filter(isVisibleFile)
 
       await restoreFolderKeys(loadedFolders)
+      setUnverifiedFolders(snapshotUnverified())
 
       setFolders(loadedFolders)
       setFiles(visibleFiles)
@@ -377,6 +387,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       treeRef.current = tree
       setFolderTreeData(tree)
       await restoreFolderKeys(tree)
+      setUnverifiedFolders(snapshotUnverified())
     } catch (err) {
       console.error('loadFolderTree: Failed -', (err as Error).message)
     }
@@ -1086,6 +1097,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       folderTreeData,
       specialFiles,
       currentFolderId,
+      unverifiedFolders,
       folderPath,
       view,
       searchQuery,
@@ -1151,6 +1163,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       folderTreeData,
       specialFiles,
       currentFolderId,
+      unverifiedFolders,
       folderPath,
       view,
       searchQuery,
