@@ -45,6 +45,7 @@ import { runWrappedKeyMigration, isMigrationComplete } from './migration-wrapped
 import { API } from './api'
 import { authPort } from './authBridge'
 import { Relay } from './relay'
+import { InMemoryKeyStorage } from './key-storage'
 
 const TEST_PUBKEY = '4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766'
 
@@ -52,6 +53,8 @@ describe('runWrappedKeyMigration: partial failure', () => {
   beforeEach(async () => {
     await Crypto.init()
     Keys.keyCache.clear()
+    // migration checks the key store for folder-key provenance
+    Keys.setStorage(new InMemoryKeyStorage())
     Keys.userPubkey = TEST_PUBKEY
     Keys.wrappedKeyMode = false
     Keys.configure({
@@ -144,6 +147,8 @@ describe('migration record on relay', () => {
   beforeEach(async () => {
     await Crypto.init()
     Keys.keyCache.clear()
+    // migration checks the key store for folder-key provenance
+    Keys.setStorage(new InMemoryKeyStorage())
     Keys.userPubkey = TEST_PUBKEY
     Keys.wrappedKeyMode = false
     Keys.configure({
@@ -263,6 +268,8 @@ describe('Keys.getFileKey: derivation fallback warning', () => {
   beforeEach(async () => {
     await Crypto.init()
     Keys.keyCache.clear()
+    // migration checks the key store for folder-key provenance
+    Keys.setStorage(new InMemoryKeyStorage())
     Keys.userPubkey = TEST_PUBKEY
     Keys.wrappedKeyMode = false
     Keys.configure({

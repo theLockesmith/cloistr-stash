@@ -51,6 +51,29 @@ describe('UI read paths go through the shared reader', () => {
   }
 })
 
+describe('own folder keys come from the relay copy', () => {
+  // 2026-10-09: a share could overwrite an own folder key, and code that used
+  // the local key then wrapped new files under the attacker's key. Own-folder
+  // users must go through Keys.resolveOwnFolderKey / restoreOwnFolderKeys.
+  it('the app repairs folder keys on load through stash-core, not its own copy', () => {
+    const src = readFileSync(join(appSrc, 'state/StashProvider.tsx'), 'utf8')
+    expect(src).toMatch(/Keys\.restoreOwnFolderKeys\(/)
+    expect(src).not.toMatch(/importSharedFolderKey\(/)
+  })
+
+  it('upload wrapping and the wrapped-key migration use resolveOwnFolderKey', () => {
+    for (const f of ['upload.ts', 'migration-wrapped-keys.ts']) {
+      const src = readFileSync(join(coreSrc, f), 'utf8')
+      expect(src, f).toMatch(/resolveOwnFolderKey\(/)
+      expect(src, f).not.toMatch(/Keys\.getFolderKey\(/)
+    }
+  })
+
+  it('folder sharing uses the relay copy for own folders', () => {
+    expect(readFileSync(join(coreSrc, 'sharing.ts'), 'utf8')).toMatch(/folder\.encrypted_key\s*\?\s*await Keys\.resolveOwnFolderKey\(/)
+  })
+})
+
 describe('service addresses', () => {
   // Every production service address must come through serviceConfig, or a
   // staging deployment of this image would quietly talk to production.
