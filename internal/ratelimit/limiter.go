@@ -1,7 +1,10 @@
 package ratelimit
 
 import (
+	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -37,9 +40,9 @@ type bucket struct {
 // DefaultConfig returns sensible default rate limiting settings
 func DefaultConfig() Config {
 	return Config{
-		RequestsPerMinute: 120,  // 2 requests per second average
-		BurstSize:         30,   // Allow short bursts
-		UploadsPerMinute:  10,   // More restrictive for uploads
+		RequestsPerMinute: 120, // 2 requests per second average
+		BurstSize:         30,  // Allow short bursts
+		UploadsPerMinute:  10,  // More restrictive for uploads
 		CleanupInterval:   5 * time.Minute,
 	}
 }
@@ -121,12 +124,11 @@ func (l *Limiter) allowN(key string, n float64, rate float64, maxTokens float64)
 // Middleware returns an HTTP middleware that applies rate limiting
 func (l *Limiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Use IP address or X-Forwarded-For as the key
 		key := l.getClientKey(r)
 
 		if !l.Allow(key) {
 			w.Header().Set("Retry-After", "60")
-			w.Header().Set("X-RateLimit-Limit", string(rune(l.config.RequestsPerMinute)))
+			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(l.config.RequestsPerMinute))
 			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}
@@ -150,20 +152,24 @@ func (l *Limiter) UploadMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// getClientKey extracts the client identifier from the request
+// getClientKey returns the client IP to key the rate limit bucket on.
+//
+// X-Forwarded-For is never read: the public edge nginx only appends to it, so
+// its contents (and its leftmost entry) are whatever the client sent, and any
+// fresh string would get a fresh bucket. The edge overwrites X-Real-IP with the
+// real client address, and the cluster router passes it through untouched, so
+// that is the only header trusted. Without it (in-cluster callers), the TCP
+// peer address is used, minus the port so reconnects share a bucket.
 func (l *Limiter) getClientKey(r *http.Request) string {
-	// Check X-Forwarded-For for proxied requests
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return xff
+	if ip := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP"))); ip != nil {
+		return ip.String()
 	}
 
-	// Check X-Real-IP
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
 	}
-
-	// Fall back to RemoteAddr
-	return r.RemoteAddr
+	return host
 }
 
 // cleanup periodically removes old buckets
