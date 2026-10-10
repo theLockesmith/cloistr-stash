@@ -62,12 +62,12 @@ type FileMetadata struct {
 
 // FolderMetadataResponse represents folder information returned to the frontend
 type FolderMetadataResponse struct {
-	ID           string                      `json:"id"`
-	Name         string                      `json:"name"`
-	ParentID     string                      `json:"parent_id,omitempty"`
-	CreatedAt    int64                       `json:"created_at,omitempty"`
-	EncryptedKey string                      `json:"encrypted_key,omitempty"`
-	WrappedKeys  []metadata.WrappedKeyEntry  `json:"wrapped_keys,omitempty"`
+	ID           string                     `json:"id"`
+	Name         string                     `json:"name"`
+	ParentID     string                     `json:"parent_id,omitempty"`
+	CreatedAt    int64                      `json:"created_at,omitempty"`
+	EncryptedKey string                     `json:"encrypted_key,omitempty"`
+	WrappedKeys  []metadata.WrappedKeyEntry `json:"wrapped_keys,omitempty"`
 }
 
 // ShareResponse represents a file share returned to the frontend
@@ -212,15 +212,32 @@ func (s *Server) registerRoutes() {
 func (s *Server) Handler() http.Handler {
 	var handler http.Handler = s.mux
 
-	// Apply rate limiting middleware if enabled
+	// Apply rate limiting middleware if enabled. Kubelet probes and Prometheus
+	// scrapes bypass it: they come from inside the cluster with no X-Real-IP,
+	// and anything else in-cluster could set X-Real-IP to a node's address,
+	// drain that bucket and fail the pod's probes.
 	if s.rateLimiter != nil {
-		handler = s.rateLimiter.Middleware(handler)
+		limited := s.rateLimiter.Middleware(handler)
+		mux := s.mux
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isProbePath(r.URL.Path) {
+				mux.ServeHTTP(w, r)
+				return
+			}
+			limited.ServeHTTP(w, r)
+		})
 	}
 
 	// Apply metrics middleware
 	handler = metrics.Middleware(handler)
 
 	return handler
+}
+
+// isProbePath reports whether path is a health or metrics endpoint that
+// must never be rate limited.
+func isProbePath(path string) bool {
+	return path == "/health" || path == "/metrics"
 }
 
 // ListenAndServe starts the HTTP server
@@ -1291,12 +1308,12 @@ func (s *Server) getDownloadCount(sha256 string) int {
 
 // QuotaResponse represents the quota information returned by the API
 type QuotaResponse struct {
-	Enabled   bool   `json:"enabled"`
-	Used      int64  `json:"used"`
-	Limit     int64  `json:"limit"`
-	Available int64  `json:"available"`
-	Percent   int    `json:"percent"`
-	UsedHuman string `json:"used_human"`
+	Enabled    bool   `json:"enabled"`
+	Used       int64  `json:"used"`
+	Limit      int64  `json:"limit"`
+	Available  int64  `json:"available"`
+	Percent    int    `json:"percent"`
+	UsedHuman  string `json:"used_human"`
 	LimitHuman string `json:"limit_human"`
 }
 
