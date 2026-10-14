@@ -2964,3 +2964,37 @@ body {
   margin-top: 0.5rem;
   flex-wrap: wrap;
 }
+
+/* New-release banner (PwaUpdateNotice). Fixed, outside the toast stack, so it
+   cannot be pushed out by other notifications. */
+.stash-update-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--cloistr-surface, #1f1f2e);
+  color: var(--cloistr-text, #fff);
+  border: 1px solid var(--cloistr-primary, #7c3aed);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  font-size: 14px;
+}
+.stash-update-banner button {
+  border: 1px solid var(--cloistr-primary, #7c3aed);
+  background: var(--cloistr-primary, #7c3aed);
+  color: #fff;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.stash-update-banner button[aria-label='Dismiss'] {
+  background: transparent;
+  color: inherit;
+  border-color: transparent;
+}

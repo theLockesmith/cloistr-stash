@@ -35,6 +35,7 @@ import {
   RELAY_THROTTLE_MS,
   softDeleteFile,
 } from '@cloistr/stash-core/operations'
+import { whileBusy } from '../pwaUpdate'
 import { uploadFiles as libUploadFiles, copyFile as libCopyFile, type UploadItem } from '@cloistr/stash-core/upload'
 import { Search, type SearchResult } from '@cloistr/stash-core/search'
 import { Sharing, type DecryptedIncomingShare, type IncomingShare } from '@cloistr/stash-core/sharing'
@@ -1137,17 +1138,17 @@ export function StashProvider({ children }: { children: ReactNode }) {
       renameFolder,
       moveFile,
       moveSelected,
-      copyFile,
+      copyFile: (file, target) => whileBusy(() => copyFile(file, target)),
       setFileTags,
       uploadItems,
-      uploadFiles,
+      uploadFiles: (list) => whileBusy(() => uploadFiles(list)),
       searchResults,
       runSearch,
       clearSearch,
       sharedItems,
       acceptShare,
       createFolder,
-      uploadDirectory,
+      uploadDirectory: (entries, parent) => whileBusy(() => uploadDirectory(entries, parent)),
       migrationFiles,
       dismissMigration,
       notifications,
