@@ -31,9 +31,15 @@ export default defineConfig({
     // Replaces the legacy hand-written sw.js (which cached now-removed /js paths).
     VitePWA({
       registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      // Registered by src/pwaUpdate.ts, which also moves open pages onto a
+      // new release; the generated registerSW.js only called register().
+      injectRegister: false,
       includeAssets: ['favicon.svg', 'favicon.ico', 'apple-touch-icon.png'],
       workbox: {
+        // Explicit: with injectRegister false the plugin no longer adds
+        // clientsClaim. src/pwaUpdate.ts relies on the new worker taking over.
+        skipWaiting: true,
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
         // /config.js is per-environment and served no-store by the Go server;
         // a precached copy would pin one environment's addresses forever.

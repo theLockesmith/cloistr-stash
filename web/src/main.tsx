@@ -2,6 +2,7 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { installDebugConsole } from '@cloistr/ui'
 import { ThemeProvider, SharedAuthProvider, ToastProvider } from '@cloistr/ui/components'
+import { PwaUpdateNotice } from './components/PwaUpdateNotice'
 import '@cloistr/ui/styles'
 import App from './App'
 import { StashProvider } from './state/StashProvider'
@@ -26,6 +27,7 @@ createRoot(document.getElementById('root')!).render(
     <ThemeProvider>
       <SharedAuthProvider signerUrl={SIGNER_URL}>
         <ToastProvider>
+          <PwaUpdateNotice />
           <StashProvider>
             <App />
           </StashProvider>
