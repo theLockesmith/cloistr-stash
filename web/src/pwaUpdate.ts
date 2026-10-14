@@ -50,6 +50,16 @@ export async function whileBusy<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Wraps an async action so the page counts as busy for its whole duration,
+ * every awaited step included, and is released even if it throws.
+ */
+export function busyWhileRunning<A extends unknown[], R>(
+  fn: (...args: A) => Promise<R>,
+): (...args: A) => Promise<R> {
+  return (...args: A) => whileBusy(() => fn(...args))
+}
+
 /** True while any holdBusy() is outstanding. */
 export function hasBusyHolders(): boolean {
   return busyHolders.size > 0

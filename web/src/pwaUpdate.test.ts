@@ -4,6 +4,7 @@ import {
   UPDATE_CHECK_INTERVAL_MS,
   hasBusyHolders,
   hasUnsavedInput,
+  busyWhileRunning,
   holdBusy,
   registerServiceWorker,
   whileBusy,
@@ -131,5 +132,26 @@ describe('busy tracking', () => {
     expect(hasUnsavedInput(root([{ value: 'report.pdf', defaultValue: 'report.pdf' }]))).toBe(false)
     expect(hasUnsavedInput(root([{ value: 'report-v2.pdf', defaultValue: 'report.pdf' }]))).toBe(true)
     expect(hasUnsavedInput(root([], 1))).toBe(true)
+  })
+})
+
+describe('busyWhileRunning', () => {
+  it('holds busy across every awaited step of the call, not just its start', async () => {
+    const seen: boolean[] = []
+    let resolveStep!: () => void
+    const step = new Promise<void>((r) => (resolveStep = r))
+    const action = busyWhileRunning(async (n: number) => {
+      seen.push(hasBusyHolders())
+      await step // e.g. encrypt, then upload, then publish
+      seen.push(hasBusyHolders())
+      return n * 2
+    })
+    const pending = action(21)
+    await Promise.resolve()
+    expect(hasBusyHolders()).toBe(true) // still busy while the call is parked mid-way
+    resolveStep()
+    await expect(pending).resolves.toBe(42)
+    expect(seen).toEqual([true, true])
+    expect(hasBusyHolders()).toBe(false)
   })
 })

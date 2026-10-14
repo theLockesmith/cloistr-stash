@@ -124,3 +124,14 @@ describe('a malformed configured value', () => {
     await expect(import('./components/NIP46Dialog')).resolves.toBeDefined()
   })
 })
+
+describe('multi-step mutations keep the page busy', () => {
+  // A service-worker update must never reload the page under one of these
+  // (pwaUpdate.ts). Each is wrapped where the provider exposes it.
+  it('wraps uploads, copies, bulk delete, bulk move and empty-trash', () => {
+    const src = readFileSync(join(appSrc, 'state/StashProvider.tsx'), 'utf8')
+    for (const name of ['uploadFiles', 'uploadDirectory', 'copyFile', 'deleteSelected', 'moveSelected', 'emptyTrash']) {
+      expect(src, name).toContain(`${name}: busyWhileRunning(${name}),`)
+    }
+  })
+})
