@@ -27,11 +27,23 @@ installDebugConsole()
 const PublicRoot = lazy(() => import('./public/PublicRoot'))
 const isPublic = /^\/public\//.test(window.location.pathname)
 
+// /embed/files is the file picker other Cloistr apps frame (src/embed). It
+// gets its own small tree: no PWA notice (it must never register the
+// service worker from inside a frame), no full app.
+const EmbedRoot = lazy(() => import('./embed/EmbedRoot'))
+const isEmbed = /^\/embed(\/|$)/.test(window.location.pathname)
+
 createRoot(document.getElementById('root')!).render(
   isPublic ? (
     <React.StrictMode>
       <Suspense fallback={null}>
         <PublicRoot />
+      </Suspense>
+    </React.StrictMode>
+  ) : isEmbed ? (
+    <React.StrictMode>
+      <Suspense fallback={null}>
+        <EmbedRoot />
       </Suspense>
     </React.StrictMode>
   ) : (
