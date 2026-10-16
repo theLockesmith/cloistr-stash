@@ -41,7 +41,7 @@ func parseEmbedParents(raw string) string {
 		u, err := url.Parse(entry)
 		if err != nil || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" ||
 			u.User != nil || u.Opaque != "" || strings.HasSuffix(entry, "?") || strings.HasSuffix(entry, "#") ||
-			strings.ContainsAny(u.Host, "*") {
+			strings.ContainsAny(u.Host, "*") || strings.HasSuffix(u.Hostname(), ".") {
 			continue
 		}
 		local := u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1"
