@@ -289,10 +289,20 @@ export async function buildOwnDrive(
   return snap
 }
 
-/** Every event matching `filter`, paged backwards with `until` past the relay's per-REQ limit. */
+/**
+ * Every event matching `filter`, paged backwards with `until`. A relay may
+ * cap a page below `pageSize`, so a short page does not mean the end: paging
+ * stops only when a page adds nothing new. If that page is as long as the
+ * relay's proven cap (an earlier page of that length was followed by more),
+ * it may be one second holding more events than one REQ returns; that is
+ * thrown, never returned as a complete drive (cloistr-pr review of !193).
+ */
 export async function fetchAll(query: QueryFn, filter: NostrFilter, pageSize = DEFAULT_PAGE): Promise<SignedEvent[]> {
   const byId = new Map<string, SignedEvent>()
   let until: number | undefined
+  let cap = 0
+  let capProven = false
+  let lastLength = 0
   for (;;) {
     const page = await query([{ ...filter, limit: pageSize, ...(until === undefined ? {} : { until }) }])
     let added = 0
@@ -302,10 +312,18 @@ export async function fetchAll(query: QueryFn, filter: NostrFilter, pageSize = D
         added++
       }
     }
-    if (page.length < pageSize || added === 0) break
+    if (added === 0) {
+      if (page.length > 0 && capProven && page.length >= cap) {
+        throw new Error(`the drive could not be read in full: more events share one second than the relay returns per request (${page.length})`)
+      }
+      break
+    }
+    // The previous page was followed by new events: its length is a real cap.
+    if (lastLength > 0 && lastLength >= cap) capProven = true
+    cap = Math.max(cap, page.length)
+    lastLength = page.length
     // Inclusive of the oldest second, so events sharing it are not skipped;
-    // the id map drops the repeats. (More than pageSize events in one second
-    // would stop here early; pageSize is far above any one-second burst.)
+    // the id map drops the repeats.
     until = Math.min(...page.map((e) => e.created_at))
   }
   return [...byId.values()]
