@@ -296,6 +296,11 @@ export async function buildOwnDrive(
  * relay's proven cap (an earlier page of that length was followed by more),
  * it may be one second holding more events than one REQ returns; that is
  * thrown, never returned as a complete drive (cloistr-pr review of !193).
+ * A page that adds nothing but is as long as the limit asked for is the same
+ * case on the first page, before any cap is proven. Its one false alarm is a
+ * drive of exactly `pageSize` events all in one second. Blind spot: a relay
+ * that caps below `pageSize` on a first page that is all one second cannot be
+ * told apart from a complete answer.
  */
 export async function fetchAll(query: QueryFn, filter: NostrFilter, pageSize = DEFAULT_PAGE): Promise<SignedEvent[]> {
   const byId = new Map<string, SignedEvent>()
@@ -313,7 +318,7 @@ export async function fetchAll(query: QueryFn, filter: NostrFilter, pageSize = D
       }
     }
     if (added === 0) {
-      if (page.length > 0 && capProven && page.length >= cap) {
+      if (page.length > 0 && (page.length >= pageSize || (capProven && page.length >= cap))) {
         throw new Error(`the drive could not be read in full: more events share one second than the relay returns per request (${page.length})`)
       }
       break
