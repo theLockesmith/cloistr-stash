@@ -116,3 +116,23 @@ func TestMiddlewareSetHTTPAuthRefusesReplay(t *testing.T) {
 		t.Fatalf("want 200 then 401, got %v", codes)
 	}
 }
+
+// cloistr-pr 2026-10-16: the web client signed u and method only, so two
+// requests for the same URL in one second shared an event id and the second
+// was refused as a replay. With a random nonce tag both are distinct and pass.
+func TestNIP98SameURLSameSecondWithNonceAccepted(t *testing.T) {
+	sk := nostr.GeneratePrivateKey()
+	now := time.Now()
+	opts := ValidateOptions{Origins: []string{stashOrigin}, Replay: NewReplayCache()}
+	r := func() *http.Request { return httptest.NewRequest(http.MethodGet, "/api/files", nil) }
+	withNonce := func(n string) string {
+		tags := append(nip98Tags(stashOrigin+"/api/files", "GET"), nostr.Tag{"nonce", n})
+		return header(t, signed(t, sk, 27235, now, tags))
+	}
+
+	for _, n := range []string{"00112233445566778899aabbccddeeff", "ffeeddccbbaa99887766554433221100"} {
+		if _, err := ValidateAuthHeaderOpts(r(), withNonce(n), now, opts); err != nil {
+			t.Fatalf("nonce %s refused: %v", n, err)
+		}
+	}
+}

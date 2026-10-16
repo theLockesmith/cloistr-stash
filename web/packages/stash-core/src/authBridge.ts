@@ -134,14 +134,19 @@ const authPort = {
   },
 
   // NIP-98 HTTP auth (kind 27235) for one request: u = absolute URL, method.
-  // The server accepts it within 60s of created_at, for that URL+method only.
+  // The server accepts it within 60s of created_at, for that URL+method only,
+  // and each event id once. The random nonce keeps two requests for the same
+  // URL in the same second from signing the same id (the second would be 401).
   async createHttpAuth(url: string, method: string): Promise<string> {
+    const nonce = new Uint8Array(16)
+    crypto.getRandomValues(nonce)
     const signed = await requireSigner().signEvent({
       kind: 27235,
       created_at: Math.floor(Date.now() / 1000),
       tags: [
         ['u', url],
         ['method', method],
+        ['nonce', Crypto.bytesToHex(nonce)],
       ],
       content: '',
     })
