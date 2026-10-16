@@ -13,9 +13,12 @@ origin would give Space read access to the whole drive.
 
 One list, set on the Stash server: `CLOISTR_EMBED_PARENTS`, exact origins
 separated by spaces or commas. Default: `https://space.cloistr.xyz`. Staging
-sets `https://space.staging.cloistr.xyz`. An entry that is not an exact origin
-(`*`, `https://*.x`, a trailing `/`, a path, plain `http` off localhost, upper
-case) is dropped, never widened. With no valid entry nobody can frame it.
+sets `https://space.staging.cloistr.xyz`. Every entry must be exactly
+`https://host[:port]` (or `http://localhost[:port]` for development), lower
+case. If any entry is anything else (`*`, `https://*.x`, a trailing `/` or dot,
+a path, `;`, a quote, plain `http` off localhost, upper case), the server
+refuses to start and logs the bad entry, so a typo or an injected CSP directive
+never reaches a response. An empty list means nobody can frame it.
 
 The list is enforced twice:
 
