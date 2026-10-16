@@ -6,6 +6,7 @@ import {
   folderQ,
   ringD,
   randomD,
+  rootContainerKey,
   isSealedEvent,
   sealFileEvent,
   openFileEvent,
@@ -50,6 +51,15 @@ describe('q and ring d', () => {
     const a = randomD()
     expect(a).toMatch(/^[0-9a-f]{32}$/)
     expect(randomD()).not.toBe(a)
+  })
+})
+
+describe('root container key', () => {
+  it('is derived from the root key, 32 bytes, and is not the root key itself', async () => {
+    const k = await rootContainerKey(ROOT)
+    expect(k).toHaveLength(32)
+    expect(Array.from(k)).not.toEqual(Array.from(ROOT))
+    expect(Array.from(await rootContainerKey(ROOT))).toEqual(Array.from(k))
   })
 })
 

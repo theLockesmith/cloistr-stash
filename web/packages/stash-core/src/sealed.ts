@@ -118,6 +118,11 @@ export function ringD(folderKey: Uint8Array, folderId: string): Promise<string> 
   return hmacHex(folderKey, 'stash-ring' + folderId, 32)
 }
 
+/** The root container's key (the drive's top level, folder id ''), derived from the root key. */
+export function rootContainerKey(rootKey: Uint8Array): Promise<Uint8Array> {
+  return subkey(rootKey, 'cloistr-stash-root-container-v1')
+}
+
 /** A random d for a file or folder event; links to nothing. */
 export function randomD(): string {
   const b = new Uint8Array(16)
