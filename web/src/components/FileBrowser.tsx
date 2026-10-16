@@ -799,7 +799,7 @@ function FileRow({
           {name}
         </button>
         {enc && (
-          <span className="fb-e2e" title="End-to-end encrypted (XChaCha20-Poly1305)">
+          <span className="fb-e2e" title="Contents end-to-end encrypted (XChaCha20-Poly1305). The name, size and type are not encrypted yet.">
             E2E
           </span>
         )}

@@ -50,7 +50,7 @@ export default defineConfig({
       manifest: {
         name: 'Cloistr Stash',
         short_name: 'Stash',
-        description: 'Nostr-native file storage with end-to-end encryption',
+        description: 'Nostr-native file storage with end-to-end encrypted file contents',
         start_url: '/',
         display: 'standalone',
         background_color: '#1a1a2e',

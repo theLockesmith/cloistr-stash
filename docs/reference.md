@@ -1,6 +1,8 @@
 # cloistr-stash Reference
 
-**Comprehensive reference documentation for the zero-knowledge file manager.**
+**Comprehensive reference documentation for the encrypted file manager.**
+
+> File contents and keys are end-to-end encrypted. File names, sizes, MIME types, folder names, folder placement and the plaintext hash (`ox` tag) are **not yet**: they are readable on the relay by anyone (see Security Considerations).
 
 For quick start and essential info, see [CLAUDE.md](../CLAUDE.md).
 
@@ -120,7 +122,7 @@ For quick start and essential info, see [CLAUDE.md](../CLAUDE.md).
 
 ## Security Considerations
 
-1. **Zero-knowledge:** Server never sees plaintext or keys
+1. **Encrypted contents, readable metadata:** the server and Blossom never see file contents or keys. File names, sizes, MIME types, folder names, folder ids and the plaintext hash are stored readable in the kind 30078/30079 events, which the relay serves to anyone
 2. **Key derivation:** HKDF ensures unique keys per file
 3. **Forward secrecy:** Revocation re-encrypts with new keys
 4. **Memory safety:** Keys wiped from memory after use
