@@ -32,6 +32,7 @@ type Server struct {
 	authMiddle     *auth.AuthMiddleware
 	quota          *quota.Manager
 	rateLimiter    *ratelimit.Limiter
+	corsOrigins    map[string]bool
 	mux            *http.ServeMux
 	webDir         string
 	logger         *slog.Logger
@@ -127,6 +128,7 @@ func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metad
 		authMiddle:     authMiddle,
 		quota:          quotaManager,
 		rateLimiter:    rateLimiter,
+		corsOrigins:    corsOriginSet(cfg.Server.CORSOrigins),
 		mux:            http.NewServeMux(),
 		webDir:         webDir,
 		logger:         logger,
@@ -230,6 +232,12 @@ func (s *Server) Handler() http.Handler {
 
 	// Apply metrics middleware
 	handler = metrics.Middleware(handler)
+
+	// CORS is outermost so a rate-limited (429) answer still carries it and
+	// a preflight costs no token.
+	if len(s.corsOrigins) > 0 {
+		handler = corsMiddleware(s.corsOrigins, handler)
+	}
 
 	return handler
 }

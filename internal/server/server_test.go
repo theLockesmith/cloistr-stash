@@ -92,10 +92,20 @@ func TestAuthStatusEndpointNoAuth(t *testing.T) {
 	}
 }
 
+// New takes the allowed origins from config (behaviour is in cors_test.go).
 func TestCORSHeaders(t *testing.T) {
-	// CORS middleware is not currently implemented in the server
-	// When CORS is added, this test should verify headers are set
-	t.Skip("CORS middleware not implemented yet")
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"https://space.cloistr.xyz"}}}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	h := New(cfg, nil, nil, auth.NewWhitelist(nil), nil, nil, nil, "", logger).Handler()
+
+	r := httptest.NewRequest(http.MethodOptions, "/api/files", nil)
+	r.Header.Set("Origin", "https://space.cloistr.xyz")
+	r.Header.Set("Access-Control-Request-Method", "GET")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusNoContent || w.Header().Get("Access-Control-Allow-Origin") != "https://space.cloistr.xyz" {
+		t.Fatalf("preflight = %d, Allow-Origin %q", w.Code, w.Header().Get("Access-Control-Allow-Origin"))
+	}
 }
 
 func TestListFilesRequiresPubkey(t *testing.T) {

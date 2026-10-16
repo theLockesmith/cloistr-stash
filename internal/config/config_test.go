@@ -149,3 +149,25 @@ func TestWhitelistParsing(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadCORSOrigins(t *testing.T) {
+	t.Setenv("DRIVE_CORS_ORIGINS", "https://space.cloistr.xyz,https://docs.cloistr.xyz")
+	cfg, err := Load("/nonexistent/config.yml")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if len(cfg.Server.CORSOrigins) != 2 || cfg.Server.CORSOrigins[0] != "https://space.cloistr.xyz" {
+		t.Fatalf("CORSOrigins = %v", cfg.Server.CORSOrigins)
+	}
+
+	t.Setenv("DRIVE_CORS_ORIGINS", "https://space.cloistr.xyz,*")
+	if _, err := Load("/nonexistent/config.yml"); err == nil {
+		t.Fatal("a wildcard origin must be refused")
+	}
+
+	t.Setenv("DRIVE_CORS_ORIGINS", "")
+	cfg, err = Load("/nonexistent/config.yml")
+	if err != nil || len(cfg.Server.CORSOrigins) != 0 {
+		t.Fatalf("unset: CORSOrigins = %v, err %v", cfg.Server.CORSOrigins, err)
+	}
+}
