@@ -90,6 +90,16 @@ describe('own folder keys come from the relay copy', () => {
   })
 })
 
+describe('own file listing is signed', () => {
+  // 2026-10-15: GET /api/files lists only the caller's own files, so the
+  // listing calls go through API.ownGet, which needs the bridge's NIP-98 signer.
+  it('the bridge wires API.httpAuth and the list calls use ownGet', () => {
+    expect(readFileSync(join(coreSrc, 'authBridge.ts'), 'utf8')).toMatch(/API\.httpAuth = \(url, method\) => authPort\.createHttpAuth\(url, method\)/)
+    const api = readFileSync(join(coreSrc, 'api.ts'), 'utf8')
+    expect(api.match(/\/api\/files\?pubkey=[^\n]*\n\s*const response = await this\.ownGet\(url\)/g)?.length).toBe(2)
+  })
+})
+
 describe('service addresses', () => {
   // Every production service address must come through serviceConfig, or a
   // staging deployment of this image would quietly talk to production.

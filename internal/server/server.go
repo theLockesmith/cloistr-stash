@@ -153,14 +153,14 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/auth/status", s.authMiddle.HandleAuthStatus)
 
 	// API endpoints - file operations
-	// List files is public (filtered by pubkey query param)
+	// List files: the authenticated caller's own only (checked in the handler)
 	s.mux.HandleFunc("GET /api/files", s.handleListFiles)
 
 	// Upload requires whitelist authorization
 	s.mux.Handle("POST /api/files", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleUploadFile)))
 
-	// Get file metadata is public
-	s.mux.HandleFunc("GET /api/files/{sha256}", s.handleGetFile)
+	// Get file metadata requires auth
+	s.mux.Handle("GET /api/files/{sha256}", s.authMiddle.RequireAuth(http.HandlerFunc(s.handleGetFile)))
 
 	// Delete requires whitelist authorization
 	s.mux.Handle("DELETE /api/files/{sha256}", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleDeleteFile)))
@@ -325,12 +325,23 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 
 // handleListFiles returns all files for a given pubkey from Nostr relay
 // Supports optional folder query param to filter by folder
+//
+// Only the caller's own files: it needs the caller's NIP-98 auth for this URL
+// (or a signer session), and a ?pubkey= naming anyone else is refused. It used
+// to list any ?pubkey= for anyone. (The relay still serves these events to
+// anyone; this closes the endpoint, not that.)
 func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
-	pubkey := r.URL.Query().Get("pubkey")
+	pubkey, err := s.authMiddle.ExtractPubkey(r)
+	if err != nil {
+		http.Error(w, "Invalid authentication", http.StatusUnauthorized)
+		return
+	}
 	if pubkey == "" {
-		// Return empty list if no pubkey specified
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"files":[]}`)
+		http.Error(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+	if q := r.URL.Query().Get("pubkey"); q != "" && !strings.EqualFold(q, pubkey) {
+		http.Error(w, "Files are only listed to their owner", http.StatusForbidden)
 		return
 	}
 
@@ -345,7 +356,6 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	// Check if folder filter is specified
 	folderID := r.URL.Query().Get("folder")
 	var files []*metadata.FileMetadata
-	var err error
 
 	if r.URL.Query().Has("folder") {
 		// Filter by folder (empty string = root folder)

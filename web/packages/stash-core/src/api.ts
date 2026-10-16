@@ -45,6 +45,29 @@ export interface FolderListResponse {
 export const API = {
   baseURL: '',
 
+  /** Signs a NIP-98 header for one request (wired by authBridge). */
+  httpAuth: null as null | ((url: string, method: string) => Promise<string>),
+  /** Set once the server refused an unsigned own-data read this page load. */
+  ownReadsNeedSignature: false,
+
+  /**
+   * GET the caller's own data. The server lists files only to their owner:
+   * a signer session cookie, if any, rides along with the plain request; on
+   * 401 (no session) the request is signed with NIP-98 for its exact URL,
+   * and later reads sign directly.
+   */
+  async ownGet(path: string): Promise<Response> {
+    if (!this.ownReadsNeedSignature) {
+      const response = await fetch(path)
+      if (response.status !== 401 || !this.httpAuth) return response
+      this.ownReadsNeedSignature = true
+    }
+    if (!this.httpAuth) return fetch(path)
+    // The u tag must be the absolute URL the server sees.
+    const url = new URL(path, window.location.origin).href
+    return fetch(path, { headers: { Authorization: await this.httpAuth(url, 'GET') } })
+  },
+
   // Upload a file with Blossom auth. encryptionMode: 'e2e' (default), 'server', or 'none'.
   async uploadFile(
     file: File | Blob,
@@ -73,7 +96,7 @@ export const API = {
 
   async listFiles(pubkey?: string): Promise<FileListResponse> {
     const url = pubkey ? `${this.baseURL}/api/files?pubkey=${pubkey}` : `${this.baseURL}/api/files`
-    const response = await fetch(url)
+    const response = await this.ownGet(url)
     if (!response.ok) throw new Error(`Failed to list files: ${response.status}`)
     return response.json()
   },
@@ -95,7 +118,7 @@ export const API = {
   },
 
   async getFile(id: string): Promise<FileMetadata> {
-    const response = await fetch(`${this.baseURL}/api/files/${id}`)
+    const response = await this.ownGet(`${this.baseURL}/api/files/${id}`)
     if (!response.ok) throw new Error(`Failed to get file: ${response.status}`)
     return response.json()
   },
@@ -190,7 +213,7 @@ export const API = {
 
   async listFilesInFolder(pubkey: string, folderId = ''): Promise<FileListResponse> {
     const url = `${this.baseURL}/api/files?pubkey=${pubkey}&folder=${folderId}`
-    const response = await fetch(url)
+    const response = await this.ownGet(url)
     if (!response.ok) throw new Error(`Failed to list files: ${response.status}`)
     return response.json()
   },

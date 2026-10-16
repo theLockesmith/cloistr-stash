@@ -127,7 +127,6 @@ func TestAPI_EndpointDiscovery(t *testing.T) {
 		{"GET", "/health", "Health check"},
 		{"GET", "/metrics", "Prometheus metrics"},
 		{"GET", "/api/auth/status", "Authentication status"},
-		{"GET", "/api/files", "List files (public with pubkey param)"},
 		{"GET", "/api/folders", "List folders (public with pubkey param)"},
 		{"GET", "/api/shares", "List shares (public with pubkey param)"},
 		{"GET", "/api/quota", "Get quota info"},
@@ -295,47 +294,14 @@ func TestAPI_FileEndpoints(t *testing.T) {
 	srv, pubkey := setupAPITestServer(t)
 	authHeader := createValidTestAuthHeader(t)
 
-	t.Run("List files without pubkey returns empty", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/files", nil)
-		w := httptest.NewRecorder()
-
-		srv.Handler().ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d", w.Code)
-		}
-
-		var response map[string]interface{}
-		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
-			t.Fatalf("Failed to parse response: %v", err)
-		}
-
-		files, ok := response["files"].([]interface{})
-		if !ok || len(files) != 0 {
-			t.Error("Expected empty files array")
-		}
-	})
-
-	t.Run("List files with pubkey", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/files?pubkey="+pubkey, nil)
-		w := httptest.NewRecorder()
-
-		srv.Handler().ServeHTTP(w, req)
-
-		// Should succeed (metadata store unavailable but handled gracefully)
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d", w.Code)
-		}
-
-		var response map[string]interface{}
-		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
-			t.Fatalf("Failed to parse response: %v", err)
-		}
-
-		// Should return empty list when metadata store is nil
-		files, ok := response["files"].([]interface{})
-		if !ok || len(files) != 0 {
-			t.Error("Expected empty files array when metadata store unavailable")
+	// Listing needs the caller's auth now; list_files_auth_test.go covers it.
+	t.Run("List files without auth is refused", func(t *testing.T) {
+		for _, target := range []string{"/api/files", "/api/files?pubkey=" + pubkey} {
+			w := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(w, httptest.NewRequest("GET", target, nil))
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("%s: expected 401, got %d", target, w.Code)
+			}
 		}
 	})
 
