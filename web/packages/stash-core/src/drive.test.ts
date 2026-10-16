@@ -208,6 +208,11 @@ describe('fetchAll', () => {
     const events = [...many(30, (i) => 1_760_000_100 + i), ...many(60, () => 1_760_000_000)]
     await expect(fetchAll(cappedRelay(events, 50), {}, 500)).rejects.toThrow(/could not be read in full/)
   })
+
+  it('throws when the FIRST page is already one full second (cloistr-pr probe: 120 same-second at page 50)', async () => {
+    const events = many(120, () => 1_760_000_000)
+    await expect(fetchAll(cappedRelay(events, 500), {}, 50)).rejects.toThrow(/could not be read in full/)
+  })
 })
 
 describe('listSharedFolder', () => {
