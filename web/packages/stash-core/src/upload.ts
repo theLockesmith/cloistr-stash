@@ -15,6 +15,9 @@ import { authPort, getSigner } from './authBridge'
 import { Relay } from './relay'
 import { Search } from './search'
 import type { StashFile } from './types'
+import { addFile as addSealedFile } from './driveWrite'
+import { writeContext, writesSealed } from './sealedDrive'
+import { fileKeyFor } from './fileKey'
 
 export type UploadStatus =
   | 'pending'
@@ -47,6 +50,9 @@ export interface UploadOptions {
 
 const RELAY_UPLOAD_DELAY_MS = 500
 
+// The multipart filename reaches the server; a sealed drive sends no name.
+const blobName = (name: string, sealed: boolean) => (sealed ? 'blob.encrypted' : name + '.encrypted')
+
 function makeItem(file: File): UploadItem & { file: File } {
   return {
     id: crypto.randomUUID(),
@@ -67,13 +73,25 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
   const items = fileList.map(makeItem)
   const { folderId, existing = [], onItem } = opts
   const emit = (it: UploadItem) => onItem?.({ ...it })
+  // Once, for the whole queue: a sealed drive takes sealed files only.
+  let sealed = false
+  try {
+    sealed = authPort.isConnected ? await writesSealed() : false
+  } catch (err) {
+    for (const item of items) {
+      item.status = 'error'
+      item.error = (err as Error).message
+      emit(item)
+    }
+    return items.map(({ file: _file, ...rest }) => rest)
+  }
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
     if (i > 0) await new Promise((r) => setTimeout(r, RELAY_UPLOAD_DELAY_MS))
 
     try {
-      if (folderId) Keys.assertFolderKeyUsable(folderId)
+      if (folderId && !sealed) Keys.assertFolderKeyUsable(folderId)
       const fileBuffer = await item.file.arrayBuffer()
       const fileData = new Uint8Array(fileBuffer)
 
@@ -91,7 +109,7 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
 
       item.status = 'encrypting'
       emit(item)
-      const fileKey = Keys.wrappedKeyMode
+      const fileKey = sealed || Keys.wrappedKeyMode
         ? Keys.generateFileKey()
         : folderId
           ? await Keys.deriveFileKey(folderId, item.fileId)
@@ -114,13 +132,29 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
           authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
         }
 
-        const encryptedFile = new File([encryptedData as BlobPart], item.file.name + '.encrypted', {
+        const encryptedFile = new File([encryptedData as BlobPart], blobName(item.file.name, sealed), {
           type: 'application/octet-stream',
         })
         const result = await API.uploadFile(encryptedFile, authHeader, 'e2e')
         const sha256 = (result.sha256 as string) || encryptedHash
 
-        if (authPort.isConnected) {
+        if (authPort.isConnected && sealed) {
+          item.status = 'publishing'
+          emit(item)
+          await addSealedFile(await writeContext(), {
+            key: fileKey,
+            meta: {
+              id: item.fileId,
+              name: item.file.name,
+              folderId: folderId || null,
+              sha256,
+              plaintextHash,
+              size: item.file.size,
+              encryptedSize: encryptedData.length,
+              mimeType: item.file.type || 'application/octet-stream',
+            },
+          })
+        } else if (authPort.isConnected) {
           item.status = 'publishing'
           emit(item)
 
@@ -200,12 +234,13 @@ export async function uploadEncryptedBytes(
   folderId?: string | null,
 ): Promise<void> {
   await Crypto.init()
-  if (folderId) Keys.assertFolderKeyUsable(folderId)
+  const sealed = authPort.isConnected ? await writesSealed() : false
+  if (folderId && !sealed) Keys.assertFolderKeyUsable(folderId)
 
   const fileId = Crypto.generateFileId()
   const plaintextHash = await Crypto.hash(data)
 
-  const fileKey = Keys.wrappedKeyMode
+  const fileKey = sealed || Keys.wrappedKeyMode
     ? Keys.generateFileKey()
     : folderId
       ? await Keys.deriveFileKey(folderId, fileId)
@@ -220,13 +255,27 @@ export async function uploadEncryptedBytes(
       authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
     }
 
-    const encryptedFile = new File([encryptedData as BlobPart], name + '.encrypted', {
+    const encryptedFile = new File([encryptedData as BlobPart], blobName(name, sealed), {
       type: 'application/octet-stream',
     })
     const result = await API.uploadFile(encryptedFile, authHeader, 'e2e')
     const sha256 = (result.sha256 as string) || encryptedHash
 
-    if (authPort.isConnected) {
+    if (authPort.isConnected && sealed) {
+      await addSealedFile(await writeContext(), {
+        key: fileKey,
+        meta: {
+          id: fileId,
+          name,
+          folderId: folderId || null,
+          sha256,
+          plaintextHash,
+          size: data.length,
+          encryptedSize: encryptedData.length,
+          mimeType: mimeType || 'application/octet-stream',
+        },
+      })
+    } else if (authPort.isConnected) {
       let ownerEnvelope: string | undefined
       if (Keys.wrappedKeyMode) {
         const signer = getSigner()
@@ -344,7 +393,6 @@ export async function copyFile(
   // rest of the codebase (server returns various field names).
   const f = file as Record<string, unknown>
   const fileId = (file.id ?? f.file_id ?? f.fileId ?? f.d) as string | undefined
-  const sourceFolderId = (f.folder_id ?? f.folderId ?? file.folder ?? null) as string | null
 
   if (!fileId) throw new Error('Cannot copy: file has no ID')
   if (!file.sha256) throw new Error('Cannot copy: file has no sha256')
@@ -355,11 +403,8 @@ export async function copyFile(
   if (!response.ok) throw new Error(`Download failed: ${response.status}`)
   const encryptedBuffer = await response.arrayBuffer()
 
-  // 2. Get source key and decrypt (wrapped key → derivation fallback).
-  const sourceKey = await Keys.getFileKey(sourceFolderId, fileId, {
-    ownerEnvelope: file.owner_key,
-    signer: getSigner(),
-  })
+  // 2. Get source key and decrypt (sealed, wrapped or derived: fileKeyFor decides).
+  const sourceKey = await fileKeyFor(file)
 
   const plaintext = await Crypto.decryptFile(encryptedBuffer, sourceKey)
   Crypto.wipeKey(sourceKey)

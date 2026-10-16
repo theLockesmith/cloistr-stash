@@ -9,6 +9,9 @@ import { Keys } from './keys'
 import { fileKeyFor } from './fileKey'
 import { Crypto } from './crypto'
 import type { StashFile, StashFolder } from './types'
+import * as Sealed from './driveWrite'
+import type { SealedFileMeta } from './sealed'
+import { fileRef, folderRef, sealedFolder, subtreeOf, writeContext, writesSealed } from './sealedDrive'
 
 export const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -35,8 +38,25 @@ interface FileEdit {
   ownerEnvelope?: string
 }
 
+/** A sealed file: re-seal its current event with one change (driveWrite.updateFile). */
+async function editSealedFile(file: StashFile, change: (m: SealedFileMeta) => SealedFileMeta): Promise<void> {
+  await Sealed.updateFile(await writeContext(), fileRef(file), change)
+}
+
 /** Re-publish a file's CURRENT relay event with one change (see editEvent.ts). */
 async function editFileEvent(file: StashFile, edit: FileEdit): Promise<void> {
+  if (file.sealed === true) {
+    return editSealedFile(file, (m) => {
+      if (edit.name !== undefined) m.name = edit.name
+      if (edit.folderId !== undefined) m.folderId = edit.folderId || null
+      if (edit.deletedAt !== undefined) {
+        if (edit.deletedAt === null) delete m.deletedAt
+        else m.deletedAt = edit.deletedAt
+      }
+      if (edit.userTags !== undefined) m.userTags = normaliseTags(edit.userTags)
+      return m
+    })
+  }
   const fileId = fileIdOf(file)
   if (!fileId) throw new Error('Cannot edit: file has no ID')
   await editOwnEvent(30078, fileId, (draft) => {
@@ -49,11 +69,13 @@ async function editFileEvent(file: StashFile, edit: FileEdit): Promise<void> {
     }
     if (edit.userTags !== undefined) {
       draft.tags = draft.tags.filter((t) => t[0] !== 't')
-      for (const t of edit.userTags) if (t.trim()) draft.tags.push(['t', t.trim().toLowerCase()])
+      for (const t of normaliseTags(edit.userTags)) draft.tags.push(['t', t])
     }
     if (edit.ownerEnvelope !== undefined) setTag(draft, 'owner_key', edit.ownerEnvelope)
   })
 }
+
+const normaliseTags = (tags: string[]) => tags.map((t) => t.trim().toLowerCase()).filter(Boolean)
 
 /** Soft-delete a file: re-publish its current event with deletedAt set. */
 export async function softDeleteFile(file: StashFile): Promise<void> {
@@ -61,7 +83,16 @@ export async function softDeleteFile(file: StashFile): Promise<void> {
 }
 
 /** Delete folders with a single batched kind:5 deletion event. */
+// A sealed folder goes with its whole subtree (driveWrite.deleteFolder).
 export async function deleteFolders(folderIds: string[]): Promise<void> {
+  const sealed = folderIds.filter((id) => sealedFolder(id))
+  if (sealed.length) {
+    const ctx = await writeContext()
+    for (const id of sealed) {
+      await Sealed.deleteFolder(ctx, folderRef(id), sealedFolder(id)!.parent_id || null, subtreeOf(id))
+    }
+  }
+  folderIds = folderIds.filter((id) => !sealed.includes(id))
   if (folderIds.length === 0) return
   const event = await Events.createBatchDeleteEvent([], folderIds)
   await authPort.publishEvent(event)
@@ -81,6 +112,7 @@ export async function renameFile(file: StashFile, newName: string): Promise<void
  * from then on, wherever the file lives.
  */
 export async function moveFile(file: StashFile, targetFolderId: string): Promise<void> {
+  if (file.sealed === true) return editFileEvent(file, { folderId: targetFolderId || null })
   const fileId = fileIdOf(file)
   if (!fileId) throw new Error('Cannot move: file has no ID')
   await editOwnEvent(30078, fileId, async (draft) => {
@@ -111,6 +143,9 @@ export async function restoreFile(file: StashFile): Promise<void> {
  * metadata event. Mirrors the legacy permanentDelete() at app.js:3178.
  */
 export async function permanentDeleteFile(file: StashFile): Promise<void> {
+  if (file.sealed === true) {
+    return Sealed.deleteFile(await writeContext(), fileRef(file), (file.folder_id as string) || null)
+  }
   const fileId = fileIdOf(file)
   if (!fileId) throw new Error('Cannot permanently delete: file has no ID')
   const event = await Events.createBatchDeleteEvent([fileId], [])
@@ -132,7 +167,36 @@ export async function setFileTags(file: StashFile, tags: string[]): Promise<void
  */
 export async function renameFolder(folder: StashFolder, newName: string): Promise<void> {
   if (!newName || newName === folder.name) return
+  if (folder.sealed === true) {
+    await Sealed.updateFolder(await writeContext(), folderRef(folder.id), (m) => ({ ...m, name: newName }))
+    return
+  }
   await editOwnEvent(30079, folder.id, (draft) => {
     draft.content.name = newName
   })
+}
+
+/**
+ * Create a folder under `parentId` (null or '' = root) and return its id. In
+ * a sealed drive the key is random and wrapped in the parent's ring; in an
+ * old-shape drive it is generated and self-encrypted into the folder event.
+ */
+export async function createFolder(name: string, parentId: string | null): Promise<string> {
+  const pubkey = authPort.pubkey
+  if (!authPort.isConnected || !pubkey) throw new Error('Not connected')
+  const folderId = Events.generateFolderId()
+  if (await writesSealed()) {
+    await Sealed.createFolder(await writeContext(), { id: folderId, name: name.trim(), parentId: parentId || null })
+    return folderId
+  }
+  const folderKey = await Keys.generateFolderKey(folderId)
+  const encryptedFolderKey = await Keys.selfEncrypt(pubkey, Crypto.bytesToHex(folderKey))
+  const signedEvent = await Events.createEncryptedFolderEvent({
+    id: folderId,
+    name: name.trim(),
+    parentId: parentId || undefined,
+    encryptedFolderKey,
+  })
+  await authPort.publishEvent(signedEvent)
+  return folderId
 }

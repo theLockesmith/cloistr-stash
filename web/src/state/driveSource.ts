@@ -4,6 +4,8 @@
 import { loadOwnDrive, type DriveSnapshot } from '@cloistr/stash-core/drive'
 import { Keys } from '@cloistr/stash-core/keys'
 import { Relay } from '@cloistr/stash-core/relay'
+import { getSigner } from '@cloistr/stash-core/authBridge'
+import { rememberDrive } from '@cloistr/stash-core/sealedDrive'
 import type { StashFile, StashFolder } from './types'
 
 export async function fetchDrive(pubkey: string): Promise<DriveSnapshot> {
@@ -15,8 +17,13 @@ export async function fetchDrive(pubkey: string): Promise<DriveSnapshot> {
   } catch (err) {
     console.warn('fetchDrive: root key unavailable, listing old-shape items only -', (err as Error).message)
   }
-  const drive = await loadOwnDrive((filters) => Relay.query(filters), pubkey, rootKey)
+  const drive = await loadOwnDrive((filters) => Relay.query(filters), pubkey, rootKey, {
+    // A file whose ring entry was lost still reaches its owner (one signer call each).
+    unwrapOwner: (envelope, d) => Keys.unwrapFileKeyFromOwner(envelope, d, getSigner()),
+  })
   if (drive.unreadable.length) console.warn('fetchDrive: unreadable items', drive.unreadable)
+  // Writes take their shape and their keys from this listing.
+  rememberDrive(pubkey, drive)
   return drive
 }
 

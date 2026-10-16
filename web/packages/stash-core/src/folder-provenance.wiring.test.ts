@@ -14,7 +14,8 @@ const { ME, MALLORY, published, relay, subscribe } = vi.hoisted(() => {
   }
 })
 
-vi.mock('./relay', () => ({ Relay: { subscribe: (...a: unknown[]) => subscribe(...a) } }))
+// query: the drive-shape check finds no root ring, so this is an old-shape drive.
+vi.mock('./relay', () => ({ Relay: { subscribe: (...a: unknown[]) => subscribe(...a), query: async () => [] } }))
 vi.mock('./authBridge', () => ({
   authPort: {
     isConnected: true,
