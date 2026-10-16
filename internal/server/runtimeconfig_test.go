@@ -148,6 +148,7 @@ func TestParseEmbedParentsKeepsOnlyExactOrigins(t *testing.T) {
 		"https://space.cloistr.xyz#x":                                  "",
 		"https://user@space.cloistr.xyz":                               "",
 		"https://Space.cloistr.xyz":                                    "",
+		"https://space.cloistr.xyz.":                                   "", // browsers drop the dot, so it never matches
 		"space.cloistr.xyz":                                            "",
 		"javascript:alert(1)":                                          "",
 		"'none'":                                                       "",
