@@ -11,6 +11,7 @@ import { Crypto } from './crypto'
 import { Keys } from './keys'
 import { API } from './api'
 import { getSigner } from './authBridge'
+import { sealedFileKey } from './sealedDrive'
 
 /** A file entry as the various callers hold it (relay event fields, list rows, collab refs). */
 export type FileRef = Record<string, unknown> & { sha256?: string }
@@ -29,6 +30,16 @@ export function folderIdOf(file: FileRef): string | null {
 export async function fileKeyFor(file: FileRef): Promise<Uint8Array> {
   const fileId = fileIdOf(file)
   if (!fileId) throw new Error('Cannot decrypt: missing file ID')
+  // A sealed file: its key from the ring (last listing), else its owner
+  // envelope, which is bound to the event's d (the id is inside the seal).
+  if (file.sealed === true) {
+    const fromRing = sealedFileKey(file)
+    if (fromRing) return fromRing
+    if (typeof file.owner_key !== 'string' || !file.owner_key || typeof file.d !== 'string') {
+      throw new Error('Cannot decrypt: this file is not in the loaded drive')
+    }
+    return Keys.unwrapFileKeyFromOwner(file.owner_key, file.d, getSigner())
+  }
   // Only a non-empty string is an envelope; anything else must not reach the signer.
   const ownerKey = typeof file.owner_key === 'string' && file.owner_key !== '' ? file.owner_key : undefined
   return Keys.getFileKey(

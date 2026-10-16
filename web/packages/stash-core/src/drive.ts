@@ -22,6 +22,7 @@ import {
   ringD,
   rootContainerKey,
   type RingEntry,
+  type SealedFileMeta,
 } from './sealed'
 import type { StashFile, StashFolder } from './types'
 
@@ -42,7 +43,16 @@ export interface DriveSnapshot {
   folderKeys: Map<string, Uint8Array>
   /** Sealed events that could not be read; never silently dropped. */
   unreadable: UnreadableItem[]
+  /**
+   * How this drive is written: 'sealed' once its root key ring exists,
+   * 'legacy' before that, 'unknown' without the root key (no write may then
+   * pick a shape: an old-shape write into a sealed drive would put names in
+   * the clear).
+   */
+  shape: DriveShape
 }
+
+export type DriveShape = 'sealed' | 'legacy' | 'unknown'
 
 const DELETE_KIND = 5
 const DEFAULT_PAGE = 500
@@ -148,10 +158,10 @@ async function walkRings(
   deleted: Set<string>,
   snap: DriveSnapshot,
   reached: Set<string>,
+  tombstoned: Set<string> = new Set(),
 ): Promise<void> {
   const queue = [...start]
   const seen = new Set<string>()
-  const tombstoned = new Set<string>()
   const pendingFiles: RingEntry[] = []
 
   while (queue.length) {
@@ -212,35 +222,48 @@ async function walkRings(
     try {
       const m = await openFileEvent(ev, f.key)
       if (m.id !== f.id) throw new Error('file id differs from its ring entry')
-      snap.files.push({
-        sha256: m.sha256,
-        id: m.id,
-        file_id: m.id,
-        name: m.name,
-        size: m.size,
-        mime_type: m.mimeType,
-        encrypted_size: m.encryptedSize,
-        encrypted: true,
-        plaintext_hash: m.plaintextHash,
-        folder: m.folderId ?? '',
-        folder_id: m.folderId ?? '',
-        deleted_at: m.deletedAt,
-        tags: m.userTags ?? [],
-        versions: m.versions,
-        owner_key: tag(ev, 'owner_key'),
-        created_at: ev.created_at,
-        d: f.d,
-        sealed: true,
-      })
-      snap.fileKeys.set(m.id, f.key)
+      pushSealedFile(snap, ev, f.d, f.key, m)
     } catch (err) {
       snap.unreadable.push({ kind: SEALED_FILE_KIND, d: f.d, reason: (err as Error).message })
     }
   }
 }
 
+function pushSealedFile(snap: DriveSnapshot, ev: SignedEvent, d: string, key: Uint8Array, m: SealedFileMeta): void {
+  snap.files.push({
+    sha256: m.sha256,
+    id: m.id,
+    file_id: m.id,
+    name: m.name,
+    size: m.size,
+    mime_type: m.mimeType,
+    encrypted_size: m.encryptedSize,
+    encrypted: true,
+    plaintext_hash: m.plaintextHash,
+    folder: m.folderId ?? '',
+    folder_id: m.folderId ?? '',
+    deleted_at: m.deletedAt,
+    tags: m.userTags ?? [],
+    versions: m.versions,
+    owner_key: tag(ev, 'owner_key'),
+    created_at: ev.created_at,
+    d,
+    sealed: true,
+  })
+  snap.fileKeys.set(m.id, key)
+}
+
 function emptySnapshot(): DriveSnapshot {
-  return { files: [], folders: [], fileKeys: new Map(), folderKeys: new Map(), unreadable: [] }
+  return { files: [], folders: [], fileKeys: new Map(), folderKeys: new Map(), unreadable: [], shape: 'unknown' }
+}
+
+export interface OwnDriveOptions {
+  /**
+   * Opens a sealed file's owner_key envelope (bound to the event's d). Used
+   * only for files no ring reaches, e.g. a ring entry lost to a two-device
+   * race, so the owner never loses a file to one. One signer call each.
+   */
+  unwrapOwner?: (envelope: string, d: string) => Promise<Uint8Array>
 }
 
 /** Build the owner's drive from every event they authored (kinds 5, 30078, 30079). */
@@ -250,6 +273,7 @@ export async function buildOwnDrive(
   events: SignedEvent[],
   pubkey: string,
   rootKey: Uint8Array | null,
+  opts: OwnDriveOptions = {},
 ): Promise<DriveSnapshot> {
   const snap = emptySnapshot()
   const own = events.filter((e) => e.pubkey === pubkey)
@@ -275,8 +299,18 @@ export async function buildOwnDrive(
   }
 
   const reached = new Set<string>()
+  const tombstoned = new Set<string>()
   if (rootKey) {
-    await walkRings([{ id: '', key: await rootContainerKey(rootKey) }], sealed, deleted, snap, reached)
+    const rootCK = await rootContainerKey(rootKey)
+    // Sealed drive items (they carry q) with no root ring: the relay has lost
+    // or withheld the ring. Not 'legacy', or the next write would put names
+    // in the clear. Other apps' non-JSON kind 30078 events carry no q.
+    snap.shape = sealed.has(`${SEALED_FOLDER_KIND}:${await ringD(rootCK, '')}`)
+      ? 'sealed'
+      : [...sealed.values()].some((ev) => tag(ev, 'q'))
+        ? 'unknown'
+        : 'legacy'
+    await walkRings([{ id: '', key: rootCK }], sealed, deleted, snap, reached, tombstoned)
   }
   const reason = rootKey ? 'not in any key ring' : 'root key unavailable'
   for (const [addr, ev] of sealed) {
@@ -284,7 +318,23 @@ export async function buildOwnDrive(
     // file. Every sealed file carries q: an event without one is not ours
     // (other apps use kind 30078 too, with any content).
     if (reached.has(addr) || deleted.has(addr) || ev.kind !== SEALED_FILE_KIND || !tag(ev, 'q')) continue
-    snap.unreadable.push({ kind: ev.kind, d: tag(ev, 'd')!, reason })
+    const d = tag(ev, 'd')!
+    // Deleted (a ring tombstone), though the relay kept the event despite the kind 5.
+    if (tombstoned.has(d)) continue
+    const envelope = tag(ev, 'owner_key')
+    // Only with the root key: without it no ring was read, and every sealed
+    // file would cost a signer call that is likely failing too.
+    if (rootKey && envelope && opts.unwrapOwner) {
+      try {
+        const key = await opts.unwrapOwner(envelope, d)
+        pushSealedFile(snap, ev, d, key, await openFileEvent(ev, key))
+        continue
+      } catch (err) {
+        snap.unreadable.push({ kind: ev.kind, d, reason: `${reason}; owner_key: ${(err as Error).message}` })
+        continue
+      }
+    }
+    snap.unreadable.push({ kind: ev.kind, d, reason })
   }
   return snap
 }
@@ -339,14 +389,14 @@ export async function loadOwnDrive(
   query: QueryFn,
   pubkey: string,
   rootKey: Uint8Array | null,
-  opts: { pageSize?: number } = {},
+  opts: OwnDriveOptions & { pageSize?: number } = {},
 ): Promise<DriveSnapshot> {
   const events = await fetchAll(
     query,
     { kinds: [DELETE_KIND, SEALED_FILE_KIND, SEALED_FOLDER_KIND], authors: [pubkey] },
     opts.pageSize ?? DEFAULT_PAGE,
   )
-  return buildOwnDrive(events, pubkey, rootKey)
+  return buildOwnDrive(events, pubkey, rootKey, opts)
 }
 
 /**

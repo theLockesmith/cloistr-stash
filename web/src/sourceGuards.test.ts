@@ -86,7 +86,8 @@ describe('own folder keys come from the relay copy', () => {
 
   it('both upload entry points refuse an unverified folder before encrypting', () => {
     const src = readFileSync(join(coreSrc, 'upload.ts'), 'utf8')
-    expect((src.match(/if \(folderId\) Keys\.assertFolderKeyUsable\(folderId\)/g) ?? []).length).toBe(2)
+    // A sealed drive skips it: its folder keys come from the rings, not the derived-key store.
+    expect((src.match(/if \(folderId && !sealed\) Keys\.assertFolderKeyUsable\(folderId\)/g) ?? []).length).toBe(2)
   })
 })
 

@@ -11,6 +11,9 @@ import { API } from './api'
 import { editOwnEvent, loadOwnEvent, setTag } from './editEvent'
 import { authPort } from './authBridge'
 import { fileKeyFor, type FileRef } from './fileKey'
+import { updateFile, withNewVersion } from './driveWrite'
+import { fileRef, writeContext } from './sealedDrive'
+import type { StashFile } from './types'
 
 // ---------------------------------------------------------------------------
 // Exported types
@@ -155,8 +158,11 @@ export const Versioning = {
     const newVersionNumber = currentVersions.length + 1
 
     // Refuse before uploading anything if the file's current event cannot be
-    // loaded: the new version is merged into it (see below).
-    await loadOwnEvent(30078, fileId)
+    // loaded: the new version is merged into it (see below). A sealed file is
+    // checked by updateFile itself, against its ring reference.
+    const sealed = (file as Record<string, unknown>).sealed === true
+    const ref = sealed ? fileRef(file as StashFile) : null
+    if (!sealed) await loadOwnEvent(30078, fileId)
 
     // The file's own key: its wrapped key, or HKDF for a legacy file.
     const fileKey = await fileKeyFor(file as FileRef)
@@ -168,9 +174,10 @@ export const Versioning = {
         newFileData instanceof Uint8Array ? newFileData : new Uint8Array(newFileData),
       )
 
-      // Upload the new version blob
+      // Upload the new version blob (a sealed file sends no name to the server)
       const authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
-      const encryptedFile = new File([encryptedData as BufferSource], `${file.name}.v${newVersionNumber}.encrypted`, {
+      const blobName = sealed ? 'blob.encrypted' : `${file.name}.v${newVersionNumber}.encrypted`
+      const encryptedFile = new File([encryptedData as BufferSource], blobName, {
         type: 'application/octet-stream',
       })
       const uploadResult = await API.uploadFile(encryptedFile, authHeader)
@@ -199,7 +206,15 @@ export const Versioning = {
       // same key encrypted this version), earlier 'v' entries, tags and any
       // other field are kept; only the blob-specific fields change.
       // (Rebuilding it from `file` dropped owner_key: found 2026-10-09.)
-      await editOwnEvent(30078, fileId, (draft) => {
+      if (ref) {
+        await updateFile(await writeContext(), ref, (m) =>
+          withNewVersion(
+            m,
+            { sha256: uploadedSha256, size: versionMeta.size, encryptedSize: versionMeta.encryptedSize, plaintextHash },
+            versionMeta.timestamp,
+          ),
+        )
+      } else await editOwnEvent(30078, fileId, (draft) => {
         setTag(draft, 'x', uploadedSha256)
         setTag(draft, 'ox', plaintextHash)
         setTag(draft, 'size', String(versionMeta.size))
