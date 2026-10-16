@@ -46,6 +46,9 @@ export default defineConfig({
         globIgnores: ['config.js'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallback: '/index.html',
+        // Share links always go to the server: it checks the blob exists and
+        // sends the reader page's own headers (no-referrer, no framing).
+        navigateFallbackDenylist: [/^\/public\//],
       },
       manifest: {
         name: 'Cloistr Stash',
