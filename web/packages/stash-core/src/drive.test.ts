@@ -3,7 +3,7 @@
 // relay never learns parent-to-child edges (conscience 2026-10-16). A
 // recipient lists one shared folder by #q.
 import { describe, it, expect } from 'vitest'
-import { buildOwnDrive, loadOwnDrive, listSharedFolder, type QueryFn } from './drive'
+import { buildOwnDrive, fetchAll, loadOwnDrive, listSharedFolder, type QueryFn } from './drive'
 import {
   folderQ,
   randomD,
@@ -152,10 +152,14 @@ describe('loadOwnDrive', () => {
     }
     const drive = await loadOwnDrive(query, OWNER, ROOT)
     expect(drive.files).toHaveLength(3)
-    expect(asked).toHaveLength(1)
-    expect(asked[0]).toEqual([expect.objectContaining({ authors: [OWNER], kinds: [5, 30078, 30079] })])
-    for (const f of asked[0] as Record<string, unknown>[]) {
-      expect(Object.keys(f).some((key) => key.startsWith('#'))).toBe(false)
+    // Paging repeats the request (a final one confirms the end), but every
+    // request is the same single filter: author and kinds, never #q or #d.
+    expect(asked.length).toBeGreaterThanOrEqual(1)
+    for (const req of asked) {
+      expect(req).toEqual([expect.objectContaining({ authors: [OWNER], kinds: [5, 30078, 30079] })])
+      for (const f of req as Record<string, unknown>[]) {
+        expect(Object.keys(f).some((key) => key.startsWith('#'))).toBe(false)
+      }
     }
   })
 
@@ -174,6 +178,35 @@ describe('loadOwnDrive', () => {
     const drive = await loadOwnDrive(query, OWNER, ROOT, { pageSize: 4 })
     expect(drive.files).toHaveLength(3)
     expect(pages.length).toBeGreaterThan(2)
+  })
+})
+
+describe('fetchAll', () => {
+  // A relay that answers at most `cap` events per REQ, newest first (NIP-01).
+  const cappedRelay = (events: SignedEvent[], cap: number): QueryFn => async (filters) => {
+    const f = filters[0] as { until?: number; limit: number }
+    return events
+      .filter((e) => f.until === undefined || e.created_at <= f.until)
+      .sort((a, b) => b.created_at - a.created_at || (a.id < b.id ? -1 : 1))
+      .slice(0, Math.min(f.limit, cap))
+  }
+  const many = (n: number, at: (i: number) => number) =>
+    Array.from({ length: n }, (_, i) => signed({ kind: 30078, created_at: 0, tags: [['d', `e${i}`]], content: '{}' }, at(i)))
+
+  it('reads everything from a relay whose cap is below the page size (cloistr-pr probe: 120 at cap 50)', async () => {
+    const events = many(120, (i) => 1_760_000_000 + i)
+    expect(await fetchAll(cappedRelay(events, 50), {}, 500)).toHaveLength(120)
+  })
+
+  it('completes small drives, including events sharing one second', async () => {
+    expect(await fetchAll(cappedRelay(many(1, () => 5), 500), {}, 500)).toHaveLength(1)
+    expect(await fetchAll(cappedRelay(many(3, () => 5), 500), {}, 500)).toHaveLength(3)
+    expect(await fetchAll(cappedRelay([], 500), {}, 500)).toHaveLength(0)
+  })
+
+  it('throws rather than return a partial drive when one second holds more than the relay cap', async () => {
+    const events = [...many(30, (i) => 1_760_000_100 + i), ...many(60, () => 1_760_000_000)]
+    await expect(fetchAll(cappedRelay(events, 50), {}, 500)).rejects.toThrow(/could not be read in full/)
   })
 })
 

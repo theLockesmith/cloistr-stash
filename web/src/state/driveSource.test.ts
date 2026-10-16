@@ -20,12 +20,15 @@ const legacyFile = (d: string, name: string, folder?: string) => ({
 beforeEach(() => vi.restoreAllMocks())
 
 describe('fetchDrive', () => {
-  it('asks the relay once, by author and kind, and needs no server call', async () => {
+  it('asks the relay by author and kind only (paging repeats that one filter), and needs no server call', async () => {
     const query = vi.spyOn(Relay, 'query').mockResolvedValue([legacyFile('f1', 'a.txt'), legacyFile('f2', 'b.txt', 'x')])
     vi.spyOn(Keys, 'getRootKey').mockResolvedValue(new Uint8Array(32).fill(1))
     const drive = await fetchDrive(OWNER)
-    expect(query).toHaveBeenCalledTimes(1)
-    expect(query.mock.calls[0][0]).toEqual([expect.objectContaining({ authors: [OWNER], kinds: [5, 30078, 30079] })])
+    // A final page that adds nothing confirms the end (fetchAll); every request is the same filter.
+    expect(query).toHaveBeenCalledTimes(2)
+    for (const call of query.mock.calls) {
+      expect(call[0]).toEqual([expect.objectContaining({ authors: [OWNER], kinds: [5, 30078, 30079] })])
+    }
     expect(filesIn(drive, '').map((f) => f.name)).toEqual(['a.txt'])
     expect(filesIn(drive, 'x').map((f) => f.name)).toEqual(['b.txt'])
   })

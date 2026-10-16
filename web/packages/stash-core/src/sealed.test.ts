@@ -92,6 +92,18 @@ describe('file event', () => {
   })
 })
 
+describe('nonce', () => {
+  it('every seal uses a fresh random nonce (same key, d and content seal differently)', async () => {
+    const meta = { id: 'f'.repeat(32), name: 'same.txt', folderId: null, sha256: 'e'.repeat(64) }
+    const key = new Uint8Array(32).fill(4)
+    const seals = await Promise.all(Array.from({ length: 4 }, () => sealFileEvent({ d: 'dd', q: 'qq', fileKey: key, meta })))
+    const nonces = seals.map((ev) => Buffer.from(ev.content, 'base64').subarray(1, 25).toString('hex'))
+    expect(new Set(nonces).size).toBe(4)
+    expect(new Set(seals.map((ev) => ev.content)).size).toBe(4)
+    expect(nonces.every((n) => n !== '00'.repeat(24))).toBe(true)
+  })
+})
+
 describe('folder event', () => {
   // conscience 2026-10-16: sealed under the folder's OWN key, so someone given
   // only that folder can read its name; the parent's ring holds the key.
