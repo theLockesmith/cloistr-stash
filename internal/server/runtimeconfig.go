@@ -2,10 +2,12 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
-	"net/url"
 	"path"
+	"regexp"
 	"strings"
+	"unicode"
 )
 
 // RuntimeConfig is the service configuration the web app reads at load time
@@ -32,39 +34,38 @@ type RuntimeConfig struct {
 // defaultEmbedParents is production Space, the only app that frames Stash.
 const defaultEmbedParents = "https://space.cloistr.xyz"
 
-// parseEmbedParents keeps only exact origins: https (or http on localhost, for
-// development), a host, no path, query, fragment, user info or wildcard. A
-// rejected entry is dropped, never widened, so a typo fails closed.
-func parseEmbedParents(raw string) string {
+// embedOrigin is the only shape an embed parent may take: https://host[:port],
+// or http on localhost for development. Lower case, no trailing dot, no path,
+// and none of ; , ' " * or whitespace, so a configured value can never add a
+// directive or source to the frame-ancestors header it is written into.
+var embedOrigin = regexp.MustCompile(
+	`^(https://[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*` +
+		`|http://(?:localhost|127\.0\.0\.1))(?::[0-9]{1,5})?$`)
+
+// parseEmbedParents accepts exact origins separated by commas or whitespace
+// and refuses the whole list if any entry is anything else, so a typo or an
+// injection attempt stops the server at startup instead of being served.
+func parseEmbedParents(raw string) (string, error) {
 	var out []string
-	for _, entry := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' }) {
-		u, err := url.Parse(entry)
-		if err != nil || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" ||
-			u.User != nil || u.Opaque != "" || strings.HasSuffix(entry, "?") || strings.HasSuffix(entry, "#") ||
-			strings.ContainsAny(u.Host, "*") || strings.HasSuffix(u.Hostname(), ".") {
-			continue
+	for _, entry := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || unicode.IsSpace(r) }) {
+		if !embedOrigin.MatchString(entry) {
+			return "", fmt.Errorf("CLOISTR_EMBED_PARENTS: %q is not an exact origin (https://host[:port])", entry)
 		}
-		local := u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1"
-		if u.Scheme != "https" && !(u.Scheme == "http" && local) {
-			continue
-		}
-		origin := u.Scheme + "://" + strings.ToLower(u.Host)
-		if origin != entry {
-			// Anything a browser would not send verbatim as an origin
-			// (upper case, default port spelled out) is not an exact match.
-			continue
-		}
-		out = append(out, origin)
+		out = append(out, entry)
 	}
-	return strings.Join(out, " ")
+	return strings.Join(out, " "), nil
 }
 
-func runtimeConfigFromEnv(getenv func(string) string) RuntimeConfig {
+func runtimeConfigFromEnv(getenv func(string) string) (RuntimeConfig, error) {
 	get := func(key, def string) string {
 		if v := getenv(key); v != "" {
 			return v
 		}
 		return def
+	}
+	parents, err := parseEmbedParents(get("CLOISTR_EMBED_PARENTS", defaultEmbedParents))
+	if err != nil {
+		return RuntimeConfig{}, err
 	}
 	return RuntimeConfig{
 		RelayURL:     get("CLOISTR_RELAY_URL", "wss://relay.cloistr.xyz"),
@@ -73,8 +74,8 @@ func runtimeConfigFromEnv(getenv func(string) string) RuntimeConfig {
 		SignerURL:    get("CLOISTR_SIGNER_URL", "https://signer.cloistr.xyz"),
 		AppURL:       get("CLOISTR_APP_URL", "https://stash.cloistr.xyz"),
 		Environment:  get("CLOISTR_ENVIRONMENT", "production"),
-		EmbedParents: parseEmbedParents(get("CLOISTR_EMBED_PARENTS", defaultEmbedParents)),
-	}
+		EmbedParents: parents,
+	}, nil
 }
 
 // handleConfigJS serves window.__CLOISTR_CONFIG__.
