@@ -1,0 +1,69 @@
+// Phase 1 step 2b: the web app lists from the relay (one REQ by author and
+// kind) instead of the server's /api/files and /api/folders.
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { Relay } from '@cloistr/stash-core/relay'
+import { Keys } from '@cloistr/stash-core/keys'
+import { fetchDrive, filesIn, foldersIn } from './driveSource'
+import type { DriveSnapshot } from '@cloistr/stash-core/drive'
+
+const OWNER = 'a'.repeat(64)
+const legacyFile = (d: string, name: string, folder?: string) => ({
+  id: d.padEnd(64, '0'),
+  pubkey: OWNER,
+  created_at: 1,
+  kind: 30078,
+  sig: '',
+  tags: [['d', d], ['x', 'e'.repeat(64)], ...(folder ? [['folder', folder]] : [])],
+  content: JSON.stringify({ name }),
+})
+
+beforeEach(() => vi.restoreAllMocks())
+
+describe('fetchDrive', () => {
+  it('asks the relay once, by author and kind, and needs no server call', async () => {
+    const query = vi.spyOn(Relay, 'query').mockResolvedValue([legacyFile('f1', 'a.txt'), legacyFile('f2', 'b.txt', 'x')])
+    vi.spyOn(Keys, 'getRootKey').mockResolvedValue(new Uint8Array(32).fill(1))
+    const drive = await fetchDrive(OWNER)
+    expect(query).toHaveBeenCalledTimes(1)
+    expect(query.mock.calls[0][0]).toEqual([expect.objectContaining({ authors: [OWNER], kinds: [5, 30078, 30079] })])
+    expect(filesIn(drive, '').map((f) => f.name)).toEqual(['a.txt'])
+    expect(filesIn(drive, 'x').map((f) => f.name)).toEqual(['b.txt'])
+  })
+
+  it('still lists old-shape files when the root key cannot be loaded', async () => {
+    vi.spyOn(Relay, 'query').mockResolvedValue([legacyFile('f1', 'a.txt')])
+    vi.spyOn(Keys, 'getRootKey').mockRejectedValue(new Error('signer unavailable'))
+    expect(filesIn(await fetchDrive(OWNER), '').map((f) => f.name)).toEqual(['a.txt'])
+  })
+
+  it('fails loudly when the relay does not answer, so the UI shows an error and not an empty drive', async () => {
+    vi.spyOn(Relay, 'query').mockRejectedValue(new Error('Subscription timeout'))
+    vi.spyOn(Keys, 'getRootKey').mockResolvedValue(new Uint8Array(32))
+    await expect(fetchDrive(OWNER)).rejects.toThrow('Subscription timeout')
+  })
+})
+
+describe('filesIn / foldersIn', () => {
+  const snap = {
+    files: [
+      { sha256: 's'.repeat(64), id: 'live', name: 'live', folder_id: '' },
+      { sha256: 's'.repeat(64), id: 'trashed', name: 'trashed', folder_id: '', deleted_at: 5 },
+    ],
+    folders: [
+      { id: 'top', name: 'top' },
+      { id: 'child', name: 'child', parent_id: 'top' },
+    ],
+    fileKeys: new Map(),
+    folderKeys: new Map(),
+    unreadable: [],
+  } as unknown as DriveSnapshot
+
+  it('filesIn keeps one folder level and leaves trashed files out', () => {
+    expect(filesIn(snap, '').map((f) => f.id)).toEqual(['live'])
+  })
+
+  it('foldersIn returns the direct children only', () => {
+    expect(foldersIn(snap, '').map((f) => f.id)).toEqual(['top'])
+    expect(foldersIn(snap, 'top').map((f) => f.id)).toEqual(['child'])
+  })
+})

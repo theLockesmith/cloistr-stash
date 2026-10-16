@@ -36,6 +36,7 @@ import {
   softDeleteFile,
 } from '@cloistr/stash-core/operations'
 import { busyWhileRunning } from '../pwaUpdate'
+import { fetchDrive, filesIn, foldersIn } from './driveSource'
 import { uploadFiles as libUploadFiles, copyFile as libCopyFile, type UploadItem } from '@cloistr/stash-core/upload'
 import { Search, type SearchResult } from '@cloistr/stash-core/search'
 import { Sharing, type DecryptedIncomingShare, type IncomingShare } from '@cloistr/stash-core/sharing'
@@ -287,13 +288,9 @@ export function StashProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     setError(null)
     try {
-      const [foldersResponse, filesResponse] = await Promise.all([
-        API.listFolders(pubkey, folderId),
-        API.listFilesInFolder(pubkey, folderId),
-      ])
-
-      const loadedFolders = (foldersResponse.folders || []) as StashFolder[]
-      const visibleFiles = ((filesResponse.files || []) as StashFile[]).filter(isVisibleFile)
+      const drive = await fetchDrive(pubkey)
+      const loadedFolders = foldersIn(drive, folderId)
+      const visibleFiles = filesIn(drive, folderId).filter(isVisibleFile)
 
       await restoreFolderKeys(loadedFolders)
       setUnverifiedFolders(snapshotUnverified())
@@ -329,8 +326,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     setError(null)
     try {
-      const response = await API.listFiles(pubkey)
-      const allFiles = (response.files || []) as StashFile[]
+      const allFiles = (await fetchDrive(pubkey)).files.filter((f) => f.id !== 'root-key')
 
       let result: StashFile[] = []
       if (which === 'trash') {
@@ -389,8 +385,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
     const pubkey = authPort.pubkey
     if (!authPort.isConnected || !pubkey) return
     try {
-      const result = await API.listFolders(pubkey)
-      const tree = (result.folders || []) as StashFolder[]
+      const tree = (await fetchDrive(pubkey)).folders
       treeRef.current = tree
       setFolderTreeData(tree)
       await restoreFolderKeys(tree)
