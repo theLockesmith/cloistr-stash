@@ -35,7 +35,19 @@ var (
 	ErrAuthBlossomOp   = errors.New("auth: 't' tag does not match the blob operation")
 	ErrAuthBlossomHash = errors.New("auth: 'x' tag does not match the blob hash")
 	ErrAuthExpired     = errors.New("auth: missing or past 'expiration'")
+	ErrAuthReplay      = errors.New("auth: this NIP-98 event was already used")
 )
+
+// ValidateOptions tightens ValidateAuthHeader for production use.
+type ValidateOptions struct {
+	// Origins are the exact origins (scheme://host) a NIP-98 'u' tag may name,
+	// from config. The tag must equal one of them plus this request's escaped
+	// path and raw query, byte for byte. Empty falls back to the URL rebuilt
+	// from Host / X-Forwarded-* (client-controlled; for local use only).
+	Origins []string
+	// Replay, when set, refuses a NIP-98 event id seen before.
+	Replay *ReplayCache
+}
 
 func decodeAuthEvent(header string) (*nostr.Event, error) {
 	if !strings.HasPrefix(header, "Nostr ") {
@@ -66,6 +78,12 @@ func verified(ev *nostr.Event) bool {
 //     t=upload, DELETE /api/files/{sha256} with t=delete and x={sha256}; a
 //     future 'expiration' is required and created_at may not be in the future.
 func ValidateAuthHeader(r *http.Request, header string, now time.Time) (string, error) {
+	return ValidateAuthHeaderOpts(r, header, now, ValidateOptions{})
+}
+
+// ValidateAuthHeaderOpts is ValidateAuthHeader with configured origins and
+// replay protection (see ValidateOptions).
+func ValidateAuthHeaderOpts(r *http.Request, header string, now time.Time, opts ValidateOptions) (string, error) {
 	ev, err := decodeAuthEvent(header)
 	if err != nil {
 		return "", err
@@ -80,11 +98,15 @@ func ValidateAuthHeader(r *http.Request, header string, now time.Time) (string, 
 			return "", ErrAuthTime
 		}
 		u := tagValue(ev.Tags, "u")
-		if u == "" || !strings.EqualFold(strings.TrimSuffix(u, "/"), strings.TrimSuffix(requestURL(r), "/")) {
+		if u == "" || !urlMatches(u, r, opts.Origins) {
 			return "", ErrAuthURL
 		}
 		if m := tagValue(ev.Tags, "method"); m == "" || !strings.EqualFold(m, r.Method) {
 			return "", ErrAuthMethod
+		}
+		// Last, so only an event that would otherwise authenticate is recorded.
+		if opts.Replay != nil && !opts.Replay.Add(ev.ID, now) {
+			return "", ErrAuthReplay
 		}
 		return ev.PubKey, nil
 
@@ -124,6 +146,25 @@ func blobOperation(r *http.Request) (op, sha string) {
 		}
 	}
 	return "", ""
+}
+
+// urlMatches reports whether a NIP-98 'u' tag names this request. With
+// configured origins it is an exact comparison against origin + escaped path
+// + raw query; the request's Host and X-Forwarded-* headers play no part.
+func urlMatches(u string, r *http.Request, origins []string) bool {
+	if len(origins) == 0 {
+		return strings.EqualFold(strings.TrimSuffix(u, "/"), strings.TrimSuffix(requestURL(r), "/"))
+	}
+	target := r.URL.EscapedPath()
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	for _, o := range origins {
+		if u == o+target {
+			return true
+		}
+	}
+	return false
 }
 
 // requestURL rebuilds the URL the client signed (behind the ingress, scheme

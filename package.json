@@ -1,7 +1,7 @@
 {
   "name": "cloistr-stash",
   "version": "1.0.0",
-  "description": "Zero-knowledge file manager with end-to-end encryption",
+  "description": "File manager with end-to-end encrypted file contents",
   "scripts": {
     "test": "npx playwright test",
     "test:headed": "npx playwright test --headed",

@@ -39,6 +39,9 @@ type AuthMiddleware struct {
 	// to a pubkey. Empty = disabled (Blossom Nostr-event auth only).
 	signerURL   string
 	httpClient  *http.Client
+
+	// NIP-98 checks: configured origins and the replay cache (SetHTTPAuth).
+	validate ValidateOptions
 	sessionMu   sync.RWMutex
 	sessionCache map[string]signerSessionEntry
 }
@@ -66,6 +69,12 @@ func NewAuthMiddlewareWithPlatform(whitelist *Whitelist, platformClient *platfor
 	}
 }
 
+// SetHTTPAuth sets the exact origins a NIP-98 'u' tag may name (empty: the
+// request's own Host, for local use) and turns on replay protection.
+func (m *AuthMiddleware) SetHTTPAuth(origins []string) {
+	m.validate = ValidateOptions{Origins: origins, Replay: NewReplayCache()}
+}
+
 // AuthResult represents the authentication status
 type AuthResult struct {
 	Authenticated bool   `json:"authenticated"`
@@ -86,7 +95,7 @@ func (m *AuthMiddleware) ExtractPubkey(r *http.Request) (string, error) {
 	}
 
 	if strings.HasPrefix(authHeader, "Nostr ") {
-		return ValidateAuthHeader(r, authHeader, time.Now())
+		return ValidateAuthHeaderOpts(r, authHeader, time.Now(), m.validate)
 	}
 
 	// Unified-auth fallback: no Nostr-event header — try the Cloistr

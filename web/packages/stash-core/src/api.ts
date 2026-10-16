@@ -51,7 +51,8 @@ export const API = {
   ownReadsNeedSignature: false,
 
   /**
-   * GET the caller's own data. The server lists files only to their owner:
+   * GET the caller's own data (files, folders, shares, keyring), which the
+   * server answers only to its owner:
    * a signer session cookie, if any, rides along with the plain request; on
    * 401 (no session) the request is signed with NIP-98 for its exact URL,
    * and later reads sign directly.
@@ -168,7 +169,7 @@ export const API = {
   async listFolders(pubkey: string, parentId: string | null = null): Promise<FolderListResponse> {
     let url = `${this.baseURL}/api/folders?pubkey=${pubkey}`
     if (parentId !== null) url += `&parent=${parentId}`
-    const response = await fetch(url)
+    const response = await this.ownGet(url)
     if (!response.ok) throw new Error(`Failed to list folders: ${response.status}`)
     return response.json()
   },
@@ -190,7 +191,7 @@ export const API = {
   },
 
   async getFolder(id: string, pubkey: string): Promise<FolderMetadata> {
-    const response = await fetch(`${this.baseURL}/api/folders/${id}?pubkey=${pubkey}`)
+    const response = await this.ownGet(`${this.baseURL}/api/folders/${id}?pubkey=${pubkey}`)
     if (!response.ok) throw new Error(`Failed to get folder: ${response.status}`)
     return response.json()
   },
@@ -220,7 +221,7 @@ export const API = {
 
   async listShares(pubkey: string, type = 'all'): Promise<ShareInfo[]> {
     const url = `${this.baseURL}/api/shares?pubkey=${pubkey}&type=${type}`
-    const response = await fetch(url)
+    const response = await this.ownGet(url)
     if (!response.ok) throw new Error(`Failed to list shares: ${response.status}`)
     return response.json()
   },
@@ -262,7 +263,7 @@ export const API = {
 
   // Get the user's encrypted root key from Nostr (satisfies keys.ts ApiPort).
   async getKeyring(pubkey: string): Promise<KeyringResponse> {
-    const response = await fetch(`${this.baseURL}/api/keyring?pubkey=${pubkey}`)
+    const response = await this.ownGet(`${this.baseURL}/api/keyring?pubkey=${pubkey}`)
     if (!response.ok) throw new Error(`Failed to get keyring: ${response.status}`)
     return response.json()
   },

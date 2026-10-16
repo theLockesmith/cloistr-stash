@@ -35,6 +35,10 @@ type ServerConfig struct {
 	Host      string `yaml:"host"`
 	Port      int    `yaml:"port"`
 	PublicURL string `yaml:"public_url"`
+	// AuthOrigins are the exact origins this server is reached at (e.g.
+	// https://stash.cloistr.xyz). A NIP-98 'u' tag must name one of them;
+	// empty falls back to the request's Host headers (local use only).
+	AuthOrigins []string `yaml:"auth_origins"`
 }
 
 // BlossomConfig represents the Blossom backend configuration
@@ -112,6 +116,19 @@ func Load(path string) (*Config, error) {
 	}
 	if publicURL := os.Getenv("DRIVE_PUBLIC_URL"); publicURL != "" {
 		cfg.Server.PublicURL = publicURL
+	}
+	if origins := os.Getenv("DRIVE_AUTH_ORIGINS"); origins != "" {
+		cfg.Server.AuthOrigins = nil
+		for _, o := range strings.Split(origins, ",") {
+			if o = strings.TrimRight(strings.TrimSpace(o), "/"); o != "" {
+				cfg.Server.AuthOrigins = append(cfg.Server.AuthOrigins, o)
+			}
+		}
+	}
+	for _, o := range cfg.Server.AuthOrigins {
+		if strings.Contains(o, "*") || !strings.Contains(o, "://") {
+			return nil, fmt.Errorf("auth origin %q: must be an exact scheme://host", o)
+		}
 	}
 	if blossomURL := os.Getenv("DRIVE_BLOSSOM_URL"); blossomURL != "" {
 		cfg.Blossom.URL = blossomURL

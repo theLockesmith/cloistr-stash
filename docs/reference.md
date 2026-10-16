@@ -111,8 +111,8 @@ For quick start and essential info, see [CLAUDE.md](../CLAUDE.md).
 | Kind | Purpose |
 |------|---------|
 | 24242 | Blossom upload/delete authorization |
-| 30078 | Encrypted file metadata |
-| 30079 | Encrypted folder metadata |
+| 30078 | File metadata (file contents encrypted; name, size, type, folder and plaintext hash readable until sealed metadata ships) |
+| 30079 | Folder metadata (folder key encrypted; name and description readable until sealed metadata ships) |
 | 30080 | File/folder share (NIP-04 encrypted) |
 | 30081 | Public share (expiration tracking) |
 

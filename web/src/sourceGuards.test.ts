@@ -97,6 +97,9 @@ describe('own file listing is signed', () => {
     expect(readFileSync(join(coreSrc, 'authBridge.ts'), 'utf8')).toMatch(/API\.httpAuth = \(url, method\) => authPort\.createHttpAuth\(url, method\)/)
     const api = readFileSync(join(coreSrc, 'api.ts'), 'utf8')
     expect(api.match(/\/api\/files\?pubkey=[^\n]*\n\s*const response = await this\.ownGet\(url\)/g)?.length).toBe(2)
+    // and no GET of a pubkey-scoped route bypasses it (2026-10-15 route audit)
+    expect(api).not.toMatch(/await fetch\([^)]*\/api\/(files|folders|shares|keyring)[^)]*pubkey/)
+    expect(api).not.toMatch(/await fetch\(url\)/)
   })
 })
 

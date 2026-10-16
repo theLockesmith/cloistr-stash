@@ -127,8 +127,6 @@ func TestAPI_EndpointDiscovery(t *testing.T) {
 		{"GET", "/health", "Health check"},
 		{"GET", "/metrics", "Prometheus metrics"},
 		{"GET", "/api/auth/status", "Authentication status"},
-		{"GET", "/api/folders", "List folders (public with pubkey param)"},
-		{"GET", "/api/shares", "List shares (public with pubkey param)"},
 		{"GET", "/api/quota", "Get quota info"},
 	}
 
@@ -379,36 +377,19 @@ func TestAPI_FolderEndpoints(t *testing.T) {
 	srv, pubkey := setupAPITestServer(t)
 	authHeader := createValidTestAuthHeader(t)
 
-	t.Run("List folders without pubkey", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/folders", nil)
+	t.Run("List folders without auth is refused", func(t *testing.T) {
 		w := httptest.NewRecorder()
-
-		srv.Handler().ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d", w.Code)
-		}
-
-		var response map[string]interface{}
-		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
-			t.Fatalf("Failed to parse response: %v", err)
-		}
-
-		folders, ok := response["folders"].([]interface{})
-		if !ok || len(folders) != 0 {
-			t.Error("Expected empty folders array")
+		srv.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/api/folders", nil))
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401 (owner only, see owner_only_test.go), got %d", w.Code)
 		}
 	})
 
-	t.Run("List folders with pubkey", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/folders?pubkey="+pubkey, nil)
+	t.Run("List folders for a pubkey without auth is refused", func(t *testing.T) {
 		w := httptest.NewRecorder()
-
-		srv.Handler().ServeHTTP(w, req)
-
-		// Should handle gracefully when metadata store is nil
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d", w.Code)
+		srv.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/api/folders?pubkey="+pubkey, nil))
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401 (owner only, see owner_only_test.go), got %d", w.Code)
 		}
 	})
 
@@ -451,14 +432,11 @@ func TestAPI_FolderEndpoints(t *testing.T) {
 		}
 	})
 
-	t.Run("Get folder without pubkey fails", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/folders/test-folder-id", nil)
+	t.Run("Get folder without auth is refused", func(t *testing.T) {
 		w := httptest.NewRecorder()
-
-		srv.Handler().ServeHTTP(w, req)
-
-		if w.Code != http.StatusBadRequest {
-			t.Errorf("Expected status 400, got %d", w.Code)
+		srv.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/api/folders/test-folder-id", nil))
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401 (owner only, see owner_only_test.go), got %d", w.Code)
 		}
 	})
 
@@ -480,37 +458,19 @@ func TestAPI_ShareEndpoints(t *testing.T) {
 	srv, pubkey := setupAPITestServer(t)
 	authHeader := createValidTestAuthHeader(t)
 
-	t.Run("List shares without pubkey", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/shares", nil)
+	t.Run("List shares without auth is refused", func(t *testing.T) {
 		w := httptest.NewRecorder()
-
-		srv.Handler().ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d", w.Code)
-		}
-
-		var response map[string]interface{}
-		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
-			t.Fatalf("Failed to parse response: %v", err)
-		}
-
-		shares, _ := response["shares"].([]interface{})
-		received, _ := response["received"].([]interface{})
-		if len(shares) != 0 || len(received) != 0 {
-			t.Error("Expected empty shares arrays")
+		srv.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/api/shares", nil))
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401 (owner only, see owner_only_test.go), got %d", w.Code)
 		}
 	})
 
-	t.Run("List shares with pubkey", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/shares?pubkey="+pubkey, nil)
+	t.Run("List shares for a pubkey without auth is refused", func(t *testing.T) {
 		w := httptest.NewRecorder()
-
-		srv.Handler().ServeHTTP(w, req)
-
-		// Should handle gracefully when metadata store is nil
-		if w.Code != http.StatusOK {
-			t.Errorf("Expected status 200, got %d", w.Code)
+		srv.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/api/shares?pubkey="+pubkey, nil))
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401 (owner only, see owner_only_test.go), got %d", w.Code)
 		}
 	})
 
@@ -713,25 +673,19 @@ func TestAPI_ErrorHandling(t *testing.T) {
 func TestAPI_KeyringEndpoint(t *testing.T) {
 	srv, pubkey := setupAPITestServer(t)
 
-	t.Run("Get keyring without pubkey fails", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/keyring", nil)
+	t.Run("Get keyring without auth is refused", func(t *testing.T) {
 		w := httptest.NewRecorder()
-
-		srv.Handler().ServeHTTP(w, req)
-
-		if w.Code != http.StatusBadRequest {
-			t.Errorf("Expected status 400, got %d", w.Code)
+		srv.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/api/keyring", nil))
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401 (owner only, see owner_only_test.go), got %d", w.Code)
 		}
 	})
 
-	t.Run("Get keyring with invalid pubkey fails", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/keyring?pubkey=invalid", nil)
+	t.Run("Get keyring for an invalid pubkey without auth is refused", func(t *testing.T) {
 		w := httptest.NewRecorder()
-
-		srv.Handler().ServeHTTP(w, req)
-
-		if w.Code != http.StatusBadRequest {
-			t.Errorf("Expected status 400, got %d", w.Code)
+		srv.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/api/keyring?pubkey=invalid", nil))
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Expected status 401 (owner only, see owner_only_test.go), got %d", w.Code)
 		}
 	})
 
