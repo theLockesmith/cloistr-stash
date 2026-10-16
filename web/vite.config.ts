@@ -46,6 +46,11 @@ export default defineConfig({
         globIgnores: ['config.js'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallback: '/index.html',
+        // The precached index.html carries the main app's frame-ancestors
+        // 'none'; serving it for /embed/ would block every framed embed.
+        // Embed navigations always go to the server, which sends the
+        // embed's own frame-ancestors list.
+        navigateFallbackDenylist: [/^\/embed(\/|$)/],
       },
       manifest: {
         name: 'Cloistr Stash',
