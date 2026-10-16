@@ -2,12 +2,15 @@ package server
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/config"
 )
 
 func envFrom(m map[string]string) func(string) string {
@@ -15,7 +18,7 @@ func envFrom(m map[string]string) func(string) string {
 }
 
 func TestRuntimeConfigDefaultsAreProduction(t *testing.T) {
-	got := runtimeConfigFromEnv(envFrom(nil))
+	got := mustRuntimeConfig(t, envFrom(nil))
 	want := RuntimeConfig{
 		RelayURL:     "wss://relay.cloistr.xyz",
 		BlossomURL:   "https://blossom.cloistr.xyz",
@@ -31,7 +34,7 @@ func TestRuntimeConfigDefaultsAreProduction(t *testing.T) {
 }
 
 func TestRuntimeConfigEnvOverrides(t *testing.T) {
-	got := runtimeConfigFromEnv(envFrom(map[string]string{
+	got := mustRuntimeConfig(t, envFrom(map[string]string{
 		"CLOISTR_RELAY_URL":     "wss://relay.staging.cloistr.xyz",
 		"CLOISTR_BLOSSOM_URL":   "https://blossom.staging.cloistr.xyz",
 		"CLOISTR_DISCOVERY_URL": "https://discover.staging.cloistr.xyz",
@@ -73,7 +76,7 @@ func configJS(t *testing.T, s *Server) (map[string]string, *httptest.ResponseRec
 
 func TestConfigJSServesRuntimeConfig(t *testing.T) {
 	s := setupTestServer(t)
-	s.runtimeConfig = runtimeConfigFromEnv(envFrom(map[string]string{
+	s.runtimeConfig = mustRuntimeConfig(t, envFrom(map[string]string{
 		"CLOISTR_RELAY_URL":   "wss://relay.staging.cloistr.xyz",
 		"CLOISTR_ENVIRONMENT": "staging",
 	}))
@@ -107,7 +110,7 @@ func TestConfigJSServesRuntimeConfig(t *testing.T) {
 
 func TestConfigJSEscapesScriptBreakout(t *testing.T) {
 	s := setupTestServer(t)
-	s.runtimeConfig = runtimeConfigFromEnv(envFrom(map[string]string{
+	s.runtimeConfig = mustRuntimeConfig(t, envFrom(map[string]string{
 		"CLOISTR_ENVIRONMENT": `</script><script>alert(1)</script>`,
 	}))
 	got, w := configJS(t, s)
@@ -126,7 +129,7 @@ func TestConfigJSWinsOverStaticFile(t *testing.T) {
 	}
 	s := setupTestServer(t)
 	s.webDir = dir
-	s.runtimeConfig = runtimeConfigFromEnv(envFrom(nil))
+	s.runtimeConfig = mustRuntimeConfig(t, envFrom(nil))
 
 	got, _ := configJS(t, s)
 	if got["environment"] != "production" {
@@ -134,30 +137,74 @@ func TestConfigJSWinsOverStaticFile(t *testing.T) {
 	}
 }
 
-func TestParseEmbedParentsKeepsOnlyExactOrigins(t *testing.T) {
+func mustRuntimeConfig(t *testing.T, getenv func(string) string) RuntimeConfig {
+	t.Helper()
+	c, err := runtimeConfigFromEnv(getenv)
+	if err != nil {
+		t.Fatalf("runtimeConfigFromEnv: %v", err)
+	}
+	return c
+}
+
+func TestParseEmbedParentsAcceptsExactOrigins(t *testing.T) {
 	cases := map[string]string{
 		"https://space.cloistr.xyz":                                    "https://space.cloistr.xyz",
 		"https://space.cloistr.xyz, https://space.staging.cloistr.xyz": "https://space.cloistr.xyz https://space.staging.cloistr.xyz",
+		"https://space.cloistr.xyz\thttps://a.example:8443":            "https://space.cloistr.xyz https://a.example:8443",
 		"http://localhost:5173":                                        "http://localhost:5173",
-		"*":                                                            "",
-		"https://*.cloistr.xyz":                                        "",
-		"http://space.cloistr.xyz":                                     "", // plain http off localhost
-		"https://space.cloistr.xyz/":                                   "", // a path is not an origin
-		"https://space.cloistr.xyz/files":                              "",
-		"https://space.cloistr.xyz?x=1":                                "",
-		"https://space.cloistr.xyz#x":                                  "",
-		"https://user@space.cloistr.xyz":                               "",
-		"https://Space.cloistr.xyz":                                    "",
-		"https://space.cloistr.xyz.":                                   "", // browsers drop the dot, so it never matches
-		"space.cloistr.xyz":                                            "",
-		"javascript:alert(1)":                                          "",
-		"'none'":                                                       "",
-		"https://evil.example https://space.cloistr.xyz/ *":            "https://evil.example",
+		"http://127.0.0.1":                                             "http://127.0.0.1",
+		"":                                                             "",
 	}
 	for in, want := range cases {
-		if got := parseEmbedParents(in); got != want {
-			t.Errorf("parseEmbedParents(%q) = %q, want %q", in, got, want)
+		got, err := parseEmbedParents(in)
+		if err != nil || got != want {
+			t.Errorf("parseEmbedParents(%q) = %q, %v; want %q", in, got, err, want)
 		}
+	}
+}
+
+func TestParseEmbedParentsRefusesAnythingElse(t *testing.T) {
+	for _, in := range []string{
+		"https://space.cloistr.xyz;script-src", // would add a CSP directive
+		"https://space.cloistr.xyz; script-src 'unsafe-inline'",
+		"https://space.cloistr.xyz;",
+		"https://space.cloistr.xyz'",
+		`https://space.cloistr.xyz"`,
+		"'none'",
+		"'self'",
+		"*",
+		"https://*.cloistr.xyz",
+		"https:",
+		"http://space.cloistr.xyz", // plain http off localhost
+		"https://space.cloistr.xyz/",
+		"https://space.cloistr.xyz/files",
+		"https://space.cloistr.xyz?x=1",
+		"https://space.cloistr.xyz#x",
+		"https://user@space.cloistr.xyz",
+		"https://Space.cloistr.xyz",
+		"https://space.cloistr.xyz.", // browsers drop the dot, so it never matches
+		"https://space..cloistr.xyz",
+		"https://-space.cloistr.xyz",
+		"https://space.cloistr.xyz:",
+		"https://space.cloistr.xyz:123456",
+		"space.cloistr.xyz",
+		"javascript:alert(1)",
+		"data:",
+		"https://space.cloistr.xyz https://evil.example/", // one bad entry refuses the list
+	} {
+		if got, err := parseEmbedParents(in); err == nil {
+			t.Errorf("parseEmbedParents(%q) = %q, want an error", in, got)
+		}
+	}
+}
+
+func TestServerRefusesToStartOnABadEmbedParent(t *testing.T) {
+	t.Setenv("CLOISTR_EMBED_PARENTS", "https://space.cloistr.xyz;script-src")
+	if _, err := runtimeConfigFromEnv(os.Getenv); err == nil {
+		t.Fatal("runtimeConfigFromEnv accepted an injected directive")
+	}
+	if s, err := New(&config.Config{}, nil, nil, nil, nil, nil, nil, t.TempDir(), slog.Default()); err == nil || s != nil {
+		t.Fatalf("New = %v, %v; want nil and an error", s, err)
 	}
 }
 
@@ -175,7 +222,7 @@ func staticHeaders(t *testing.T, s *Server, path string) http.Header {
 
 func TestOnlyEmbedPagesMayBeFramed(t *testing.T) {
 	s := setupTestServer(t)
-	s.runtimeConfig = runtimeConfigFromEnv(envFrom(nil))
+	s.runtimeConfig = mustRuntimeConfig(t, envFrom(nil))
 
 	h := staticHeaders(t, s, "/embed/files")
 	if got := h.Get("Content-Security-Policy"); got != "frame-ancestors https://space.cloistr.xyz" {
@@ -196,9 +243,9 @@ func TestOnlyEmbedPagesMayBeFramed(t *testing.T) {
 	}
 }
 
-func TestEmbedRefusesFramingWithNoValidParent(t *testing.T) {
+func TestEmbedRefusesFramingWithAnEmptyParentList(t *testing.T) {
 	s := setupTestServer(t)
-	s.runtimeConfig = runtimeConfigFromEnv(envFrom(map[string]string{"CLOISTR_EMBED_PARENTS": "*"}))
+	s.runtimeConfig = mustRuntimeConfig(t, envFrom(map[string]string{"CLOISTR_EMBED_PARENTS": ","}))
 	h := staticHeaders(t, s, "/embed/files")
 	if got := h.Get("Content-Security-Policy"); got != "frame-ancestors 'none'" {
 		t.Errorf("CSP = %q, want 'none'", got)

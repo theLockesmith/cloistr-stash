@@ -199,7 +199,11 @@ func main() {
 	}
 
 	// Create HTTP server
-	srv := server.New(cfg, blossomClient, metadataStore, whitelist, platformClient, quotaManager, rateLimiter, webPath, logger)
+	srv, err := server.New(cfg, blossomClient, metadataStore, whitelist, platformClient, quotaManager, rateLimiter, webPath, logger)
+	if err != nil {
+		logger.Error("invalid runtime config", "error", err)
+		os.Exit(1)
+	}
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

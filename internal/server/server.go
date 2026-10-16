@@ -109,7 +109,12 @@ func truncateForLog(s string, maxLen int) string {
 }
 
 // New creates a new HTTP server
-func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metadata.Store, whitelist *auth.Whitelist, platformClient *platform.Client, quotaManager *quota.Manager, rateLimiter *ratelimit.Limiter, webDir string, logger *slog.Logger) *Server {
+func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metadata.Store, whitelist *auth.Whitelist, platformClient *platform.Client, quotaManager *quota.Manager, rateLimiter *ratelimit.Limiter, webDir string, logger *slog.Logger) (*Server, error) {
+	runtimeConfig, err := runtimeConfigFromEnv(os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+
 	// Create auth middleware with appropriate mode
 	var authMiddle *auth.AuthMiddleware
 	if platformClient != nil {
@@ -130,12 +135,12 @@ func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metad
 		mux:            http.NewServeMux(),
 		webDir:         webDir,
 		logger:         logger,
-		runtimeConfig:  runtimeConfigFromEnv(os.Getenv),
+		runtimeConfig:  runtimeConfig,
 		downloadCounts: make(map[string]int),
 	}
 
 	s.registerRoutes()
-	return s
+	return s, nil
 }
 
 // registerRoutes registers all HTTP endpoints
