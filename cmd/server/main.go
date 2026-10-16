@@ -99,18 +99,19 @@ func main() {
 	var metadataStore *metadata.Store
 	if cfg.Relay.URL != "" {
 		metadataStore = metadata.NewStoreWithRelayPrefs(cfg.Relay.URL, logger, relayPrefsClient)
-		relayCtx, relayCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer relayCancel()
+		// Long-lived: the store reconnects with this context (see Connect).
+		// A failed first connect keeps the store; /ready stays 503 and the
+		// data routes answer 503 until KeepConnected gets through.
+		relayCtx := context.Background()
 		if err := metadataStore.Connect(relayCtx); err != nil {
-			logger.Warn("cannot connect to relay",
+			logger.Warn("cannot connect to relay yet, retrying in the background",
 				"url", cfg.Relay.URL,
 				"error", err,
 			)
-			logger.Warn("file metadata will not be persisted")
-			metadataStore = nil
 		} else {
 			logger.Info("connected to relay", "url", cfg.Relay.URL)
 		}
+		go metadataStore.KeepConnected(relayCtx, 15*time.Second)
 	}
 
 	// Initialize whitelist for authorization
@@ -200,6 +201,8 @@ func main() {
 
 	// Create HTTP server
 	srv := server.New(cfg, blossomClient, metadataStore, whitelist, platformClient, quotaManager, rateLimiter, webPath, logger)
+
+	go srv.WatchBlossom(context.Background(), 30*time.Second)
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
