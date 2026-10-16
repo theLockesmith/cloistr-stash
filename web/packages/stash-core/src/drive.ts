@@ -258,6 +258,8 @@ export async function buildOwnDrive(
 
   const sealed = new Map<string, SignedEvent>()
   for (const [addr, ev] of latest) {
+    // The root key and relay preferences share kind 30078 but are not drive items.
+    if (NOT_DRIVE_FILES.has(tag(ev, 'd')!)) continue
     if (isSealedEvent(ev)) {
       sealed.set(addr, ev)
       continue
@@ -278,8 +280,10 @@ export async function buildOwnDrive(
   }
   const reason = rootKey ? 'not in any key ring' : 'root key unavailable'
   for (const [addr, ev] of sealed) {
-    // A stray ring or folder event is noise; a file no ring reaches is a lost file.
-    if (reached.has(addr) || deleted.has(addr) || ev.kind !== SEALED_FILE_KIND) continue
+    // A stray ring or folder event is noise; a file no ring reaches is a lost
+    // file. Every sealed file carries q: an event without one is not ours
+    // (other apps use kind 30078 too, with any content).
+    if (reached.has(addr) || deleted.has(addr) || ev.kind !== SEALED_FILE_KIND || !tag(ev, 'q')) continue
     snap.unreadable.push({ kind: ev.kind, d: tag(ev, 'd')!, reason })
   }
   return snap
