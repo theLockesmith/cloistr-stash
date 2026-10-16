@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -45,27 +47,47 @@ func TestPublicLinkRefusesAnIDThatIsNotAHash(t *testing.T) {
 	}
 }
 
-func TestPublicLinkServesARealHashAndRefusesFraming(t *testing.T) {
+func TestPublicLinkServesTheAppAndRefusesFraming(t *testing.T) {
 	s := setupTestServer(t)
 	everyBlobServer(t, s)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html><div id=root></div>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.webDir = dir
 
 	w := httptest.NewRecorder()
-	s.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/public/"+realHash, nil))
+	s.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/public/"+realHash+"?x=MARKERQ", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "const sha256 = '"+realHash+"';") {
-		t.Errorf("page does not carry the hash")
+	// The web app's own page, with nothing from the request written into it.
+	if body := w.Body.String(); body != "<!doctype html><div id=root></div>" {
+		t.Errorf("body = %q, want the app's index.html unchanged", body)
 	}
-	// This page holds the file key (URL fragment); a swapped CDN copy of
-	// libsodium must not run on it.
-	if !strings.Contains(w.Body.String(), `integrity="sha384-`) {
-		t.Errorf("libsodium is loaded without an integrity hash")
+	// No hand-written page, so no CDN script either.
+	if strings.Contains(w.Body.String(), "cdn.") {
+		t.Errorf("page loads from a CDN")
+	}
+	if got := w.Header().Get("Referrer-Policy"); got != "no-referrer" {
+		t.Errorf("Referrer-Policy = %q, want no-referrer", got)
 	}
 	if got := w.Header().Get("X-Frame-Options"); got != "DENY" {
 		t.Errorf("X-Frame-Options = %q, want DENY", got)
 	}
 	if got := w.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
 		t.Errorf("CSP = %q, want frame-ancestors 'none'", got)
+	}
+}
+
+func TestPublicLinkMissingBlobIs404(t *testing.T) {
+	s := setupTestServer(t)
+	b := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotFound) }))
+	t.Cleanup(b.Close)
+	s.blossom = blossom.NewClient(b.URL)
+	w := httptest.NewRecorder()
+	s.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/public/"+realHash, nil))
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status %d, want 404", w.Code)
 	}
 }

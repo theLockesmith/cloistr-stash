@@ -15,10 +15,9 @@ dist/
 .claude
 
 # Web build: never copy host node_modules/dist into the image (Stage 1 runs
-# npm ci + vite build itself). legacy/ is the old vanilla app, not built.
+# npm ci + vite build itself).
 web/node_modules/
 web/dist/
-web/legacy/
 web/packages/*/node_modules/
 web/packages/*/dist/
 test-results/

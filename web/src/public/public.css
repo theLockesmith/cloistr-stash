@@ -1,0 +1,40 @@
+.public-link {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--color-bg, #1a1a2e);
+  color: var(--color-text, #eee);
+}
+.public-link__card {
+  max-width: 560px;
+  text-align: center;
+}
+.public-link__logo {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+}
+.public-link__card h1 {
+  font-size: 1.5rem;
+  overflow-wrap: anywhere;
+}
+.public-link__card p {
+  color: var(--color-text-muted, #aaa);
+}
+.public-link__button {
+  background: var(--color-accent, #6366f1);
+  color: #fff;
+  border: none;
+  padding: 0.9rem 1.8rem;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+}
+.public-link__button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.public-link__status--error {
+  color: var(--color-danger, #ef4444) !important;
+}

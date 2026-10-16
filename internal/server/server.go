@@ -1101,138 +1101,13 @@ func (s *Server) handlePublicLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Serve a simple download page
-	// The client-side JS will extract the key from the URL fragment and decrypt
-	html := `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cloistr Stash - Shared File</title>
-    <style>
-        body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-        .container { text-align: center; padding: 2rem; max-width: 600px; }
-        .logo { font-size: 2rem; margin-bottom: 1rem; }
-        h1 { font-size: 1.5rem; margin-bottom: 1rem; }
-        p { color: #aaa; margin-bottom: 2rem; }
-        .btn { background: #6366f1; color: white; border: none; padding: 1rem 2rem; border-radius: 8px; font-size: 1rem; cursor: pointer; }
-        .btn:hover { background: #4f46e5; }
-        .btn:disabled { background: #444; cursor: not-allowed; }
-        .status { margin-top: 1rem; font-size: 0.9rem; color: #888; }
-        .error { color: #ef4444; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="logo">🔐</div>
-        <h1>Encrypted File</h1>
-        <p>This file is end-to-end encrypted. Click download to decrypt and save.</p>
-        <button class="btn" id="download-btn" onclick="downloadAndDecrypt()">Download & Decrypt</button>
-        <div class="status" id="status"></div>
-    </div>
-    <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/sodium.js" integrity="sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb" crossorigin="anonymous"></script>
-    <script>
-        const sha256 = '` + sha256 + `';
-        const downloadUrl = '/api/files/' + sha256 + '/download';
-        const metadataUrl = '/api/public/' + sha256;
-        let fileMetadata = null;
-
-        // Try to get file metadata on page load
-        (async function() {
-            try {
-                const resp = await fetch(metadataUrl);
-                if (resp.ok) {
-                    fileMetadata = await resp.json();
-                    if (fileMetadata.name) {
-                        document.querySelector('h1').textContent = fileMetadata.name;
-                    }
-                }
-            } catch (e) {
-                console.log('Could not fetch metadata');
-            }
-        })();
-
-        async function downloadAndDecrypt() {
-            const btn = document.getElementById('download-btn');
-            const status = document.getElementById('status');
-
-            // Get key from URL fragment
-            const keyB64 = window.location.hash.slice(1);
-            if (!keyB64) {
-                status.className = 'status error';
-                status.textContent = 'Error: No decryption key in URL';
-                return;
-            }
-
-            btn.disabled = true;
-            status.textContent = 'Downloading encrypted file...';
-
-            try {
-                // Initialize libsodium
-                await window.sodium.ready;
-                const sodium = window.sodium;
-
-                // Decode key from base64url
-                const key = base64urlToBytes(keyB64);
-                if (key.length !== 32) {
-                    throw new Error('Invalid key length');
-                }
-
-                // Download encrypted file
-                const response = await fetch(downloadUrl);
-                if (!response.ok) throw new Error('Download failed: ' + response.status);
-
-                status.textContent = 'Decrypting...';
-                const encrypted = new Uint8Array(await response.arrayBuffer());
-
-                // Decrypt (nonce is prepended to ciphertext)
-                const nonce = encrypted.slice(0, sodium.crypto_secretbox_NONCEBYTES);
-                const ciphertext = encrypted.slice(sodium.crypto_secretbox_NONCEBYTES);
-                const decrypted = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
-
-                // Get filename from metadata or use default
-                const filename = (fileMetadata && fileMetadata.name) || 'download';
-                const mimeType = (fileMetadata && fileMetadata.mime_type) || 'application/octet-stream';
-
-                // Trigger download
-                const blob = new Blob([decrypted], { type: mimeType });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-
-                status.textContent = 'Download complete!';
-
-            } catch (err) {
-                status.className = 'status error';
-                status.textContent = 'Error: ' + err.message;
-            } finally {
-                btn.disabled = false;
-            }
-        }
-
-        function base64urlToBytes(str) {
-            str = str.replace(/-/g, '+').replace(/_/g, '/');
-            while (str.length % 4) str += '=';
-            const binary = atob(str);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) {
-                bytes[i] = binary.charCodeAt(i);
-            }
-            return bytes;
-        }
-    </script>
-</body>
-</html>`
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = fmt.Fprint(w, html)
-
-	s.logger.Info("public link accessed", "sha256", sha256[:16])
+	// The reader page is part of the web app (web/src/public): it downloads the
+	// blob through /api/files/{sha256}/download and decrypts it in the browser
+	// with the key from the URL fragment, which never reaches this server.
+	// Nothing from the request is written into the page.
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Cache-Control", "no-cache")
+	http.ServeFile(w, r, filepath.Join(s.webDir, "index.html"))
 }
 
 // handlePublicLinkAPI returns JSON metadata for a public link
@@ -1380,7 +1255,7 @@ func isBlobHash(id string) bool {
 	}
 	for i := 0; i < len(id); i++ {
 		c := id[i]
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return false
 		}
 	}
