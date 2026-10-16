@@ -52,12 +52,18 @@ Readings confirmed and corrected by conscience 2026-10-16 (relayed by cloistr-or
    `listFiles(signer, relay, pubkey) -> [{name, mimeType, size, sha256, createdAt}]`, dual read,
    listing rules above; tell cloistr-space directly when published.
    (ii) a test helper that builds a migrated file event.
-   (iii) written answer on how another origin gets the keys (see below).
+   (iii) written answer on how another origin gets the keys (see below). DECIDED 2026-10-16
+   (orchestrator): the EMBED.
+   (iv) The embed, right after listFiles: Stash serves the Files view from its own origin,
+   Space frames it, keys never leave Stash's origin, only picked items go back by postMessage
+   to an allow-listed parent (exact origin match, no wildcards). It gates the migration flag in
+   place of Space's native listing. When it and its postMessage contract are ready, tell the
+   orchestrator, who hands Space their half.
 4. Write paths: upload, rename, move (republish with new q; both rings read-merge-write; a stale
    entry loses to the file's own content), delete (kind 5 of the item event + ring tombstone),
    new folder (random key, wrapped in the parent's ring and to the owner), versions, tags, star.
 5. Migration (stash-core, shared by web and headless). Ships behind a flag, OFF, until Space's
-   Files widget lists via stash-core (orchestrator ordering rule). Reads all old events, writes the
+   Files widget uses the Stash embed (orchestrator ordering rule). Reads all old events, writes the
    new shape, derives existing folder keys once and wraps them, verifies every new file opens
    (metadata opens, key unwraps, blob decrypts), only then one kind 5 naming the old events.
    Any unreadable file: refuse, publish nothing, keep the old shape.
@@ -78,7 +84,7 @@ prompt, or none if the signer auto-approves that app) and then holds the root ke
 every ring, every folder key and every file in the drive. So "Space gets the keys" means Space
 gets full read access to the whole drive, in another origin's memory and storage.
 
-Recommendation: Space should not hold the root key. Alternative: Stash serves a small embed from
+Decided 2026-10-16: the embed. Space should not hold the root key. Alternative: Stash serves a small embed from
 its own origin (stash.cloistr.xyz/embed/files) that Space frames; the keys stay in Stash's origin,
 and the embed renders the list and passes only what the user picks (name, sha256, a share link)
 back by postMessage to an allow-listed parent origin. If the operator prefers Space to list
