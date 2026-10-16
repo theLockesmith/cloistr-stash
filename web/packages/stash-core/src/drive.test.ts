@@ -100,6 +100,15 @@ describe('buildOwnDrive', () => {
     expect(drive.folders.map((f) => f.name).sort()).toEqual(['Alpha', 'Beta', 'Old'])
   })
 
+  it('does not mistake the root-key event or other apps\' kind 30078 events for lost sealed files', async () => {
+    const s = await sampleDrive()
+    const rootKeyEvent = signed({ kind: 30078, created_at: 0, tags: [['d', 'root-key'], ['key', 'nip44ciphertext']], content: '' })
+    const otherApp = signed({ kind: 30078, created_at: 0, tags: [['d', 'some-app-setting']], content: 'AQIDBAUG' })
+    const drive = await buildOwnDrive([...s.events, rootKeyEvent, otherApp], OWNER, ROOT)
+    expect(drive.unreadable).toEqual([])
+    expect(drive.files.map((f) => f.name).sort()).toEqual(['alpha.txt', 'beta.txt', 'root.txt'])
+  })
+
   it('reports a sealed file no ring reaches as unreadable instead of dropping it silently', async () => {
     const s = await sampleDrive()
     const stray = signed(await sealFileEvent({ d: randomD(), q: 'x', fileKey: k(9), meta: fileMeta('f9'.padEnd(32, '0'), 'stray', null) }))
