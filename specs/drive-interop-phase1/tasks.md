@@ -2,8 +2,8 @@
 
 Each step is its own MR, stacked (orchestrator 2026-10-16). Nothing merges before !191 and !192.
 
-- [x] T1 Codec: sealed file, folder and ring events; q and ring d (stash-core sealed.ts)
-- [x] T2 Reader: owner one-REQ listing + local tree, recipient #q listing, dual read; web lists from the relay
+- [x] T1 Codec: sealed file, folder and ring events; q and ring d (stash-core sealed.ts) (see evidence below)
+- [x] T2 Reader: owner one-REQ listing + local tree, recipient #q listing, dual read; web lists from the relay (see evidence below)
 - [ ] T3 Publish @cloistr/stash-core; test helper that builds a migrated file event
 - [ ] T4 Write paths: upload, rename, move, delete, new folder (random key), versions, tags (own MR stacked on !193)
 - [ ] T5 Stash embed for Space, exact-origin postMessage contract
