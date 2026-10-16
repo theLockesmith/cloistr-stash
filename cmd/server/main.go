@@ -100,8 +100,8 @@ func main() {
 	if cfg.Relay.URL != "" {
 		metadataStore = metadata.NewStoreWithRelayPrefs(cfg.Relay.URL, logger, relayPrefsClient)
 		// Long-lived: the store reconnects with this context (see Connect).
-		// A failed first connect keeps the store; /ready stays 503 and the
-		// data routes answer 503 until KeepConnected gets through.
+		// A failed first connect keeps the store; the data routes answer 503
+		// (and /ready reports "reconnecting") until KeepConnected gets through.
 		relayCtx := context.Background()
 		if err := metadataStore.Connect(relayCtx); err != nil {
 			logger.Warn("cannot connect to relay yet, retrying in the background",

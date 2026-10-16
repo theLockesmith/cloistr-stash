@@ -9,12 +9,16 @@ import (
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/metrics"
 )
 
 // 2026-10-15: a pod that started during a relay outage kept a nil metadata
 // store for 3 hours, answered half of all list requests with an EMPTY list
 // ("you have no files") and panicked on /api/keyring. Every data route must
-// say 503 instead, and readiness must keep such a pod out of rotation.
+// say 503 instead. Readiness does NOT gate on the relay (cloistr-pr on !192):
+// pulling every pod in an outage would take down the UI and downloads too.
 
 var dataRoutes = []string{
 	"/api/files?",
@@ -71,30 +75,43 @@ func TestDataRoutesSay503WhenTheRelayDoesNotAnswer(t *testing.T) {
 	}
 }
 
-func TestReadyOnlyWithARelayConnection(t *testing.T) {
-	ready := func(s *Server) (int, map[string]any) {
+func TestReadyStaysUpWhileRelayIsDown(t *testing.T) {
+	ready := func(s *Server) (int, string, map[string]any) {
 		w := httptest.NewRecorder()
 		s.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ready", nil))
 		var body map[string]any
-		_ = json.Unmarshal(w.Body.Bytes(), &body)
-		return w.Code, body
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("/ready body is not JSON: %q", w.Body.String())
+		}
+		return w.Code, w.Header().Get("Content-Type"), body
+	}
+	check := func(name string, s *Server, relay string, gauge float64) {
+		t.Helper()
+		code, ct, body := ready(s)
+		if code != http.StatusOK || ct != "application/json" || body["ready"] != true || body["relay"] != relay {
+			t.Fatalf("%s: /ready = %d %s %v, want 200 JSON ready=true relay=%s", name, code, ct, body, relay)
+		}
+		if got := testutil.ToFloat64(metrics.RelayConnected); got != gauge {
+			t.Fatalf("%s: relay gauge = %v, want %v", name, got, gauge)
+		}
 	}
 
 	s := setupTestServer(t)
-	if code, _ := ready(s); code != http.StatusServiceUnavailable {
-		t.Fatalf("no store: /ready = %d, want 503", code)
-	}
+	check("no store", s, "not_configured", 0)
 	s.metadata = storeFor(t, "ws://127.0.0.1:1", false)
-	if code, _ := ready(s); code != http.StatusServiceUnavailable {
-		t.Fatalf("unconnected store: /ready = %d, want 503", code)
-	}
+	check("relay down", s, "reconnecting", 0)
 	s.metadata = storeFor(t, newRelayStub(t, "none").URL, true)
-	if code, body := ready(s); code != http.StatusOK || body["relay"] != true {
-		t.Fatalf("connected: /ready = %d %v, want 200 relay=true", code, body)
-	}
-	// /health stays the liveness probe: it does not fail just because the
-	// relay is not connected yet (that would restart-loop pods in an outage).
+	check("relay connected", s, "connected", 1)
+
+	// The data routes still say 503 while the relay is down.
 	s.metadata = storeFor(t, "ws://127.0.0.1:1", false)
+	check("relay down again", s, "reconnecting", 0)
+	sk := nostr.GeneratePrivateKey()
+	if w := ownGet(t, s, sk, "/api/files?"); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("relay down: /api/files = %d, want 503", w.Code)
+	}
+
+	// /health is the liveness probe and does not depend on the relay either.
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if w.Code != http.StatusOK {

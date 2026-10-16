@@ -3,6 +3,7 @@ package metrics
 import (
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -71,6 +72,44 @@ var (
 			Name: "cloistr_drive_active_connections",
 			Help: "Current number of active connections",
 		},
+	)
+)
+
+// dependencyState is read at scrape time; the running server sets it.
+var dependencyState atomic.Pointer[[2]func() bool]
+
+// SetDependencyState points the relay and Blossom gauges at the server's live
+// connection state.
+func SetDependencyState(relayConnected, blossomUp func() bool) {
+	dependencyState.Store(&[2]func() bool{relayConnected, blossomUp})
+}
+
+func dependencyGauge(i int) func() float64 {
+	return func() float64 {
+		if st := dependencyState.Load(); st != nil && st[i]() {
+			return 1
+		}
+		return 0
+	}
+}
+
+var (
+	// RelayConnected is 1 while the relay connection is up, 0 while it reconnects
+	RelayConnected = promauto.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name: "cloistr_drive_relay_connected",
+			Help: "1 while the relay connection is up, 0 while it is down and reconnecting",
+		},
+		dependencyGauge(0),
+	)
+
+	// BlossomUp is 1 while the last Blossom check succeeded
+	BlossomUp = promauto.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name: "cloistr_drive_blossom_up",
+			Help: "1 while the last Blossom health check succeeded",
+		},
+		dependencyGauge(1),
 	)
 )
 

@@ -151,8 +151,9 @@ func (s *Server) registerRoutes() {
 	// Runtime service configuration for the web app (outranks the "/" static route)
 	s.mux.HandleFunc("GET /config.js", s.handleConfigJS)
 
-	// Metrics endpoint
+	// Metrics endpoint; the relay and Blossom gauges read this server's state
 	s.mux.Handle("GET /metrics", metrics.Handler())
+	metrics.SetDependencyState(func() bool { return s.metadata.IsConnected() }, s.blossomUp.Load)
 
 	// Auth status endpoint (public)
 	s.mux.HandleFunc("GET /api/auth/status", s.authMiddle.HandleAuthStatus)
@@ -265,17 +266,25 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprint(w, `{"status":"healthy"}`)
 }
 
-// handleReady is the readiness probe: ready only with a live relay connection.
-// Blossom's state is reported, not gated on: without it uploads fail with a
-// visible error, but every read still works.
+// handleReady reports process health: 200 once the HTTP server is up, with the
+// relay and Blossom connection state in the body. It never fails on a
+// dependency: with the readiness probe on it, a relay outage would take every
+// pod out of the Service and turn a partial outage (data routes answer 503,
+// downloads and the UI still work) into a total one (cloistr-pr on !192).
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	relay := s.metadata.IsConnected()
-	blossom := s.blossomUp.Load()
-	if !relay {
-		w.WriteHeader(http.StatusServiceUnavailable)
+	relay := "connected"
+	switch {
+	case s.metadata == nil:
+		relay = "not_configured"
+	case !s.metadata.IsConnected():
+		relay = "reconnecting"
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"ready": relay, "relay": relay, "blossom": blossom})
+	blossom := "up"
+	if !s.blossomUp.Load() {
+		blossom = "down"
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ready": true, "relay": relay, "blossom": blossom})
 }
 
 // WatchBlossom checks Blossom until ctx ends, with backoff (5s doubling to
