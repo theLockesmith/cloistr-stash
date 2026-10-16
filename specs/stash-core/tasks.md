@@ -20,3 +20,5 @@
 - [x] T7 Dockerfile + CI frontend job cover the package
   - Evidence: Dockerfile copies packages/stash-core/package.json before `npm ci`; .gitlab-ci.yml marker scan covers packages/*/src (yaml.safe_load ok); local `docker build --target web-builder` result recorded at ship time.
 - [ ] T8 Ship: MR, merge, deploy, live check of stash.cloistr.xyz
+
+Evidence T1-T5 (2026-10-07, details in the sub-bullets above): T1 web/src/lib renamed into packages/stash-core/src, no `../lib/` imports left; T2 `npm run build` esbuild + d.ts and `npm run proof:node` PASS; T3 typecheck exit 0, web 125 / package 174 tests passed, `npm run build` exit 0; T4 connect() in index.ts, signer-compat.test.ts compiles, node proof "ok connect() with a local-key signer"; T5 tests seen failing first (perms 420!=384, overwrite not refused), then passing (key-storage-file.test.ts, keys.overwrite.test.ts).
