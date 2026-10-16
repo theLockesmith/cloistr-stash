@@ -1078,9 +1078,10 @@ func (s *Server) handleGetKeyring(w http.ResponseWriter, r *http.Request) {
 // The decryption key is in the URL fragment (never sent to server)
 // Format: /public/{sha256}#<base64url-key>
 func (s *Server) handlePublicLink(w http.ResponseWriter, r *http.Request) {
+	setNoFraming(w)
 	sha256 := r.PathValue("id")
-	if sha256 == "" {
-		http.Error(w, "Link ID required", http.StatusBadRequest)
+	if !isBlobHash(sha256) {
+		http.Error(w, "Invalid link", http.StatusBadRequest)
 		return
 	}
 
@@ -1129,7 +1130,7 @@ func (s *Server) handlePublicLink(w http.ResponseWriter, r *http.Request) {
         <button class="btn" id="download-btn" onclick="downloadAndDecrypt()">Download & Decrypt</button>
         <div class="status" id="status"></div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/sodium.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/sodium.js" integrity="sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb" crossorigin="anonymous"></script>
     <script>
         const sha256 = '` + sha256 + `';
         const downloadUrl = '/api/files/' + sha256 + '/download';
@@ -1238,8 +1239,8 @@ func (s *Server) handlePublicLink(w http.ResponseWriter, r *http.Request) {
 // Used by the client to check validity before decrypting
 func (s *Server) handlePublicLinkAPI(w http.ResponseWriter, r *http.Request) {
 	sha256 := r.PathValue("id")
-	if sha256 == "" {
-		http.Error(w, "Link ID required", http.StatusBadRequest)
+	if !isBlobHash(sha256) {
+		http.Error(w, "Invalid link", http.StatusBadRequest)
 		return
 	}
 
@@ -1366,4 +1367,28 @@ func (s *Server) handleGetQuota(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(response)
+}
+
+// isBlobHash reports whether id is a Blossom blob hash: 64 lower-case hex
+// characters. The public-link page writes the id into an inline script, and
+// the id is also sent on to Blossom as a path, where a '?' would end the path
+// and let the existence check pass for any text that follows. Nothing but a
+// hash may get that far.
+func isBlobHash(id string) bool {
+	if len(id) != 64 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// setNoFraming stops other sites from framing a page (clickjacking).
+func setNoFraming(w http.ResponseWriter) {
+	w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+	w.Header().Set("X-Frame-Options", "DENY")
 }
