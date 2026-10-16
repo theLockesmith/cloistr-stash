@@ -38,8 +38,11 @@ export const workboxOptions = {
   maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
   navigateFallback: '/index.html',
   // Share links always go to the server: it checks the blob exists and
-  // sends the reader page's own headers (no-referrer, no framing).
-  navigateFallbackDenylist: [/^\/public\//],
+  // sends the reader page's own headers (no-referrer, no framing). The embed
+  // too: the precached index.html carries the main app's frame-ancestors
+  // 'none', which would block every framed embed; the server sends the
+  // embed's own frame-ancestors list.
+  navigateFallbackDenylist: [/^\/public\//, /^\/embed(\/|$)/],
 }
 
 // Stash frontend (React + @cloistr/ui). Go backend serves the built `dist/`

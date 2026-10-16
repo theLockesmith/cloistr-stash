@@ -325,6 +325,8 @@ func (s *Server) WatchBlossom(ctx context.Context, every time.Duration) {
 
 // handleStatic serves the web UI files
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
+	s.setFrameHeaders(w, r.URL.Path)
+
 	// Clean the path
 	path := r.URL.Path
 	if path == "/" {
