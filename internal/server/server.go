@@ -105,14 +105,6 @@ type PublicLinkResponse struct {
 	CreatedAt    int64  `json:"created_at"`
 }
 
-// truncateForLog safely truncates a string for logging, avoiding panics on short strings
-func truncateForLog(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen]
-}
-
 // New creates a new HTTP server
 func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metadata.Store, whitelist *auth.Whitelist, platformClient *platform.Client, quotaManager *quota.Manager, rateLimiter *ratelimit.Limiter, webDir string, logger *slog.Logger) *Server {
 	// Create auth middleware with appropriate mode
