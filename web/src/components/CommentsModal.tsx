@@ -23,6 +23,7 @@
 
 import { useState, useRef, useCallback } from 'react'
 import { addComment, deleteComment, getComments, type FileComment } from '@cloistr/stash-core/comments'
+import { logActivity } from '@cloistr/stash-core/activity'
 import type { StashFile } from '../state/types'
 
 function fileDisplayName(file: StashFile): string {
@@ -52,6 +53,7 @@ export function CommentsModal({ file, onClose }: { file: StashFile | null; onClo
   const handleAdd = useCallback(() => {
     if (!file || !inputValue.trim()) return
     const updated = addComment(sha256, inputValue)
+    logActivity('comment', { name: file.name ?? 'file' })
     setComments(updated)
     setInputValue('')
     textareaRef.current?.focus()
