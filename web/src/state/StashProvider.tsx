@@ -133,7 +133,7 @@ export interface StashContextValue {
   runSearch: (query: string) => Promise<void>
   clearSearch: () => void
   sharedItems: DecryptedIncomingShare[]
-  acceptShare: (share: DecryptedIncomingShare) => Promise<void>
+  acceptShare: (share: DecryptedIncomingShare) => Promise<boolean>
   /** Create a new encrypted folder in the current directory. */
   createFolder: (name: string) => Promise<void>
   /**
@@ -778,16 +778,19 @@ export function StashProvider({ children }: { children: ReactNode }) {
     setSearchResults(null)
   }, [])
 
+  // Resolves true once the share's key is stored; the caller tells the user
+  // either way (a failure must not replace the Shared list with an error).
   const acceptShare = useCallback(
     async (share: DecryptedIncomingShare) => {
-      setError(null)
       try {
         await Sharing.acceptShare(share)
-        await Promise.all([loadFolderTree(), loadShared()])
       } catch (err) {
         console.error('acceptShare failed', err)
-        setError('Failed to accept share')
+        return false
       }
+      // The key is stored; a failed refresh does not undo that.
+      await Promise.all([loadFolderTree(), loadShared()]).catch((err) => console.error('refresh after accept failed', err))
+      return true
     },
     [loadFolderTree, loadShared],
   )

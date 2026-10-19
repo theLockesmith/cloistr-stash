@@ -531,6 +531,12 @@ body {
   align-items: center;
   gap: 0.5rem;
   min-width: 0;
+  flex: 1;
+}
+
+.shared-accepted {
+  font-size: 0.85rem;
+  color: var(--cloistr-success, var(--cloistr-primary-light));
 }
 
 .shared-from {
