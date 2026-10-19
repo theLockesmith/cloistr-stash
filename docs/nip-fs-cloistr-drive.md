@@ -8,7 +8,9 @@ Hierarchical Encrypted Drive
 
 Defines a client-side-encrypted file drive that uses [Blossom](https://github.com/hzrd149/blossom) blob servers for storage and Nostr relays for an encrypted metadata index. Its distinguishing feature is a **hierarchical key tree** (root → folder → file) in which folder and file keys are *derived*, not stored. This makes sharing a subtree an O(1) operation — hand over one folder key and the recipient derives every descendant key — at the cost of making single-file revocation the expensive case.
 
-This document describes the scheme deployed in production by [Cloistr Stash](https://stash.cloistr.xyz). It is written as a complement to, and contrast with, the per-file-key drive proposal in [nostr-protocol/nips#2412](https://github.com/nostr-protocol/nips/pull/2412): where that proposal stores a random per-file key inside each file's metadata, this one derives every key from a single root, which is what lets a folder be shared without re-wrapping N keys.
+> **Deployed today vs. this draft (2026-10-15):** Cloistr Stash does **not** yet encrypt the metadata event `content` as specified below. Its kind 30078/30079 events carry the file name, size and MIME type, the folder name and folder id, and the plaintext hash (`ox`) readable, in `content` JSON and in the `m`, `size`, `folder` and `ox` tags. Blob contents and keys are encrypted as described. The metadata sections below are the target, not the deployed behaviour.
+
+This document describes the scheme deployed in production by [Cloistr Stash](https://stash.cloistr.xyz), with the exception above. It is written as a complement to, and contrast with, the per-file-key drive proposal in [nostr-protocol/nips#2412](https://github.com/nostr-protocol/nips/pull/2412): where that proposal stores a random per-file key inside each file's metadata, this one derives every key from a single root, which is what lets a folder be shared without re-wrapping N keys.
 
 ---
 
@@ -171,7 +173,7 @@ Tracks a key-in-URL public link (the key travels in the URL fragment, never to a
 ## Security Considerations
 
 - **Root key at rest.** The root key is the single most sensitive artifact; its wrapping event SHOULD use NIP-44, not NIP-04. NIP-04 leaks plaintext length and lacks a versioned construction.
-- **Metadata leakage.** Blob sizes and event timing are visible to relays and Blossom servers. Folder structure is not (folder names live in encrypted content), but the *shape* of the tree (counts, fan-out) can be inferred from event volume.
+- **Metadata leakage.** Blob sizes and event timing are visible to relays and Blossom servers. In this draft folder structure is not (folder names live in encrypted content; not yet true of the deployed Stash, see the note at the top), but the *shape* of the tree (counts, fan-out) can be inferred from event volume.
 - **Nonce uniqueness.** Single-blob nonces are random 24-byte; collision probability is negligible. Chunk nonces are unique by construction per file (base nonce XOR index) — but the base nonce MUST be freshly random per file, never reused across files under the same key.
 - **Sharing is transitive by derivation.** A recipient of a folder key can derive all descendant file keys forever, including files added later. Revoking a folder share therefore requires rotating the folder key (and re-wrapping/re-sharing to remaining recipients) — the subtree-rotation path, which is cheap on blobs but requires re-issuing shares.
 
