@@ -132,6 +132,8 @@ export interface StashContextValue {
   setFileTags: (file: StashFile, tags: string[]) => Promise<void>
   uploadItems: UploadItem[]
   uploadFiles: (files: File[]) => Promise<void>
+  /** Clear the Uploads panel. */
+  dismissUploads: () => void
   searchResults: SearchResult[] | null
   runSearch: (query: string) => Promise<void>
   clearSearch: () => void
@@ -242,6 +244,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [selectionMode, setSelectionMode] = useState(false)
   const [starredFiles, setStarredFiles] = useState<ReadonlySet<string>>(() => loadStarred())
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
+  const dismissUploads = useCallback(() => setUploadItems([]), [])
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
   const [sharedItems, setSharedItems] = useState<DecryptedIncomingShare[]>([])
   const [migrationFiles, setMigrationFiles] = useState<StashFile[]>([])
@@ -1141,6 +1144,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       copyFile: busyWhileRunning(copyFile),
       setFileTags,
       uploadItems,
+      dismissUploads,
       uploadFiles: busyWhileRunning(uploadFiles),
       searchResults,
       runSearch,
@@ -1205,6 +1209,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       copyFile,
       setFileTags,
       uploadItems,
+      dismissUploads,
       uploadFiles,
       searchResults,
       runSearch,
