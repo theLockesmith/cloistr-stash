@@ -35,6 +35,9 @@ type ServerConfig struct {
 	Host      string `yaml:"host"`
 	Port      int    `yaml:"port"`
 	PublicURL string `yaml:"public_url"`
+	// CORSOrigins are the exact browser origins (e.g. https://space.cloistr.xyz)
+	// allowed to call the API cross-origin. Empty means none. "*" is refused.
+	CORSOrigins []string `yaml:"cors_origins"`
 }
 
 // BlossomConfig represents the Blossom backend configuration
@@ -112,6 +115,14 @@ func Load(path string) (*Config, error) {
 	}
 	if publicURL := os.Getenv("DRIVE_PUBLIC_URL"); publicURL != "" {
 		cfg.Server.PublicURL = publicURL
+	}
+	if origins := os.Getenv("DRIVE_CORS_ORIGINS"); origins != "" {
+		cfg.Server.CORSOrigins = strings.Split(origins, ",")
+	}
+	for _, o := range cfg.Server.CORSOrigins {
+		if strings.Contains(o, "*") {
+			return nil, fmt.Errorf("cors origin %q: wildcards are not allowed, list each origin", strings.TrimSpace(o))
+		}
 	}
 	if blossomURL := os.Getenv("DRIVE_BLOSSOM_URL"); blossomURL != "" {
 		cfg.Blossom.URL = blossomURL
