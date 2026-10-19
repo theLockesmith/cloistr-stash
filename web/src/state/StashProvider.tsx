@@ -39,12 +39,9 @@ import { busyWhileRunning } from '../pwaUpdate'
 import { uploadFiles as libUploadFiles, copyFile as libCopyFile, type UploadItem } from '@cloistr/stash-core/upload'
 import { Search, type SearchResult } from '@cloistr/stash-core/search'
 import { Sharing, type DecryptedIncomingShare, type IncomingShare } from '@cloistr/stash-core/sharing'
+import { withAccess, type RecentEntry } from './recent'
 import type { FolderPathItem, StashFile, StashFolder, StashNotification, StashView, SortField, SortDir, SortPrefs } from './types'
 
-interface RecentEntry {
-  sha256: string
-  accessedAt: number
-}
 
 const STARRED_KEY = 'cloistr-starred'
 const RECENT_KEY = 'cloistr-recent'
@@ -458,16 +455,16 @@ export function StashProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const recordFileAccess = useCallback((sha256: string) => {
-    const filtered = recentRef.current.filter((r) => r.sha256 !== sha256)
-    filtered.unshift({ sha256, accessedAt: Math.floor(Date.now() / 1000) })
-    recentRef.current = filtered.slice(0, 100)
+  const recordFilesAccess = useCallback((sha256s: string[]) => {
+    recentRef.current = withAccess(recentRef.current, sha256s, Math.floor(Date.now() / 1000))
     try {
       localStorage.setItem(RECENT_KEY, JSON.stringify(recentRef.current))
     } catch (err) {
       console.warn('Failed to save recent state:', err)
     }
   }, [])
+
+  const recordFileAccess = useCallback((sha256: string) => recordFilesAccess([sha256]), [recordFilesAccess])
 
   const toggleFileSelection = useCallback((sha256: string) => {
     setSelectedFiles((prev) => {
@@ -755,10 +752,11 @@ export function StashProvider({ children }: { children: ReactNode }) {
           return next
         })
       const existing = view === 'my-files' ? files : specialFiles
-      await libUploadFiles(list, { folderId: folderIdRef.current || null, existing, onItem: upsert })
+      const results = await libUploadFiles(list, { folderId: folderIdRef.current || null, existing, onItem: upsert })
+      recordFilesAccess(results.filter((r) => r.status === 'success' && r.sha256).map((r) => r.sha256!))
       await Promise.all([reloadCurrentView(), loadFolderTree()])
     },
-    [view, files, specialFiles, reloadCurrentView, loadFolderTree],
+    [view, files, specialFiles, reloadCurrentView, loadFolderTree, recordFilesAccess],
   )
 
   const runSearch = useCallback(async (query: string) => {

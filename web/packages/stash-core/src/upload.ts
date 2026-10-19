@@ -34,6 +34,8 @@ export interface UploadItem {
   status: UploadStatus
   progress: number
   error: string | null
+  /** The stored blob's hash, once the upload succeeded. */
+  sha256?: string
 }
 
 export interface UploadOptions {
@@ -163,6 +165,7 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
           console.warn('Upload: failed to index file for search', err)
         }
 
+        item.sha256 = sha256
         item.status = 'success'
         item.progress = 100
         emit(item)
