@@ -322,6 +322,12 @@ export const Relay = {
   },
 
   async subscribe(filter: NostrFilter, timeout = 10000): Promise<SignedEvent[]> {
+    return this.query([filter], timeout)
+  },
+
+  /** One REQ carrying every filter (NIP-01), resolved with the events up to EOSE. */
+  async query(filters: NostrFilter[], timeout = 10000): Promise<SignedEvent[]> {
+    if (filters.length === 0) throw new Error('Relay.query needs at least one filter')
     if (!this.connected || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
       await this.connect()
     }
@@ -347,7 +353,7 @@ export const Relay = {
         },
       })
 
-      this.send(['REQ', subId, filter])
+      this.send(['REQ', subId, ...filters])
     })
   },
 
