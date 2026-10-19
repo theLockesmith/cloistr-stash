@@ -234,7 +234,6 @@ describe('Editing refreshes the file list (STASH-10: same-session download retur
     expect(editor).toContain('onSaved={() => void loadFiles()}')
   })
 })
-||||||| parent of 13c6c2c (fix(sharing): a received file can be downloaded, and Accept shows it took (STASH-19))
 
 
 describe('Shared view (STASH-19: Accept did nothing, shared files could not be downloaded)', () => {
