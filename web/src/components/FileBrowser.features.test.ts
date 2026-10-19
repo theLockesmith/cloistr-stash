@@ -250,6 +250,12 @@ describe('Shared view (STASH-19: Accept did nothing, shared files could not be d
     expect(sharedView).toMatch(/Accepted/)
   })
 
+  it('never gives a received file the sender\'s MIME type (a text/html blob would run as this app)', () => {
+    const fn = SOURCE.slice(SOURCE.indexOf('const onDownloadShare'), SOURCE.indexOf('// --- ', SOURCE.indexOf('const onDownloadShare')))
+    expect(fn).toContain("type: 'application/octet-stream'")
+    expect(fn).not.toMatch(/type: mimeType/)
+  })
+
   it('confirms or reports the result of Accept to the user', () => {
     expect(SOURCE).toMatch(/success\(`Accepted /)
     expect(PROVIDER).toMatch(/acceptShare: \(share: DecryptedIncomingShare\) => Promise<boolean>/)

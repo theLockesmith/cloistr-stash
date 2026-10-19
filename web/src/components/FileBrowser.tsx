@@ -112,20 +112,24 @@ export function FileBrowser() {
 
   const onAcceptShare = async (share: DecryptedIncomingShare, name: string) => {
     setBusyShareId(share.id)
-    const ok = await acceptShare(share)
-    setBusyShareId(null)
-    if (ok) toast.success(`Accepted ${name}`)
-    else toast.error(`Could not accept ${name}`)
+    try {
+      if (await acceptShare(share)) toast.success(`Accepted ${name}`)
+      else toast.error(`Could not accept ${name}`)
+    } finally {
+      setBusyShareId(null)
+    }
   }
 
   const onDownloadShare = async (share: DecryptedIncomingShare) => {
     setBusyShareId(share.id)
     try {
-      const { data, name, mimeType } = await Sharing.downloadSharedFile(share)
-      const blobUrl = URL.createObjectURL(new Blob([data.buffer as ArrayBuffer], { type: mimeType }))
+      const { data, name } = await Sharing.downloadSharedFile(share)
+      // The sender chose the MIME type and the name. A same-origin blob typed
+      // text/html would run as this app if opened, so it is always a download.
+      const blobUrl = URL.createObjectURL(new Blob([data as BlobPart], { type: 'application/octet-stream' }))
       const anchor = document.createElement('a')
       anchor.href = blobUrl
-      anchor.download = name
+      anchor.download = name.replace(/[\\/\u0000-\u001f]/g, '_') || 'shared-file'
       document.body.appendChild(anchor)
       anchor.click()
       document.body.removeChild(anchor)

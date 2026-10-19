@@ -790,7 +790,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
         console.error('acceptShare failed', err)
         return false
       }
-      await Promise.all([loadFolderTree(), loadShared()])
+      // The key is stored; a failed refresh does not undo that.
+      await Promise.all([loadFolderTree(), loadShared()]).catch((err) => console.error('refresh after accept failed', err))
       return true
     },
     [loadFolderTree, loadShared],
