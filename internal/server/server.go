@@ -47,18 +47,19 @@ type Server struct {
 
 // FileMetadata represents file information returned to the frontend
 type FileMetadata struct {
-	SHA256        string `json:"sha256"`
-	Name          string `json:"name,omitempty"`
-	Size          int64  `json:"size"`
-	MimeType      string `json:"mime_type,omitempty"`
-	FolderID      string `json:"folder_id,omitempty"`
-	CreatedAt     int64  `json:"created_at,omitempty"`
-	DeletedAt     int64  `json:"deleted_at,omitempty"`
-	FileID        string `json:"file_id,omitempty"`
-	PlaintextHash string `json:"plaintext_hash,omitempty"`
-	Encrypted     bool   `json:"encrypted,omitempty"`
-	EncryptedSize int64  `json:"encrypted_size,omitempty"`
-	OwnerKey      string `json:"owner_key,omitempty"`
+	SHA256        string   `json:"sha256"`
+	Name          string   `json:"name,omitempty"`
+	Size          int64    `json:"size"`
+	MimeType      string   `json:"mime_type,omitempty"`
+	FolderID      string   `json:"folder_id,omitempty"`
+	CreatedAt     int64    `json:"created_at,omitempty"`
+	DeletedAt     int64    `json:"deleted_at,omitempty"`
+	FileID        string   `json:"file_id,omitempty"`
+	PlaintextHash string   `json:"plaintext_hash,omitempty"`
+	Encrypted     bool     `json:"encrypted,omitempty"`
+	EncryptedSize int64    `json:"encrypted_size,omitempty"`
+	OwnerKey      string   `json:"owner_key,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
 }
 
 // FolderMetadataResponse represents folder information returned to the frontend
@@ -392,24 +393,30 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, f := range files {
-		response.Files = append(response.Files, FileMetadata{
-			SHA256:        f.SHA256,
-			Name:          f.Name,
-			Size:          f.Size,
-			MimeType:      f.MimeType,
-			FolderID:      f.FolderID,
-			CreatedAt:     f.CreatedAt.Unix(),
-			DeletedAt:     f.DeletedAt,
-			FileID:        f.FileID,
-			PlaintextHash: f.PlaintextHash,
-			Encrypted:     f.Encrypted,
-			EncryptedSize: f.EncryptedSize,
-			OwnerKey:      f.OwnerKey,
-		})
+		response.Files = append(response.Files, fileResponse(f))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(response)
+}
+
+// fileResponse is one row of the file list as the web app reads it.
+func fileResponse(f *metadata.FileMetadata) FileMetadata {
+	return FileMetadata{
+		SHA256:        f.SHA256,
+		Name:          f.Name,
+		Size:          f.Size,
+		MimeType:      f.MimeType,
+		FolderID:      f.FolderID,
+		CreatedAt:     f.CreatedAt.Unix(),
+		DeletedAt:     f.DeletedAt,
+		FileID:        f.FileID,
+		PlaintextHash: f.PlaintextHash,
+		Encrypted:     f.Encrypted,
+		EncryptedSize: f.EncryptedSize,
+		OwnerKey:      f.OwnerKey,
+		Tags:          f.Tags,
+	}
 }
 
 // handleUploadFile handles file uploads
