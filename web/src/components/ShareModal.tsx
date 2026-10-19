@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { Modal } from '@cloistr/ui/components'
 import { Sharing } from '@cloistr/stash-core/sharing'
+import { logActivity } from '@cloistr/stash-core/activity'
 import type { StashFile } from '../state/types'
 
 const EXPIRY_OPTIONS = [
@@ -45,6 +46,7 @@ export function ShareModal({ file, onClose }: { file: StashFile | null; onClose:
     setStatus(null)
     try {
       await Sharing.shareFile(file, pubkey, { expiresAt })
+      logActivity('share', { name: file.name ?? 'file' })
       setStatus(`Shared with ${pubkey.slice(0, 12)}…${expiresAt ? ` (expires ${new Date(expiresAt * 1000).toLocaleDateString()})` : ''}`)
     } catch (err) {
       setStatus(`Failed: ${(err as Error).message}`)

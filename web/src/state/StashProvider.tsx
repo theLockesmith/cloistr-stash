@@ -40,6 +40,7 @@ import { uploadFiles as libUploadFiles, copyFile as libCopyFile, type UploadItem
 import { Search, type SearchResult } from '@cloistr/stash-core/search'
 import { Sharing, type DecryptedIncomingShare, type IncomingShare } from '@cloistr/stash-core/sharing'
 import { withAccess, type RecentEntry } from './recent'
+import { logActivity } from '@cloistr/stash-core/activity'
 import type { FolderPathItem, StashFile, StashFolder, StashNotification, StashView, SortField, SortDir, SortPrefs } from './types'
 
 
@@ -511,6 +512,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       setError(null)
       try {
         await softDeleteFile(file)
+        logActivity('delete', { name: file.name ?? 'file' })
         await reloadCurrentView()
       } catch (err) {
         console.error('deleteFile failed', err)
@@ -660,6 +662,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       setError(null)
       try {
         await opRenameFile(file, newName)
+        logActivity('rename', { oldName: file.name ?? 'file', newName })
         await reloadCurrentView()
       } catch (err) {
         console.error('renameFile failed', err)
@@ -674,6 +677,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       setError(null)
       try {
         await opRenameFolder(folder, newName)
+        logActivity('folder_rename', { oldName: folder.name ?? 'folder', newName })
         await Promise.all([reloadCurrentView(), loadFolderTree()])
       } catch (err) {
         console.error('renameFolder failed', err)
@@ -688,6 +692,10 @@ export function StashProvider({ children }: { children: ReactNode }) {
       setError(null)
       try {
         await opMoveFile(file, targetFolderId)
+        const destination = targetFolderId
+          ? (treeRef.current.find((f) => f.id === targetFolderId)?.name ?? 'folder')
+          : 'My Files'
+        logActivity('move', { name: file.name ?? 'file', destination })
         await reloadCurrentView()
       } catch (err) {
         console.error('moveFile failed', err)
@@ -755,6 +763,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       const existing = view === 'my-files' ? files : specialFiles
       const results = await libUploadFiles(list, { folderId: folderIdRef.current || null, existing, onItem: upsert })
       recordFilesAccess(results.filter((r) => r.status === 'success' && r.sha256).map((r) => r.sha256!))
+      for (const r of results) if (r.status === 'success') logActivity('upload', { name: r.name })
       await Promise.all([reloadCurrentView(), loadFolderTree()])
     },
     [view, files, specialFiles, reloadCurrentView, loadFolderTree, recordFilesAccess],
@@ -819,6 +828,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       })
 
       await authPort.publishEvent(signedEvent)
+      logActivity('folder', { name: name.trim() })
       await Promise.all([loadFilesFor(folderIdRef.current), loadFolderTree()])
     },
     [loadFilesFor, loadFolderTree],
@@ -884,7 +894,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
           }
         }
         if (files.length > 0) {
-          await libUploadFiles(files, { folderId: folderId || null })
+          const results = await libUploadFiles(files, { folderId: folderId || null })
+          for (const r of results) if (r.status === 'success') logActivity('upload', { name: r.name })
         }
       }
 
