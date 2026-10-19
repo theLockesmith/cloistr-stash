@@ -1002,12 +1002,13 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
     try {
       // Relay is the source of truth; API is the fallback.
-      let shares: Array<{ id: string; owner_pubkey: string; name?: string; isFolder?: boolean }>
+      let shares: Array<{ id: string; owner_pubkey: string; encrypted_content?: string; name?: string; isFolder?: boolean }>
       try {
         const relayShares = await Sharing.queryIncomingSharesFromRelay(pubkey)
         shares = relayShares.map((s: IncomingShare) => ({
           id: s.id,
           owner_pubkey: s.owner_pubkey,
+          encrypted_content: s.encrypted_content,
         }))
       } catch {
         const response = (await API.listShares(pubkey, 'received')) as unknown as {
@@ -1026,6 +1027,13 @@ export function StashProvider({ children }: { children: ReactNode }) {
       const newNotifications: StashNotification[] = []
       for (const share of shares) {
         if (existingIds.has(share.id)) continue
+        // The name is inside the encrypted content. Only new shares get here,
+        // so the signer is not asked again on every poll.
+        if (!share.name && share.encrypted_content) {
+          const described = await Sharing.describeIncomingShare(share as IncomingShare)
+          share.name = described.name ?? undefined
+          share.isFolder = share.isFolder ?? described.isFolder
+        }
         const from =
           share.owner_pubkey && share.owner_pubkey.length > 8
             ? `${share.owner_pubkey.slice(0, 8)}…`
