@@ -189,7 +189,7 @@ export function FileBrowser() {
         />
       <EncryptionInfoModal file={encInfoFile} onClose={() => setEncInfoFile(null)} />
       <PreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
-      <EditorModal file={editorTarget} onClose={() => setEditorTarget(null)} />
+      <EditorModal file={editorTarget} onClose={() => setEditorTarget(null)} onSaved={() => void loadFiles()} />
       <ShareModal file={shareTarget} onClose={() => setShareTarget(null)} />
       <ManageSharesModal
         file={manageSharesTarget}
