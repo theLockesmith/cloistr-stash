@@ -31,9 +31,11 @@ type EditorStatus = 'Ready' | 'Loading...' | 'Saving...' | 'Saved' | string
 interface EditorModalProps {
   file: StashFile | null
   onClose: () => void
+  /** After each successful save: the file now points at a new blob. */
+  onSaved?: () => void
 }
 
-export function EditorModal({ file, onClose }: EditorModalProps) {
+export function EditorModal({ file, onClose, onSaved }: EditorModalProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [session, setSession] = useState<CollabSession | null>(null)
   const [status, setStatus] = useState<EditorStatus>('Ready')
@@ -133,7 +135,10 @@ export function EditorModal({ file, onClose }: EditorModalProps) {
     if (!session) return
     setStatus('Saving...')
     void Collaboration.saveDocument(session)
-      .then(() => setStatus('Saved'))
+      .then(() => {
+        setStatus('Saved')
+        onSaved?.()
+      })
       .catch(() => setStatus('Save failed'))
   }
 
@@ -146,6 +151,7 @@ export function EditorModal({ file, onClose }: EditorModalProps) {
     void Collaboration.saveDocument(session)
       .then(() => {
         setStatus('Saved')
+        onSaved?.()
         onClose()
       })
       .catch(() => setStatus('Save failed'))

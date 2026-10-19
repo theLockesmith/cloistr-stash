@@ -219,3 +219,18 @@ describe('Shared ContextMenu from @cloistr/ui', () => {
     )
   })
 })
+
+describe('Editing refreshes the file list (STASH-10: same-session download returned the old text)', () => {
+  const EDITOR = readFileSync(join(__dirname, 'EditorModal.tsx'), 'utf8')
+
+  it('EditorModal reports every successful save through onSaved', () => {
+    expect(EDITOR).toMatch(/onSaved\?: \(\) => void/)
+    const saves = EDITOR.match(/\.then\(\(\) => \{[^}]*onSaved\?\.\(\)/g) ?? []
+    expect(saves.length, 'Save and Save & Close must both call onSaved').toBe(2)
+  })
+
+  it('FileBrowser reloads the files after a save, so the row points at the new blob', () => {
+    const editor = SOURCE.slice(SOURCE.indexOf('<EditorModal'), SOURCE.indexOf('/>', SOURCE.indexOf('<EditorModal')))
+    expect(editor).toContain('onSaved={() => void loadFiles()}')
+  })
+})
