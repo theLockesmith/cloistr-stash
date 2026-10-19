@@ -116,7 +116,6 @@ export const Keys = {
   CONTEXT_SHARE: 'cloistr-drive-share-v1',
 
   storage: null as KeyStorage | null,
-  db: null as IDBDatabase | null,
   keyCache: new Map<string, Uint8Array>(),
   // Own folders whose local key could not be verified this session (see
   // resolveOwnFolderKeyStatus); new files are not added to them.
@@ -971,27 +970,11 @@ export const Keys = {
       this.clearCache()
       return
     }
-    if (!this.db) {
-      this.clearCache()
-      return
+    const storage = await this.ensureStorage()
+    for (const record of await storage.list(this.userPubkey)) {
+      await storage.delete(record.id)
     }
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(this.STORE_NAME, 'readwrite')
-      const store = tx.objectStore(this.STORE_NAME)
-      const index = store.index('pubkey')
-      const request = index.openCursor(IDBKeyRange.only(this.userPubkey))
-      request.onsuccess = (event) => {
-        const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result
-        if (cursor) {
-          cursor.delete()
-          cursor.continue()
-        } else {
-          this.clearCache()
-          resolve()
-        }
-      }
-      request.onerror = () => reject(request.error)
-    })
+    this.clearCache()
   },
 
   async hasFolderKey(folderId: string): Promise<boolean> {
@@ -1003,26 +986,9 @@ export const Keys = {
   },
 
   async getAllFolderIds(): Promise<(string | null)[]> {
-    if (!this.db) {
-      const ids: (string | null)[] = []
-      for (const [k] of this.keyCache) {
-        if (k.startsWith('folder:')) ids.push(k.replace('folder:', ''))
-      }
-      return ids
-    }
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(this.STORE_NAME, 'readonly')
-      const store = tx.objectStore(this.STORE_NAME)
-      const index = store.index('pubkey')
-      const request = index.getAll(IDBKeyRange.only(this.userPubkey))
-      request.onsuccess = () => {
-        const folderIds = (request.result as KeyRecord[])
-          .filter((r) => r.type === 'folder')
-          .map((r) => r.associatedId)
-        resolve(folderIds)
-      }
-      request.onerror = () => reject(request.error)
-    })
+    if (!this.userPubkey) return []
+    const records = await (await this.ensureStorage()).list(this.userPubkey)
+    return records.filter((r) => r.type === 'folder').map((r) => r.associatedId)
   },
 
   async exportBackup(): Promise<{
@@ -1035,18 +1001,7 @@ export const Keys = {
     if (!this.auth || !this.auth.isConnected) {
       throw new Error('Not connected')
     }
-    if (!this.db) {
-      throw new Error('Backup requires browser storage')
-    }
-
-    const allKeys = await new Promise<KeyRecord[]>((resolve, reject) => {
-      const tx = this.db!.transaction(this.STORE_NAME, 'readonly')
-      const store = tx.objectStore(this.STORE_NAME)
-      const index = store.index('pubkey')
-      const request = index.getAll(IDBKeyRange.only(this.userPubkey))
-      request.onsuccess = () => resolve(request.result as KeyRecord[])
-      request.onerror = () => reject(request.error)
-    })
+    const allKeys = await (await this.ensureStorage()).list(this.userPubkey!)
 
     const backup = {
       version: 1,

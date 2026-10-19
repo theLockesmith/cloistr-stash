@@ -31,7 +31,6 @@ describe('storeEncryptedKey refuses plaintext', () => {
 
   afterEach(() => {
     Keys.storage = null
-    Keys.db = null
   })
 
   it('throws when signer is not connected', async () => {
