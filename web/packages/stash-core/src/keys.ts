@@ -1001,7 +1001,10 @@ export const Keys = {
     if (!this.auth || !this.auth.isConnected) {
       throw new Error('Not connected')
     }
-    const allKeys = await (await this.ensureStorage()).list(this.userPubkey!)
+    if (!this.userPubkey) {
+      throw new Error('Not initialized')
+    }
+    const allKeys = await (await this.ensureStorage()).list(this.userPubkey)
 
     const backup = {
       version: 1,
@@ -1023,7 +1026,7 @@ export const Keys = {
     return {
       encrypted: encryptedBackup,
       hash: backupHash,
-      pubkey: this.userPubkey!,
+      pubkey: this.userPubkey,
       version: 1,
       createdAt: backup.createdAt,
     }

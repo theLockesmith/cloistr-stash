@@ -51,7 +51,7 @@ describe.each(backends)('key backup on %s storage', (_name, make) => {
 
   afterEach(() => {
     Keys.clearCache()
-    Keys.storage = null
+    Keys.setStorage(null)
   })
 
   it('exports a backup holding every key of this user, and only this user', async () => {

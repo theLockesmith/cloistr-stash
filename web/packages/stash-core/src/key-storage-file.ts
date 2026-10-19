@@ -71,8 +71,15 @@ export class FileKeyStorage implements KeyStorage {
   }
 
   async list(pubkey: string): Promise<KeyRecord[]> {
+    let names: string[]
+    try {
+      names = await readdir(this.dir)
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw err
+    }
     const records: KeyRecord[] = []
-    for (const name of await readdir(this.dir)) {
+    for (const name of names) {
       if (!name.endsWith('.json')) continue
       const record = JSON.parse(await readFile(join(this.dir, name), 'utf-8')) as KeyRecord
       if (record.pubkey === pubkey) records.push(record)

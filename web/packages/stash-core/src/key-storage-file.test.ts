@@ -100,6 +100,10 @@ describe('FileKeyStorage', () => {
     expect(mine.map((r) => r.id).sort()).toEqual(['user:folder:a', 'user:root'])
   })
 
+  it('lists nothing when the key directory does not exist yet', async () => {
+    expect(await new FileKeyStorage(join(dir, 'never-created')).list('test-pubkey')).toEqual([])
+  })
+
   it('declares refuseOverwrite so Keys enforces the key-replacement rule', () => {
     expect(storage.refuseOverwrite).toBe(true)
   })
