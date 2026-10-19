@@ -1,0 +1,6 @@
+- [ ] Go tests: defaults, overrides, endpoint headers/body, escaping, precedence
+- [ ] Go handler + wiring
+- [ ] web tests: serviceConfig defaults/runtime/consumers + source guard
+- [ ] serviceConfig.ts + consumers + SharedAuthProvider/Header + index.html + dev proxy
+- [ ] build image; run prod-like + staging-like; browser network log
+- [ ] merge, deploy, live config.js = production

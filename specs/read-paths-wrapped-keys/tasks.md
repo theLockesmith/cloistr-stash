@@ -1,0 +1,5 @@
+- [ ] fileKey.test.ts (owner_key -> unwrap; none -> HKDF folder/root; aliases; missing id throws)
+- [ ] source-scan guard test
+- [ ] fileKey.ts + wire 7 read paths
+- [ ] versioning fallback test
+- [ ] suite/tsc/build; deploy; re-run control-upload-download.mjs against prod
