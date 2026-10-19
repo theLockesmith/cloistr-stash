@@ -854,6 +854,21 @@ export const Sharing = {
     }
   },
 
+  /** The name and kind of an incoming share, read from its encrypted content (name null if unreadable). */
+  async describeIncomingShare(share: IncomingShare): Promise<{ name: string | null; isFolder: boolean }> {
+    try {
+      const content = JSON.parse(await this.decryptFromSender(share.owner_pubkey, share.encrypted_content)) as {
+        type?: string
+        fileName?: string
+        folderName?: string
+      }
+      const isFolder = content.type === this.SHARE_TYPE_FOLDER
+      return { name: (isFolder ? content.folderName : content.fileName) || null, isFolder }
+    } catch {
+      return { name: null, isFolder: false }
+    }
+  },
+
   /** True only if `sender` has a folder share to us for `folderId` whose key is exactly `keyHex`. */
   async senderSharedFolderKey(sender: string, folderId: string, keyHex: string): Promise<boolean> {
     const me = authPort.pubkey
