@@ -977,6 +977,13 @@ export const Keys = {
     this.clearCache()
   },
 
+  /** Whether a key is stored for `keyId`, without decrypting it (no signer round trip). */
+  async hasStoredKey(keyId: string): Promise<boolean> {
+    if (this.keyCache.has(keyId)) return true
+    if (!this.userPubkey) return false
+    return (await (await this.ensureStorage()).get(`${this.userPubkey}:${keyId}`)) !== null
+  },
+
   async hasFolderKey(folderId: string): Promise<boolean> {
     if (this.keyCache.has(`folder:${folderId}`)) {
       return true

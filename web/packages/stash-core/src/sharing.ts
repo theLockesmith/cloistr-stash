@@ -90,6 +90,14 @@ export interface DecryptedIncomingShare extends IncomingShare {
   content?: unknown
   decrypted: boolean
   error?: string
+  /** This device holds the key that accepting the share stores. */
+  accepted?: boolean
+}
+
+export interface SharedFileDownload {
+  data: Uint8Array
+  name: string
+  mimeType: string
 }
 
 // ─── Internal content shapes (used when building/parsing events) ──────────────
@@ -803,6 +811,49 @@ export const Sharing = {
     throw new Error('Unknown share type')
   },
 
+  /** Whether acceptShare has stored this share's key on this device (presence only, nothing decrypted). */
+  async isShareAccepted(shareId: string, content: unknown): Promise<boolean> {
+    const c = (content ?? {}) as { type?: string; folderId?: string }
+    if (c.type === this.SHARE_TYPE_FILE) return Keys.hasStoredKey(`share:${shareId}`)
+    if (c.type === this.SHARE_TYPE_FOLDER && c.folderId) return Keys.hasStoredKey(`folder:${c.folderId}`)
+    return false
+  },
+
+  /**
+   * Fetch and decrypt a file someone shared with us. The blob comes from our
+   * own Blossom by the hash in the share, never from the URL the sender wrote
+   * into it, and must match that hash.
+   */
+  async downloadSharedFile(share: DecryptedIncomingShare): Promise<SharedFileDownload> {
+    const content = (share.content ?? {}) as Partial<ShareFileContent>
+    if (!share.decrypted || content.type !== this.SHARE_TYPE_FILE || !content.fileSHA256) {
+      throw new Error('Not a downloadable file share')
+    }
+    const sha256 = content.fileSHA256.toLowerCase()
+    const response = await fetch(API.getDownloadURL(sha256))
+    if (!response.ok) throw new Error(`Download failed: ${response.status}`)
+    const stored = new Uint8Array(await response.arrayBuffer())
+    if ((await Crypto.hash(stored)) !== sha256) {
+      throw new Error('Shared file does not match its hash')
+    }
+
+    let data: Uint8Array = stored
+    if (content.encrypted) {
+      if (!content.fileKey) throw new Error('Share carries no file key')
+      const key = Crypto.hexToBytes(await this.decryptFromSender(share.owner_pubkey, content.fileKey))
+      try {
+        data = await Crypto.decryptFile(stored, key)
+      } finally {
+        Crypto.wipeKey(key)
+      }
+    }
+    return {
+      data,
+      name: content.fileName || 'shared-file',
+      mimeType: content.fileMimeType || 'application/octet-stream',
+    }
+  },
+
   /** True only if `sender` has a folder share to us for `folderId` whose key is exactly `keyHex`. */
   async senderSharedFolderKey(sender: string, folderId: string, keyHex: string): Promise<boolean> {
     const me = authPort.pubkey
@@ -967,6 +1018,8 @@ export const Sharing = {
           ...share,
           content: content,
           decrypted: true,
+          // A failed lookup reads as not accepted; it must not mark the share undecryptable.
+          accepted: await this.isShareAccepted(share.id, content).catch(() => false),
         })
       } catch (err) {
         decryptedShares.push({

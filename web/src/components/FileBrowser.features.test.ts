@@ -234,3 +234,24 @@ describe('Editing refreshes the file list (STASH-10: same-session download retur
     expect(editor).toContain('onSaved={() => void loadFiles()}')
   })
 })
+||||||| parent of 13c6c2c (fix(sharing): a received file can be downloaded, and Accept shows it took (STASH-19))
+
+
+describe('Shared view (STASH-19: Accept did nothing, shared files could not be downloaded)', () => {
+  const sharedView = SOURCE.slice(SOURCE.indexOf("if (view === 'shared')"), SOURCE.indexOf('const empty ='))
+
+  it('offers Download on a file share, through Sharing.downloadSharedFile', () => {
+    expect(sharedView).toMatch(/>\s*Download\s*</)
+    expect(SOURCE).toContain('Sharing.downloadSharedFile(')
+  })
+
+  it('shows an accepted share as Accepted instead of its Accept button', () => {
+    expect(sharedView).toContain('share.accepted')
+    expect(sharedView).toMatch(/Accepted/)
+  })
+
+  it('confirms or reports the result of Accept to the user', () => {
+    expect(SOURCE).toMatch(/success\(`Accepted /)
+    expect(PROVIDER).toMatch(/acceptShare: \(share: DecryptedIncomingShare\) => Promise<boolean>/)
+  })
+})

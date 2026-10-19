@@ -8,7 +8,7 @@
 // showContextMenu behaviour.  Long-press (500ms) triggers the same menu on touch.
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { ConfirmModal, ContextMenu, useContextMenu, type ContextMenuEntry } from '@cloistr/ui/components'
+import { ConfirmModal, ContextMenu, useContextMenu, useToast, type ContextMenuEntry } from '@cloistr/ui/components'
 import { useStash } from '../state/useStash'
 import type { StashFile, StashFolder, SortField } from '../state/types'
 import { formatDate, formatFileSize, getFileIcon } from './format'
@@ -23,6 +23,7 @@ import { ShareModal } from './ShareModal'
 import { ManageSharesModal } from './ManageSharesModal'
 import { VersionHistoryModal } from './VersionHistoryModal'
 import { Collaboration } from '@cloistr/stash-core/collaboration'
+import { Sharing, type DecryptedIncomingShare } from '@cloistr/stash-core/sharing'
 import { CommentsModal } from './CommentsModal'
 import { FolderCustomizeModal, useFolderCustomizations } from './FolderCustomizeModal'
 import { PublishModal } from './PublishModal'
@@ -105,6 +106,37 @@ export function FileBrowser() {
   const [commentsTarget, setCommentsTarget] = useState<StashFile | null>(null)
   const ctxMenu = useContextMenu()
   const [menuItems, setMenuItems] = useState<ContextMenuEntry[]>([])
+  const toast = useToast()
+  // Incoming share with an Accept or Download in flight (null = none).
+  const [busyShareId, setBusyShareId] = useState<string | null>(null)
+
+  const onAcceptShare = async (share: DecryptedIncomingShare, name: string) => {
+    setBusyShareId(share.id)
+    const ok = await acceptShare(share)
+    setBusyShareId(null)
+    if (ok) toast.success(`Accepted ${name}`)
+    else toast.error(`Could not accept ${name}`)
+  }
+
+  const onDownloadShare = async (share: DecryptedIncomingShare) => {
+    setBusyShareId(share.id)
+    try {
+      const { data, name, mimeType } = await Sharing.downloadSharedFile(share)
+      const blobUrl = URL.createObjectURL(new Blob([data.buffer as ArrayBuffer], { type: mimeType }))
+      const anchor = document.createElement('a')
+      anchor.href = blobUrl
+      anchor.download = name
+      document.body.appendChild(anchor)
+      anchor.click()
+      document.body.removeChild(anchor)
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000)
+    } catch (err) {
+      console.error('Shared download failed', err)
+      toast.error(`Download failed: ${(err as Error).message}`)
+    } finally {
+      setBusyShareId(null)
+    }
+  }
   // File being published publicly (null = modal closed).
   const [publishTarget, setPublishTarget] = useState<StashFile | null>(null)
   // Folder being customized (null = modal closed).
@@ -426,14 +458,28 @@ export function FileBrowser() {
                     <span className="shared-from">from {share.owner_pubkey.slice(0, 12)}…</span>
                     {!share.decrypted && <span className="fb-e2e">undecryptable</span>}
                   </span>
-                  <button
-                    type="button"
-                    className="selection-btn primary"
-                    disabled={!share.decrypted}
-                    onClick={() => void acceptShare(share)}
-                  >
-                    Accept
-                  </button>
+                  {share.decrypted && content.type === 'file' && (
+                    <button
+                      type="button"
+                      className="selection-btn"
+                      disabled={busyShareId === share.id}
+                      onClick={() => void onDownloadShare(share)}
+                    >
+                      Download
+                    </button>
+                  )}
+                  {share.accepted ? (
+                    <span className="shared-accepted">Accepted</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="selection-btn primary"
+                      disabled={!share.decrypted || busyShareId === share.id}
+                      onClick={() => void onAcceptShare(share, name)}
+                    >
+                      Accept
+                    </button>
+                  )}
                 </li>
               )
             })}
