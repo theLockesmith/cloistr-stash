@@ -1,3 +1,4 @@
+import { workboxOptions } from '../../vite.config'
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -130,8 +131,14 @@ describe('embed source guards', () => {
     expect(body.indexOf('if (!check.ok)')).toBeLessThan(body.indexOf('<SharedAuthProvider'))
   })
 
-  it('the service worker never answers /embed/ navigations', () => {
-    const vite = readFileSync(join(dir, '../../vite.config.ts'), 'utf8')
-    expect(vite).toContain('navigateFallbackDenylist: [/^\\/embed(\\/|$)/]')
+  it.each(['/embed', '/embed/', '/embed/files', '/embed/files?parent=x'])(
+    'the service worker never answers the navigation %s',
+    (path) => {
+      expect(workboxOptions.navigateFallbackDenylist.some((re) => re.test(path))).toBe(true)
+    },
+  )
+
+  it('the main app is still answered offline', () => {
+    expect(workboxOptions.navigateFallbackDenylist.some((re) => re.test('/embedded-folder'))).toBe(false)
   })
 })
