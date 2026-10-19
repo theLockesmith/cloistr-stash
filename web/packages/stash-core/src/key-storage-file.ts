@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, readFile, rename, writeFile, unlink } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readdir, readFile, rename, writeFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import type { KeyRecord, KeyStorage } from './key-storage'
@@ -68,5 +68,22 @@ export class FileKeyStorage implements KeyStorage {
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
     }
+  }
+
+  async list(pubkey: string): Promise<KeyRecord[]> {
+    let names: string[]
+    try {
+      names = await readdir(this.dir)
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw err
+    }
+    const records: KeyRecord[] = []
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue
+      const record = JSON.parse(await readFile(join(this.dir, name), 'utf-8')) as KeyRecord
+      if (record.pubkey === pubkey) records.push(record)
+    }
+    return records
   }
 }

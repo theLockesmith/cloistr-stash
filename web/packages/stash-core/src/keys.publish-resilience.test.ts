@@ -24,7 +24,6 @@ function makeAuthStub(overrides: Partial<AuthPort> = {}): AuthPort {
 
 function stubStorage() {
   const store = new Map<string, unknown>()
-  Keys.db = { objectStoreNames: { contains: () => true } } as unknown as IDBDatabase
   ;(Keys as Record<string, unknown>).storeEncryptedKey = async (id: string, key: Uint8Array) => {
     store.set(id, key)
   }
