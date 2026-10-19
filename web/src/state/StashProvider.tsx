@@ -24,6 +24,7 @@ import { authPort } from '@cloistr/stash-core/authBridge'
 import { EventUnavailableError } from '@cloistr/stash-core/editEvent'
 import {
   delay,
+  createFolder as opCreateFolder,
   deleteFolders,
   fileIdOf,
   moveFile as opMoveFile,
@@ -803,29 +804,10 @@ export function StashProvider({ children }: { children: ReactNode }) {
     [loadFolderTree, loadShared],
   )
 
-  // Port of app.js App.createFolder().
-  // (1) Generate a random 16-byte folder ID; (2) derive and locally cache a fresh
-  // AES key; (3) self-encrypt the key hex via NIP-44/NIP-04; (4) build a signed
-  // kind:30079 event; (5) publish directly to the relay (client-side, no HTTP round-trip);
-  // (6) reload files and folder tree.
+  // Old-shape or sealed, by the drive's shape: stash-core Operations.createFolder.
   const createFolder = useCallback(
     async (name: string) => {
-      const pubkey = authPort.pubkey
-      if (!authPort.isConnected || !pubkey) throw new Error('Not connected')
-
-      const folderId = Events.generateFolderId()
-      const folderKey = await Keys.generateFolderKey(folderId)
-      const folderKeyHex = Crypto.bytesToHex(folderKey)
-      const encryptedFolderKey = await Keys.selfEncrypt(pubkey, folderKeyHex)
-
-      const signedEvent = await Events.createEncryptedFolderEvent({
-        id: folderId,
-        name: name.trim(),
-        parentId: folderIdRef.current || undefined,
-        encryptedFolderKey,
-      })
-
-      await authPort.publishEvent(signedEvent)
+      await opCreateFolder(name, folderIdRef.current || null)
       logActivity('folder', { name: name.trim() })
       await Promise.all([loadFilesFor(folderIdRef.current), loadFolderTree()])
     },
@@ -861,20 +843,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
         return all
       }
 
-      const createFolderIn = async (name: string, parentId: string | undefined): Promise<string> => {
-        const folderId = Events.generateFolderId()
-        const folderKey = await Keys.generateFolderKey(folderId)
-        const folderKeyHex = Crypto.bytesToHex(folderKey)
-        const encryptedFolderKey = await Keys.selfEncrypt(pubkey, folderKeyHex)
-        const signedEvent = await Events.createEncryptedFolderEvent({
-          id: folderId,
-          name: name.trim(),
-          parentId: parentId || undefined,
-          encryptedFolderKey,
-        })
-        await authPort.publishEvent(signedEvent)
-        return folderId
-      }
+      const createFolderIn = (name: string, parentId: string | undefined): Promise<string> =>
+        opCreateFolder(name, parentId || null)
 
       const processEntries = async (ents: FileSystemEntry[], folderId: string | undefined) => {
         const files: File[] = []
