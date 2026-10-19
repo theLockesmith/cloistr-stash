@@ -156,6 +156,7 @@ let wired = false
 function wireOnce(): void {
   if (wired) return
   Keys.configure({ auth: authPort, api: API })
+  API.httpAuth = (url, method) => authPort.createHttpAuth(url, method)
   Relay.configure({ auth: authPort })
   RelayPrefs.configure({ auth: authPort })
   wired = true
