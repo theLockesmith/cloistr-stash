@@ -82,6 +82,48 @@ export interface VersionableFile {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * The versions a file event already records, oldest first: its 'v' entries,
+ * or, when it has none, its current blob as version 1 "Original".
+ */
+function versionsFromEvent(
+  fileId: string,
+  event: { created_at: number; tags: string[][]; content: string; pubkey?: string },
+): FileVersion[] {
+  const tag = (name: string) => event.tags.find((t) => t[0] === name)?.[1]
+  let content: Record<string, unknown> = {}
+  try {
+    content = JSON.parse(event.content) as Record<string, unknown>
+  } catch {
+    // sizes stay unknown
+  }
+  const owner = event.pubkey ?? authPort.pubkey ?? ''
+  const base = { fileId, plaintextHash: '', size: 0, encryptedSize: 0, note: '', autoSave: false, pubkey: owner }
+
+  const listed = event.tags
+    .filter((t) => t[0] === 'v' && t[1] && Number(t[2]) > 0)
+    .map((t) => ({ ...base, sha256: t[1], version: Number(t[2]), timestamp: Number(t[3]) || 0, pubkey: t[4] || owner }))
+    .sort((a, b) => a.version - b.version)
+  if (listed.length > 0) {
+    return listed.map((v, i) => ({ ...v, id: `${fileId}:v${v.version}`, previousVersion: i > 0 ? listed[i - 1].sha256 : null }))
+  }
+
+  const sha256 = tag('x')
+  if (!sha256) return []
+  return [{
+    ...base,
+    id: `${fileId}:v1`,
+    version: 1,
+    sha256,
+    plaintextHash: tag('ox') ?? '',
+    size: Number(tag('size') ?? content.size) || 0,
+    encryptedSize: Number(content.encrypted_size) || 0,
+    timestamp: event.created_at,
+    note: 'Original',
+    previousVersion: null,
+  }]
+}
+
 function extractFileId(file: VersionableFile): string {
   const id = file.file_id || file.fileId || file.d || file.id
   if (!id) throw new Error('Cannot version: missing file ID')
@@ -150,13 +192,18 @@ export const Versioning = {
     const fileId = extractFileId(file)
     const folderId = extractFolderId(file)
 
-    // Get the current version number
-    const currentVersions = await this.getVersionHistory(fileId)
-    const newVersionNumber = currentVersions.length + 1
-
     // Refuse before uploading anything if the file's current event cannot be
     // loaded: the new version is merged into it (see below).
-    await loadOwnEvent(30078, fileId)
+    const currentEvent = await loadOwnEvent(30078, fileId)
+
+    // History lives on this device. On a device with none yet, seed it from
+    // the file event first, so the content before this save stays listed and
+    // restorable (STASH-25: the original used to vanish from Versions).
+    let currentVersions = await this.getVersionHistory(fileId)
+    const seeded = currentVersions.length === 0 ? versionsFromEvent(fileId, currentEvent) : []
+    for (const v of seeded) await this.storeVersionMeta(v)
+    if (seeded.length > 0) currentVersions = await this.getVersionHistory(fileId)
+    const newVersionNumber = currentVersions.reduce((n, v) => Math.max(n, Number(v.version) || 0), currentVersions.length) + 1
 
     // The file's own key: its wrapped key, or HKDF for a legacy file.
     const fileKey = await fileKeyFor(file as FileRef)
@@ -205,6 +252,11 @@ export const Versioning = {
         setTag(draft, 'size', String(versionMeta.size))
         draft.content.size = versionMeta.size
         draft.content.encrypted_size = versionMeta.encryptedSize
+        for (const v of seeded) {
+          if (!draft.tags.some((t) => t[0] === 'v' && t[1] === v.sha256)) {
+            draft.tags.push(['v', v.sha256, String(v.version), String(v.timestamp), v.pubkey])
+          }
+        }
         draft.tags.push(['v', uploadedSha256, String(newVersionNumber), String(versionMeta.timestamp), authPort.pubkey!])
         setTag(draft, 'current', uploadedSha256)
       })
