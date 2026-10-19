@@ -121,6 +121,11 @@ export function FileBrowser() {
     setInfoFile(file)
   }
 
+  const openPreview = (file: StashFile) => {
+    recordFileAccess(file.sha256)
+    setPreviewFile(file)
+  }
+
   /**
    * Open the context menu at the mouse coordinates from a contextmenu event.
    * Viewport clamping is handled by the shared ContextMenu component.
@@ -182,7 +187,7 @@ export function FileBrowser() {
       <FileInfoModal
           file={infoFile}
           onClose={() => setInfoFile(null)}
-          onPreview={(f) => { setInfoFile(null); setPreviewFile(f) }}
+          onPreview={(f) => { setInfoFile(null); openPreview(f) }}
           onShare={(f) => setShareTarget(f)}
           onVersions={(f) => setVersionTarget(f)}
           onDelete={(f) => setPendingDelete({ kind: 'file', file: f, name: fileDisplayName(f) })}
@@ -297,7 +302,7 @@ export function FileBrowser() {
     if (view === 'trash') {
       return [
         { key: 'info', label: 'Info', onClick: () => openInfo(file) },
-        { key: 'preview', label: 'Preview', onClick: () => setPreviewFile(file) },
+        { key: 'preview', label: 'Preview', onClick: () => openPreview(file) },
         {
           key: 'restore',
           label: 'Restore',
@@ -316,7 +321,7 @@ export function FileBrowser() {
       ...(Collaboration.isCollaborativeFileType(file.mime_type)
         ? [{ key: 'edit', label: 'Edit', onClick: () => setEditorTarget(file) }]
         : []),
-      { key: 'preview', label: 'Preview', onClick: () => setPreviewFile(file) },
+      { key: 'preview', label: 'Preview', onClick: () => openPreview(file) },
       { key: 'encryption-info', label: 'Encryption Info', onClick: () => setEncInfoFile(file) },
       { key: 'share', label: 'Share', onClick: () => setShareTarget(file) },
       { key: 'manage-shares', label: 'Manage Shares', onClick: () => setManageSharesTarget(file) },
