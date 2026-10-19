@@ -155,7 +155,8 @@ export interface StashContextValue {
   unreadNotificationCount: number
   markNotificationRead: (id: string) => void
   markAllNotificationsRead: () => void
-  acceptNotification: (id: string) => void
+  /** Accept the share behind a notification; resolves true once its key is stored. */
+  acceptNotification: (id: string) => Promise<boolean>
   declineNotification: (id: string) => void
   /**
    * Storage quota from the server. null while loading or when the server
@@ -939,7 +940,18 @@ export function StashProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const acceptNotification = useCallback(
-    (id: string) => {
+    async (id: string) => {
+      // Same accept path as the Shared view: the share's key is stored, and
+      // only then is the notification marked accepted.
+      const shareId = notificationsRef.current.find((n) => n.id === id)?.data.shareId
+      let share: DecryptedIncomingShare | undefined
+      try {
+        share = (await Sharing.listIncomingShares()).find((s) => s.id === shareId)
+      } catch (err) {
+        console.error('acceptNotification: listing shares failed', err)
+      }
+      if (!share || !share.decrypted) return false
+      if (!(await acceptShare(share))) return false
       setNotifications((prev) => {
         const next = prev.map((n) =>
           n.id === id ? { ...n, read: true, accepted: true } : n,
@@ -947,10 +959,9 @@ export function StashProvider({ children }: { children: ReactNode }) {
         saveStoredNotifications(next)
         return next
       })
-      // Refresh shared view so the newly-accepted share appears.
-      void loadShared()
+      return true
     },
-    [loadShared],
+    [acceptShare],
   )
 
   const declineNotification = useCallback(

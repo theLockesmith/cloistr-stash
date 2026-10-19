@@ -8,6 +8,7 @@
 //
 // The modal is always in the DOM so toBeAttached() passes in tests.
 
+import { useToast } from '@cloistr/ui/components'
 import { useStash } from '../state/useStash'
 import type { StashNotification } from '../state/types'
 
@@ -51,14 +52,16 @@ export function NotificationsModal({
     acceptNotification,
     declineNotification,
   } = useStash()
+  const toast = useToast()
 
   const handleItemClick = (id: string) => {
     markNotificationRead(id)
   }
 
-  const handleAccept = (e: React.MouseEvent, id: string) => {
+  const handleAccept = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
-    acceptNotification(id)
+    if (await acceptNotification(id)) toast.success('Share accepted')
+    else toast.error('Could not accept this share')
   }
 
   const handleDecline = (e: React.MouseEvent, id: string) => {
@@ -121,7 +124,7 @@ export function NotificationsModal({
                             type="button"
                             className="btn btn-primary accept-share-btn"
                             data-id={n.id}
-                            onClick={(e) => handleAccept(e, n.id)}
+                            onClick={(e) => void handleAccept(e, n.id)}
                           >
                             Accept
                           </button>
