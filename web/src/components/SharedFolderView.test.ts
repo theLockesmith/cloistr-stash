@@ -27,8 +27,20 @@ describe('Shared view opens a folder share', () => {
     expect(VIEW).toMatch(/e\.name === 'SharedKeyCannotOpenError' \? e\.message/)
   })
 
-  it('wipes the shared folder key when the view closes', () => {
-    expect(VIEW).toMatch(/return \(\) => \{\s*if \(root\) Crypto\.wipeKey\(root\.key\)/)
+  it('wipes every key it was handed when the view closes, and a key that arrives after close', () => {
+    expect(VIEW).toMatch(/return \(\) => \{\s*closed = true\s*generation\.current\+\+\s*held\.current\.splice\(0\)\.forEach\(\(k\) => Crypto\.wipeKey\(k\)\)/)
+    expect(VIEW).toMatch(/if \(closed\) return Crypto\.wipeKey\(key\)/)
+    expect(VIEW).toMatch(/held\.current\.push\(\.\.\.keys\)/)
+  })
+
+  it('drops a listing that resolves after a newer navigation, wiping its keys', () => {
+    expect(VIEW).toMatch(/const mine = \+\+generation\.current/)
+    expect(VIEW).toMatch(/if \(mine !== generation\.current\) \{\s*keys\.forEach\(\(k\) => Crypto\.wipeKey\(k\)\)\s*return/)
+  })
+
+  it('opens a subfolder only with a key the listing found', () => {
+    expect(VIEW).toMatch(/const key = snap\?\.folderKeys\.get\(folderId\)\s*if \(!key\) return/)
+    expect(VIEW).not.toMatch(/folderKeys\.get\([^)]*\)!/)
   })
 
   it('saves downloads as octet-stream, both from a file share and from a shared folder', () => {

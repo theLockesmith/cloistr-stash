@@ -3,7 +3,7 @@
 // Nothing here touches our own drive or root key. Old-shape subfolders of an
 // unmigrated drive do not appear: their keys are wrapped to the owner only.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useToast } from '@cloistr/ui/components'
 import { Crypto } from '@cloistr/stash-core/crypto'
 import type { DriveSnapshot } from '@cloistr/stash-core/drive'
@@ -48,15 +48,32 @@ export function SharedFolderView({
   const [error, setError] = useState<string | null>(null)
   const [busyFileId, setBusyFileId] = useState<string | null>(null)
 
+  // Bumped by every navigation and by close: a listing that resolves after a
+  // newer one (or after close) is dropped and its keys wiped at once.
+  const generation = useRef(0)
+  // Every key the view was handed while open (the share's, and every listed
+  // level's); all wiped on close. Kept until then because the path holds
+  // subfolder keys taken from earlier levels.
+  const held = useRef<Uint8Array[]>([])
+
   const open = useCallback(
     async (next: Level[]) => {
+      const mine = ++generation.current
       setPath(next)
       setSnap(null)
       setError(null)
       const level = next[next.length - 1]
       try {
-        setSnap(await Sharing.browseSharedFolder(share.owner_pubkey, level.id, level.key))
+        const listed = await Sharing.browseSharedFolder(share.owner_pubkey, level.id, level.key)
+        const keys = [...listed.fileKeys.values(), ...listed.folderKeys.values()]
+        if (mine !== generation.current) {
+          keys.forEach((k) => Crypto.wipeKey(k))
+          return
+        }
+        held.current.push(...keys)
+        setSnap(listed)
       } catch (err) {
+        if (mine !== generation.current) return
         console.error('Shared folder listing failed', err)
         setError(`Could not open this folder: ${(err as Error).message}`)
       }
@@ -65,17 +82,28 @@ export function SharedFolderView({
   )
 
   useEffect(() => {
-    let root: Level | null = null
+    let closed = false
     Sharing.sharedFolderKey(share)
       .then(({ folderId, key }) => {
-        root = { id: folderId, name, key }
-        return open([root])
+        if (closed) return Crypto.wipeKey(key)
+        held.current.push(key)
+        return open([{ id: folderId, name, key }])
       })
-      .catch((err) => setError(`Could not open this folder: ${(err as Error).message}`))
+      .catch((err) => {
+        if (!closed) setError(`Could not open this folder: ${(err as Error).message}`)
+      })
     return () => {
-      if (root) Crypto.wipeKey(root.key)
+      closed = true
+      generation.current++
+      held.current.splice(0).forEach((k) => Crypto.wipeKey(k))
     }
   }, [share, name, open])
+
+  const openSubfolder = (folderId: string, folderName: string) => {
+    const key = snap?.folderKeys.get(folderId)
+    if (!key) return
+    void open([...path, { id: folderId, name: folderName, key }])
+  }
 
   const onDownload = async (file: StashFile) => {
     const key = snap?.fileKeys.get(file.id!)
@@ -129,9 +157,7 @@ export function SharedFolderView({
               <button
                 type="button"
                 className="shared-meta shared-open"
-                onClick={() =>
-                  void open([...path, { id: folder.id, name: folder.name, key: snap.folderKeys.get(folder.id)! }])
-                }
+                onClick={() => openSubfolder(folder.id, folder.name)}
               >
                 <span className="fb-icon" aria-hidden="true">📁</span>
                 {folder.name}

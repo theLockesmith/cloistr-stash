@@ -887,6 +887,8 @@ export const Sharing = {
    * Fetch and decrypt a file listed by browseSharedFolder. The blob comes from
    * our own Blossom by the hash the owner signed and must match it. A blob the
    * key does not open throws SharedKeyCannotOpenError, never a bare AEAD error.
+   * `mimeType` is the owner's claim: never use it as a blob type (saveAsDownload
+   * always saves application/octet-stream).
    */
   async downloadFromSharedFolder(file: StashFile, key: Uint8Array): Promise<SharedFileDownload> {
     const name = file.name || 'shared-file'
