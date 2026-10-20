@@ -306,6 +306,8 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 
 	// Set correct MIME type and cache headers for certain files
 	switch {
+	case strings.HasSuffix(filePath, "index.html"):
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	case strings.HasSuffix(filePath, ".svg"):
 		w.Header().Set("Content-Type", "image/svg+xml")
 		w.Header().Set("Cache-Control", "public, max-age=86400") // 1 day for images
