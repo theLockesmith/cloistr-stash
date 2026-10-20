@@ -534,6 +534,20 @@ body {
   flex: 1;
 }
 
+.shared-open {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shared-open:hover {
+  text-decoration: underline;
+}
+
 .shared-accepted {
   font-size: 0.85rem;
   color: var(--cloistr-success, var(--cloistr-primary-light));

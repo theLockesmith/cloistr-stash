@@ -15,6 +15,8 @@ import {
   type SealedFileMeta,
 } from './sealed'
 import type { SignedEvent } from './api'
+import { Keys } from './keys'
+import { Crypto } from './crypto'
 import type { UnsignedEvent } from './relay'
 
 const OWNER = 'a'.repeat(64)
@@ -226,7 +228,7 @@ describe('listSharedFolder', () => {
       return s.events.filter((e) => e.tags.some((t) => (t[0] === 'q' && qs.includes(t[1])) || (t[0] === 'd' && ds.includes(t[1]))))
     }
     const list = await listSharedFolder(query, OWNER, s.A.id, s.A.key)
-    expect(asked).toHaveLength(1)
+    // The sealed level is one REQ by #q and ring d; old-shape reads follow it.
     expect(asked[0]).toEqual([
       { kinds: [30078, 30079], authors: [OWNER], '#q': [await folderQ(s.A.key, s.A.id)] },
       { kinds: [30079], authors: [OWNER], '#d': [await ringD(s.A.key, s.A.id)] },
@@ -241,5 +243,118 @@ describe('listSharedFolder', () => {
     const list = await listSharedFolder(async () => s.events, OWNER, s.A.id, k(42))
     expect(list.files).toEqual([])
     expect(list.folders).toEqual([])
+  })
+})
+
+// Folder-share browsing (2026-10-19): today's drives are old-shape, so a shared
+// folder must list its old-shape files too. Orchestrator rule: the recipient
+// sees only files whose key the shared folder key reaches (a 'wk' entry that
+// unwraps under it, or HKDF from it for a pre-wrapping file); a folder tag
+// alone never lists a file.
+describe('listSharedFolder, old-shape folders', () => {
+  const F = 'f0'.padEnd(32, '0')
+  const FKEY = k(9)
+  const MALLORY = 'c'.repeat(64)
+
+  const fileEv = (id: string, name: string, extra: string[][] = [], author = OWNER): SignedEvent => ({
+    ...signed({
+      kind: 30078,
+      created_at: 0,
+      tags: [['d', id], ['x', id.slice(0, 2).repeat(32)], ['size', '5'], ['encrypted', 'xchacha20-poly1305'], ...extra],
+      content: JSON.stringify({ name, size: 5, encrypted: true }),
+    }),
+    pubkey: author,
+  })
+  const folderEv = (id: string, name: string, extra: string[][] = []): SignedEvent =>
+    signed({ kind: 30079, created_at: 0, tags: [['d', id], ...extra], content: JSON.stringify({ name }) })
+
+  /** A relay answering author / kind / #d filters, like the real one. */
+  const relay = (events: SignedEvent[]): QueryFn => async (filters) =>
+    events.filter((e) =>
+      filters.some((f) => {
+        const g = f as Record<string, unknown>
+        if (g.kinds && !(g.kinds as number[]).includes(e.kind)) return false
+        if (g.authors && !(g.authors as string[]).includes(e.pubkey)) return false
+        for (const t of ['d', 'q']) {
+          const want = g[`#${t}`] as string[] | undefined
+          if (want && !e.tags.some((x) => x[0] === t && want.includes(x[1]))) return false
+        }
+        return true
+      }),
+    )
+
+  async function scene() {
+    await Crypto.init()
+    const plain = { id: 'p1'.padEnd(32, '0') } // pre-wrapping: key is HKDF(folder key, id)
+    const wrapped = { id: 'w1'.padEnd(32, '0'), key: k(11) } // wrapped: key in the folder's wk entry
+    const noEntry = { id: 'n1'.padEnd(32, '0') } // wrapped, but no wk entry: not reachable
+    const badEntry = { id: 'b1'.padEnd(32, '0'), key: k(12) } // wk entry under some other key
+    const child = { id: 'c1'.padEnd(32, '0') }
+    const wk = (id: string, key: Uint8Array, under: Uint8Array) => ['wk', id, Keys.wrapFileKeyForFolder(key, id, under) as unknown as string]
+    const events: SignedEvent[] = [
+      folderEv(F, 'Shared', [wk(wrapped.id, wrapped.key, FKEY), wk(badEntry.id, badEntry.key, k(99))]),
+      folderEv(child.id, 'Child', [['parent', F]]),
+      fileEv(plain.id, 'plain.txt', [['folder', F]]),
+      fileEv(wrapped.id, 'wrapped.txt', [['folder', F], ['owner_key', 'env-to-owner']]),
+      fileEv(noEntry.id, 'stamped.txt', [['folder', F], ['owner_key', 'env-to-owner']]),
+      fileEv(badEntry.id, 'bad-entry.txt', [['folder', F], ['owner_key', 'env-to-owner']]),
+      fileEv('o1'.padEnd(32, '0'), 'other-folder.txt', [['folder', 'elsewhere']]),
+      fileEv('t1'.padEnd(32, '0'), 'trashed.txt', [['folder', F], ['deleted_at', '1']]),
+      fileEv('d1'.padEnd(32, '0'), 'deleted.txt', [['folder', F]]),
+      signed({ kind: 5, created_at: 0, tags: [['a', `30078:${OWNER}:${'d1'.padEnd(32, '0')}`]], content: '' }),
+      fileEv('m1'.padEnd(32, '0'), 'not-the-owner.txt', [['folder', F]], MALLORY),
+    ]
+    return { events, plain, wrapped, noEntry, badEntry, child }
+  }
+
+  it('lists a pre-wrapping file with its key derived from the folder key', async () => {
+    const s = await scene()
+    const list = await listSharedFolder(relay(s.events), OWNER, F, FKEY)
+    expect(list.files.map((f) => f.name)).toContain('plain.txt')
+    expect(list.fileKeys.get(s.plain.id)).toEqual(await Keys.deriveKey(FKEY, s.plain.id, Keys.CONTEXT_FILE))
+  })
+
+  it('lists a wrapped file whose wk entry unwraps under the folder key, with that key', async () => {
+    const s = await scene()
+    const list = await listSharedFolder(relay(s.events), OWNER, F, FKEY)
+    expect(list.files.map((f) => f.name)).toContain('wrapped.txt')
+    expect(list.fileKeys.get(s.wrapped.id)).toEqual(s.wrapped.key)
+  })
+
+  it('never lists a file on its folder tag alone: no wk entry, or one the folder key does not open', async () => {
+    const s = await scene()
+    const list = await listSharedFolder(relay(s.events), OWNER, F, FKEY)
+    const names = list.files.map((f) => f.name)
+    expect(names).not.toContain('stamped.txt')
+    expect(names).not.toContain('bad-entry.txt')
+    expect(list.fileKeys.has(s.noEntry.id)).toBe(false)
+    expect(list.fileKeys.has(s.badEntry.id)).toBe(false)
+  })
+
+  it('lists only this folder, nothing trashed or deleted, and nothing another author signed', async () => {
+    const s = await scene()
+    const list = await listSharedFolder(relay(s.events), OWNER, F, FKEY)
+    expect(list.files.map((f) => f.name).sort()).toEqual(['plain.txt', 'wrapped.txt'])
+  })
+
+  it('does not list old-shape child folders: their random keys are wrapped to the owner only', async () => {
+    const s = await scene()
+    const list = await listSharedFolder(relay(s.events), OWNER, F, FKEY)
+    expect(list.folders).toEqual([])
+  })
+
+  it('membership comes only from the latest event: a file moved out of the folder never lists from its older version', async () => {
+    const s = await scene()
+    const moved = 'mv'.padEnd(32, '0')
+    const older = { ...fileEv(moved, 'moved-out.txt', [['folder', F]]), created_at: 1_760_000_000 }
+    const newer = { ...fileEv(moved, 'moved-out.txt', [['folder', 'elsewhere']]), created_at: 1_760_000_100 }
+    const list = await listSharedFolder(relay([...s.events, older, newer]), OWNER, F, FKEY)
+    expect(list.files.map((f) => f.name)).not.toContain('moved-out.txt')
+  })
+
+  it('with the wrong folder key lists no wrapped file', async () => {
+    const s = await scene()
+    const list = await listSharedFolder(relay(s.events), OWNER, F, k(42))
+    expect(list.files.map((f) => f.name)).not.toContain('wrapped.txt')
   })
 })

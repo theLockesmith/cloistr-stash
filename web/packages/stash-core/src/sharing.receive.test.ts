@@ -22,7 +22,7 @@ vi.mock('./authBridge', () => ({
   getSigner: () => null,
 }))
 
-import { Sharing, type DecryptedIncomingShare, type IncomingShare } from './sharing'
+import { Sharing, SharedKeyCannotOpenError, type DecryptedIncomingShare, type IncomingShare } from './sharing'
 import { Keys } from './keys'
 import type { AuthPort } from './keys'
 import { Crypto } from './crypto'
@@ -140,5 +140,47 @@ describe('accepting a share is remembered', () => {
     await Sharing.acceptShare(await asListed(share))
     Keys.keyCache.clear()
     expect((await asListed(share)).accepted).toBe(true)
+  })
+})
+
+describe('browsing a shared folder', () => {
+  const sharedFile = () => ({ id: 'file-1', name: 'hello.txt', sha256: blobSha, mime_type: 'text/plain', size: 16 })
+
+  it('reads the folder id and key out of a folder share', async () => {
+    const folderKey = Crypto.generateKey()
+    const share = fileShare('s3', {
+      type: 'folder',
+      folderId: 'f-alice',
+      folderName: 'From Alice',
+      folderKey: `nip44:${Crypto.bytesToHex(folderKey)}`,
+    })
+    const got = await Sharing.sharedFolderKey(await asListed(share))
+    expect(got.folderId).toBe('f-alice')
+    expect(Crypto.bytesToHex(got.key)).toBe(Crypto.bytesToHex(folderKey))
+  })
+
+  it('refuses a file share, and a folder share whose key is not 32 bytes', async () => {
+    await expect(Sharing.sharedFolderKey(await asListed(fileShare('s1')))).rejects.toThrow(/folder share/)
+    const short = fileShare('s4', { type: 'folder', folderId: 'f', folderKey: 'nip44:00ff' })
+    await expect(Sharing.sharedFolderKey(await asListed(short))).rejects.toThrow(/malformed/)
+  })
+
+  it('downloads a listed file with its key, from our Blossom by hash', async () => {
+    const result = await Sharing.downloadFromSharedFolder(sharedFile(), fileKey)
+    expect(new TextDecoder().decode(result.data)).toBe('hello from alice')
+    expect(result.name).toBe('hello.txt')
+    expect(result.mimeType).toBe('text/plain')
+    expect(fetchMock).toHaveBeenCalledWith(`https://blossom.test/${blobSha}`)
+  })
+
+  it('says plainly when the shared key does not open the file', async () => {
+    const err = await Sharing.downloadFromSharedFolder(sharedFile(), Crypto.generateKey()).catch((e) => e)
+    expect(err).toBeInstanceOf(SharedKeyCannotOpenError)
+    expect(err.message).toContain("\"hello.txt\" can't be opened with the shared folder's key")
+  })
+
+  it('refuses a blob whose hash is not the one the owner signed', async () => {
+    fetchMock.mockImplementation(async () => new Response(new Uint8Array([1, 2, 3])))
+    await expect(Sharing.downloadFromSharedFolder(sharedFile(), fileKey)).rejects.toThrow(/hash/i)
   })
 })

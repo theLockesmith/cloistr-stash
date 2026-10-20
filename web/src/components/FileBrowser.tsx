@@ -27,6 +27,7 @@ import { Sharing, type DecryptedIncomingShare } from '@cloistr/stash-core/sharin
 import { CommentsModal } from './CommentsModal'
 import { FolderCustomizeModal, useFolderCustomizations } from './FolderCustomizeModal'
 import { PublishModal } from './PublishModal'
+import { SharedFolderView, saveAsDownload } from './SharedFolderView'
 import type { FolderCustomization } from './FolderCustomizeModal'
 
 type ViewMode = 'list' | 'grid'
@@ -110,6 +111,9 @@ export function FileBrowser() {
   // Incoming share with an Accept or Download in flight (null = none).
   const [busyShareId, setBusyShareId] = useState<string | null>(null)
 
+  // Folder share being browsed in the Shared view (null = the share list).
+  const [browsingShare, setBrowsingShare] = useState<{ share: DecryptedIncomingShare; name: string } | null>(null)
+
   const onAcceptShare = async (share: DecryptedIncomingShare, name: string) => {
     setBusyShareId(share.id)
     try {
@@ -124,16 +128,7 @@ export function FileBrowser() {
     setBusyShareId(share.id)
     try {
       const { data, name } = await Sharing.downloadSharedFile(share)
-      // The sender chose the MIME type and the name. A same-origin blob typed
-      // text/html would run as this app if opened, so it is always a download.
-      const blobUrl = URL.createObjectURL(new Blob([data as BlobPart], { type: 'application/octet-stream' }))
-      const anchor = document.createElement('a')
-      anchor.href = blobUrl
-      anchor.download = name.replace(/[\\/\u0000-\u001f]/g, '_') || 'shared-file'
-      document.body.appendChild(anchor)
-      anchor.click()
-      document.body.removeChild(anchor)
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000)
+      saveAsDownload(data, name)
     } catch (err) {
       console.error('Shared download failed', err)
       toast.error(`Download failed: ${(err as Error).message}`)
@@ -443,6 +438,15 @@ export function FileBrowser() {
   if (error) return <div className="fb-status fb-error">{error}{modals}<ContextMenu {...ctxMenu.menuProps} items={menuItems} /></div>
 
   // --- Shared (incoming shares) view ---
+  if (view === 'shared' && browsingShare) {
+    return (
+      <>
+        <SharedFolderView {...browsingShare} onClose={() => setBrowsingShare(null)} />
+        {modals}
+      </>
+    )
+  }
+
   if (view === 'shared') {
     return (
       <div className="file-browser">
@@ -475,6 +479,15 @@ export function FileBrowser() {
                       onClick={() => void onDownloadShare(share)}
                     >
                       Download
+                    </button>
+                  )}
+                  {share.decrypted && content.type === 'folder' && (
+                    <button
+                      type="button"
+                      className="selection-btn"
+                      onClick={() => setBrowsingShare({ share, name })}
+                    >
+                      Open
                     </button>
                   )}
                   {share.accepted ? (

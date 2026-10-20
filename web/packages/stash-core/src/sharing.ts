@@ -19,8 +19,17 @@ import { API } from './api'
 import { Relay } from './relay'
 import { authPort, getSigner } from './authBridge'
 import { addWrappedKeyToFolder } from './upload'
+import { listSharedFolder, type DriveSnapshot } from './drive'
 import type { UnsignedEvent, SignedEvent } from './relay'
 import type { StashFile, StashFolder } from './types'
+
+/** A file in a shared folder that the shared folder's key does not open. */
+export class SharedKeyCannotOpenError extends Error {
+  constructor(name: string) {
+    super(`"${name}" can't be opened with the shared folder's key. Ask the owner to share the file itself.`)
+    this.name = 'SharedKeyCannotOpenError'
+  }
+}
 
 // ─── Public input/output interfaces ──────────────────────────────────────────
 
@@ -852,6 +861,48 @@ export const Sharing = {
       name: content.fileName || 'shared-file',
       mimeType: content.fileMimeType || 'application/octet-stream',
     }
+  },
+
+  /** The folder id and key an incoming folder share carries. The caller wipes the key. */
+  async sharedFolderKey(share: DecryptedIncomingShare): Promise<{ folderId: string; key: Uint8Array }> {
+    const content = (share.content ?? {}) as Partial<ShareFolderContent>
+    if (!share.decrypted || content.type !== this.SHARE_TYPE_FOLDER || !content.folderId || !content.folderKey) {
+      throw new Error('Not a folder share')
+    }
+    const key = Crypto.hexToBytes(await this.decryptFromSender(share.owner_pubkey, content.folderKey))
+    if (key.length !== 32) throw new Error('Folder share carries a malformed key')
+    return { folderId: content.folderId, key }
+  },
+
+  /**
+   * One level of a folder someone shared with us, read with the shared key:
+   * the files that key opens and the subfolders it reaches (their keys are in
+   * the snapshot, for browsing down).
+   */
+  async browseSharedFolder(owner: string, folderId: string, folderKey: Uint8Array): Promise<DriveSnapshot> {
+    return listSharedFolder((filters) => Relay.query(filters), owner, folderId, folderKey)
+  },
+
+  /**
+   * Fetch and decrypt a file listed by browseSharedFolder. The blob comes from
+   * our own Blossom by the hash the owner signed and must match it. A blob the
+   * key does not open throws SharedKeyCannotOpenError, never a bare AEAD error.
+   */
+  async downloadFromSharedFolder(file: StashFile, key: Uint8Array): Promise<SharedFileDownload> {
+    const name = file.name || 'shared-file'
+    if (!file.sha256) throw new Error('File has no content hash')
+    const sha256 = file.sha256.toLowerCase()
+    const response = await fetch(API.getDownloadURL(sha256))
+    if (!response.ok) throw new Error(`Download failed: ${response.status}`)
+    const stored = new Uint8Array(await response.arrayBuffer())
+    if ((await Crypto.hash(stored)) !== sha256) throw new Error('Shared file does not match its hash')
+    let data: Uint8Array
+    try {
+      data = await Crypto.decryptFile(stored, key)
+    } catch {
+      throw new SharedKeyCannotOpenError(name)
+    }
+    return { data, name, mimeType: file.mime_type || 'application/octet-stream' }
   },
 
   /** The name and kind of an incoming share, read from its encrypted content (name null if unreadable). */
