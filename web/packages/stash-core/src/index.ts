@@ -35,7 +35,7 @@ export type { SealedFileMeta, SealedFolderMeta, RingEntry, RingTombstone, Ring }
 export { Relay } from './relay'
 export type { UnsignedEvent, NostrFilter } from './relay'
 export { RelayPrefs } from './relayprefs'
-export { Sharing } from './sharing'
+export { Sharing, SharedKeyCannotOpenError } from './sharing'
 export { uploadFiles, uploadEncryptedBytes, addWrappedKeyToFolder, copyFile } from './upload'
 export * as Operations from './operations'
 export { EventUnavailableError } from './editEvent'

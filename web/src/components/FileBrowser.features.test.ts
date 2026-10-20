@@ -18,6 +18,7 @@ const EVENTS = readFileSync(join(__dirname, '../../packages/stash-core/src/event
 const SHARE_MODAL = readFileSync(join(__dirname, 'ShareModal.tsx'), 'utf8')
 const APP = readFileSync(join(__dirname, '../App.tsx'), 'utf8')
 const MOVE_MODAL = readFileSync(join(__dirname, 'MoveModal.tsx'), 'utf8')
+const SAVE = readFileSync(join(__dirname, 'SharedFolderView.tsx'), 'utf8')
 
 describe('Tags feature', () => {
   it('file menu includes Tags… action', () => {
@@ -251,8 +252,11 @@ describe('Shared view (STASH-19: Accept did nothing, shared files could not be d
 
   it('never gives a received file the sender\'s MIME type (a text/html blob would run as this app)', () => {
     const fn = SOURCE.slice(SOURCE.indexOf('const onDownloadShare'), SOURCE.indexOf('// --- ', SOURCE.indexOf('const onDownloadShare')))
-    expect(fn).toContain("type: 'application/octet-stream'")
+    expect(fn).toContain('saveAsDownload(data, name)')
     expect(fn).not.toMatch(/type: mimeType/)
+    const save = SAVE.slice(SAVE.indexOf('export function saveAsDownload'), SAVE.indexOf('interface Level'))
+    expect(save).toContain("type: 'application/octet-stream'")
+    expect(save).not.toMatch(/mimeType/)
   })
 
   it('confirms or reports the result of Accept to the user', () => {

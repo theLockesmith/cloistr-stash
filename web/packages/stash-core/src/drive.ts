@@ -25,6 +25,7 @@ import {
   type SealedFileMeta,
 } from './sealed'
 import type { StashFile, StashFolder } from './types'
+import { Keys } from './keys'
 
 /** Sends one REQ carrying these filters and resolves with every event up to EOSE. */
 export type QueryFn = (filters: NostrFilter[]) => Promise<SignedEvent[]>
@@ -428,5 +429,59 @@ export async function listSharedFolder(
   for (const f of snap.files) snap.fileKeys.set(f.id!, one.fileKeys.get(f.id!)!)
   for (const f of snap.folders) snap.folderKeys.set(f.id, one.folderKeys.get(f.id)!)
   snap.unreadable = one.unreadable
+  await addLegacyLevel(query, owner, folderId, folderKey, snap)
   return snap
+}
+
+/**
+ * The old-shape part of a shared folder (drives not yet migrated): the
+ * owner's file events whose LATEST version is in `folderId`, and the folders
+ * directly under it. A file lists only when the shared folder key reaches its
+ * key: a 'wk' entry on the folder event that unwraps under it (wrapped-key
+ * file), or HKDF from it (pre-wrapping file, no owner_key). A wrapped file
+ * without such an entry is never listed on its folder tag alone. Old-shape
+ * child folders are not listed: their keys are random and wrapped to the
+ * owner only (Keys.generateFolderKey), so the shared key cannot reach them.
+ */
+async function addLegacyLevel(
+  query: QueryFn,
+  owner: string,
+  folderId: string,
+  folderKey: Uint8Array,
+  snap: DriveSnapshot,
+): Promise<void> {
+  const [events, folderEvents] = await Promise.all([
+    fetchAll(query, { kinds: [DELETE_KIND, SEALED_FILE_KIND], authors: [owner] }),
+    query([{ kinds: [SEALED_FOLDER_KIND], authors: [owner] }]),
+  ])
+  const mine = [...events, ...folderEvents].filter((e) => e.pubkey === owner)
+  const deleted = deletedAddresses(mine, owner)
+  const latest = latestByAddress(mine)
+  const listed = new Set(snap.files.map((f) => f.id))
+
+  const shared = latest.get(`${SEALED_FOLDER_KIND}:${folderId}`)
+  const wrapped = shared && !isSealedEvent(shared) ? (legacyFolder(shared)?.wrapped_keys ?? []) : []
+
+  for (const [addr, ev] of latest) {
+    if (isSealedEvent(ev) || deleted.has(addr)) continue
+    if (ev.kind === SEALED_FILE_KIND) {
+      const f = legacyFile(ev)
+      if (!f || f.folder_id !== folderId || f.deleted_at || listed.has(f.id)) continue
+      let key: Uint8Array
+      if (f.owner_key) {
+        const entry = wrapped.find((w) => w.subject === f.id)
+        if (!entry) continue
+        try {
+          key = Keys.unwrapFileKeyFromFolder(entry.envelope as Parameters<typeof Keys.unwrapFileKeyFromFolder>[0], f.id!, folderKey)
+        } catch (err) {
+          snap.unreadable.push({ kind: SEALED_FILE_KIND, d: f.id!, reason: (err as Error).message })
+          continue
+        }
+      } else {
+        key = await Keys.deriveKey(folderKey, f.id!, Keys.CONTEXT_FILE)
+      }
+      snap.files.push(f)
+      snap.fileKeys.set(f.id!, key)
+    }
+  }
 }
