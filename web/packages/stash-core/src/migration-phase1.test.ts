@@ -63,8 +63,9 @@ const blobs = new Map<string, Uint8Array>()
 const text = (b: Uint8Array) => new TextDecoder().decode(b)
 
 // Rows as listFiles returns them, before the migration: no owner_key.
-const inFolder = { id: 'file-old', sha256: '', encrypted: true, folder_id: 'folder-1', name: 'old.txt' }
-const atRoot = { id: 'file-root', sha256: '', encrypted: true, name: 'root.txt' }
+type Row = { id: string; sha256: string; encrypted: boolean; name: string; folder_id?: string }
+const inFolder: Row = { id: 'file-old', sha256: '', encrypted: true, folder_id: 'folder-1', name: 'old.txt' }
+const atRoot: Row = { id: 'file-root', sha256: '', encrypted: true, name: 'root.txt' }
 
 /** The file's row after the migration: its current relay event's owner_key. */
 function migrated<T extends { id: string }>(row: T): T & { owner_key: string } {
@@ -122,9 +123,10 @@ beforeEach(async () => {
     content: JSON.stringify({ name: 'docs', encrypted: true }),
   }
   for (const row of [inFolder, atRoot]) {
+    const folderTag = row.folder_id ? [['folder', row.folder_id]] : []
     relayEvents[row.id] = {
       kind: 30078, created_at: 1,
-      tags: [['d', row.id], ['x', row.sha256], ['encrypted', 'xchacha20-poly1305'], ...('folder_id' in row ? [['folder', row.folder_id]] : [])],
+      tags: [['d', row.id], ['x', row.sha256], ['encrypted', 'xchacha20-poly1305'], ...folderTag],
       content: JSON.stringify({ name: row.name }),
     }
   }
