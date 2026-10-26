@@ -666,22 +666,13 @@ export const Sharing = {
     // Step 3: Generate new file ID
     const newFileId = Crypto.generateFileId()
 
-    // Step 4: Generate new file key. Random + wrapped in wrappedKeyMode, or when
-    // the file is already wrapped (per-file decision: a fresh device may not have
-    // learned wrappedKeyMode from the relay yet, and a revoke must never downgrade
-    // a wrapped file to a folder-derivable HKDF key). HKDF otherwise.
-    let newFileKey: Uint8Array
-    let ownerEnvelope: string | undefined
-    if (Keys.wrappedKeyMode || file.owner_key) {
-      newFileKey = Keys.generateFileKey()
-      ownerEnvelope = await Keys.wrapFileKeyForOwner(newFileKey, newFileId, getSigner())
-      if (folderId) {
-        await addWrappedKeyToFolder(folderId, newFileId, newFileKey)
-      }
-    } else if (folderId) {
-      newFileKey = await Keys.deriveFileKey(folderId, newFileId)
-    } else {
-      newFileKey = await Keys.deriveRootFileKey(newFileId)
+    // Step 4: a new random key, wrapped to the owner and under the folder key.
+    // Never derived (architecture/key-model.md): a revoke must not hand back a
+    // key anyone holding the folder or root key can recompute.
+    const newFileKey = Keys.generateFileKey()
+    const ownerEnvelope = await Keys.wrapFileKeyForOwner(newFileKey, newFileId, getSigner())
+    if (folderId) {
+      await addWrappedKeyToFolder(folderId, newFileId, newFileKey)
     }
 
     // Step 5: Re-encrypt with new key

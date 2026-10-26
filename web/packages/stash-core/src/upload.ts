@@ -109,11 +109,9 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
 
       item.status = 'encrypting'
       emit(item)
-      const fileKey = sealed || Keys.wrappedKeyMode
-        ? Keys.generateFileKey()
-        : folderId
-          ? await Keys.deriveFileKey(folderId, item.fileId)
-          : await Keys.deriveRootFileKey(item.fileId)
+      // Every new file gets a random key, wrapped below (architecture/key-model.md).
+      // Never Keys.wrappedKeyMode: it is false until the migration record is read.
+      const fileKey = Keys.generateFileKey()
 
       try {
         const encryptedData = await Crypto.encryptFile(fileData, fileKey, (p) => {
@@ -158,15 +156,8 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
           item.status = 'publishing'
           emit(item)
 
-          let ownerEnvelope: string | undefined
-          if (Keys.wrappedKeyMode) {
-            const signer = getSigner()
-            ownerEnvelope = await Keys.wrapFileKeyForOwner(fileKey, item.fileId, signer)
-
-            if (folderId) {
-              await addWrappedKeyToFolder(folderId, item.fileId, fileKey)
-            }
-          }
+          const ownerEnvelope = await Keys.wrapFileKeyForOwner(fileKey, item.fileId, getSigner())
+          if (folderId) await addWrappedKeyToFolder(folderId, item.fileId, fileKey)
 
           const metadataEvent = await Events.createEncryptedFileMetadataEvent({
             fileId: item.fileId,
@@ -240,11 +231,7 @@ export async function uploadEncryptedBytes(
   const fileId = Crypto.generateFileId()
   const plaintextHash = await Crypto.hash(data)
 
-  const fileKey = sealed || Keys.wrappedKeyMode
-    ? Keys.generateFileKey()
-    : folderId
-      ? await Keys.deriveFileKey(folderId, fileId)
-      : await Keys.deriveRootFileKey(fileId)
+  const fileKey = Keys.generateFileKey()
 
   try {
     const encryptedData = await Crypto.encryptFile(data, fileKey)
@@ -276,14 +263,8 @@ export async function uploadEncryptedBytes(
         },
       })
     } else if (authPort.isConnected) {
-      let ownerEnvelope: string | undefined
-      if (Keys.wrappedKeyMode) {
-        const signer = getSigner()
-        ownerEnvelope = await Keys.wrapFileKeyForOwner(fileKey, fileId, signer)
-        if (folderId) {
-          await addWrappedKeyToFolder(folderId, fileId, fileKey)
-        }
-      }
+      const ownerEnvelope = await Keys.wrapFileKeyForOwner(fileKey, fileId, getSigner())
+      if (folderId) await addWrappedKeyToFolder(folderId, fileId, fileKey)
 
       const metadataEvent = await Events.createEncryptedFileMetadataEvent({
         fileId,
