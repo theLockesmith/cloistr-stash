@@ -163,6 +163,18 @@ describe('revokeAndReencryptFile: wrapped key mode', () => {
     )
   })
 
+  // A failed upload must not leave a folder wk for a file that never existed.
+  it('a failed re-upload writes no wrapped key into the folder', async () => {
+    const { API } = await import('./api')
+    const upload = vi.spyOn(API, 'uploadFile').mockRejectedValueOnce(new Error('blossom down'))
+    vi.mocked(addWrappedKeyToFolder).mockClear()
+
+    await expect(Sharing.revokeAndReencryptFile(testFile as never)).rejects.toThrow('blossom down')
+    expect(addWrappedKeyToFolder).not.toHaveBeenCalled()
+    expect(capturedMetadataEvent).toBeNull()
+    upload.mockRestore()
+  })
+
   it('old HKDF key cannot decrypt data encrypted with random key', async () => {
     const randomKey = new Uint8Array(32)
     crypto.getRandomValues(randomKey)

@@ -177,6 +177,10 @@ describe('key model phase 1: migrate without re-encrypting', () => {
     delete relayEvents['folder-1']
     loseDerivableKeys()
 
+    // With no keyring service (api: null) the lost root key cannot even be
+    // fetched, so this fails at the key; in production a fresh root key would
+    // derive a wrong file key and fail at decryption. Either way: no envelope,
+    // no file.
     await expect(readFileBytes({ ...inFolder })).rejects.toThrow(/encryption key/)
     await expect(readFileBytes({ ...atRoot })).rejects.toThrow(/encryption key/)
   })

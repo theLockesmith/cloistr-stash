@@ -661,85 +661,89 @@ export const Sharing = {
       signer: getSigner(),
     })
 
-    const decryptedData = await Crypto.decryptFile(encryptedData, oldFileKey)
-
     // Step 3: Generate new file ID
     const newFileId = Crypto.generateFileId()
 
     // Step 4: a new random key, wrapped to the owner and under the folder key.
     // Never derived (architecture/key-model.md): a revoke must not hand back a
-    // key anyone holding the folder or root key can recompute.
+    // key anyone holding the folder or root key can recompute. Both keys are
+    // wiped on every exit, a failure included.
     const newFileKey = Keys.generateFileKey()
-    const ownerEnvelope = await Keys.wrapFileKeyForOwner(newFileKey, newFileId, getSigner())
-    if (folderId) {
-      await addWrappedKeyToFolder(folderId, newFileId, newFileKey)
-    }
-
-    // Step 5: Re-encrypt with new key
-    const reencryptedData = await Crypto.encryptFile(decryptedData, newFileKey)
-
-    // Step 6: Calculate new hash
-    const newHash = await Crypto.hash(reencryptedData)
-
-    // Step 7: Upload new encrypted blob
-    const authHeader = await authPort.createUploadAuth(newHash, reencryptedData.length)
-    const encryptedBlob = new Blob([reencryptedData as BlobPart], {
-      type: 'application/octet-stream',
-    })
-    const uploadResult = (await API.uploadFile(encryptedBlob, authHeader)) as { sha256: string }
-
-    // Step 8: Publish new metadata event
-    const metadataEvent = await createEncryptedFileMetadataEvent({
-      fileId: newFileId,
-      sha256: uploadResult.sha256,
-      plaintextHash: await Crypto.hash(decryptedData),
-      name: file.name,
-      size: decryptedData.length,
-      encryptedSize: reencryptedData.length,
-      mimeType: (file.mime_type ?? file.mimeType ?? 'application/octet-stream') as string,
-      folderId: folderId,
-      encrypted: true,
-      ownerEnvelope,
-    })
-    await authPort.publishEvent(metadataEvent)
-
-    // Step 9: Delete old file
-    const deleteAuth = await createDeleteAuth(file.sha256)
-    await API.deleteFile(file.sha256, deleteAuth)
-
-    // Best-effort: request deletion of stale share events from the relay.
-    // These are requests, not guarantees: other relays and local caches retain
-    // copies. The real protection is that the old key no longer decrypts anything.
-    // Note: a deletion request is itself a public event announcing that a share
-    // was withdrawn. It does not name the recipient, but it signals that a
-    // revocation happened. Prefer expiry over deletion where both are available.
     try {
-      const staleShares = await this.listOutgoingSharesForFile(fileId)
-      for (const share of staleShares) {
-        const deleteEvent: UnsignedEvent = {
-          kind: 5,
-          created_at: Math.floor(Date.now() / 1000),
-          tags: [['a', `30080:${authPort.pubkey}:${share.id}`]],
-          content: '',
-        }
-        const signed = await authPort.signEvent(deleteEvent)
-        await authPort.publishEvent(signed)
+      const decryptedData = await Crypto.decryptFile(encryptedData, oldFileKey)
+      const ownerEnvelope = await Keys.wrapFileKeyForOwner(newFileKey, newFileId, getSigner())
+
+      // Step 5: Re-encrypt with new key
+      const reencryptedData = await Crypto.encryptFile(decryptedData, newFileKey)
+
+      // Step 6: Calculate new hash
+      const newHash = await Crypto.hash(reencryptedData)
+
+      // Step 7: Upload new encrypted blob
+      const authHeader = await authPort.createUploadAuth(newHash, reencryptedData.length)
+      const encryptedBlob = new Blob([reencryptedData as BlobPart], {
+        type: 'application/octet-stream',
+      })
+      const uploadResult = (await API.uploadFile(encryptedBlob, authHeader)) as { sha256: string }
+
+      // The folder's wrapped copy only once the blob exists, as upload does: a
+      // failed re-encrypt or upload must not leave a wk for a file that is not there.
+      if (folderId) {
+        await addWrappedKeyToFolder(folderId, newFileId, newFileKey)
       }
-    } catch {
-      // Best-effort: failure is expected and documented
-    }
 
-    // Cleanup
-    Crypto.wipeKey(oldFileKey)
-    Crypto.wipeKey(newFileKey)
+      // Step 8: Publish new metadata event
+      const metadataEvent = await createEncryptedFileMetadataEvent({
+        fileId: newFileId,
+        sha256: uploadResult.sha256,
+        plaintextHash: await Crypto.hash(decryptedData),
+        name: file.name,
+        size: decryptedData.length,
+        encryptedSize: reencryptedData.length,
+        mimeType: (file.mime_type ?? file.mimeType ?? 'application/octet-stream') as string,
+        folderId: folderId,
+        encrypted: true,
+        ownerEnvelope,
+      })
+      await authPort.publishEvent(metadataEvent)
 
-    console.log('Sharing: File re-encrypted with new key')
+      // Step 9: Delete old file
+      const deleteAuth = await createDeleteAuth(file.sha256)
+      await API.deleteFile(file.sha256, deleteAuth)
 
-    return {
-      oldFileId: fileId,
-      newFileId: newFileId,
-      oldHash: file.sha256,
-      newHash: uploadResult.sha256,
+      // Best-effort: request deletion of stale share events from the relay.
+      // These are requests, not guarantees: other relays and local caches retain
+      // copies. The real protection is that the old key no longer decrypts anything.
+      // Note: a deletion request is itself a public event announcing that a share
+      // was withdrawn. It does not name the recipient, but it signals that a
+      // revocation happened. Prefer expiry over deletion where both are available.
+      try {
+        const staleShares = await this.listOutgoingSharesForFile(fileId)
+        for (const share of staleShares) {
+          const deleteEvent: UnsignedEvent = {
+            kind: 5,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [['a', `30080:${authPort.pubkey}:${share.id}`]],
+            content: '',
+          }
+          const signed = await authPort.signEvent(deleteEvent)
+          await authPort.publishEvent(signed)
+        }
+      } catch {
+        // Best-effort: failure is expected and documented
+      }
+
+      console.log('Sharing: File re-encrypted with new key')
+
+      return {
+        oldFileId: fileId,
+        newFileId: newFileId,
+        oldHash: file.sha256,
+        newHash: uploadResult.sha256,
+      }
+    } finally {
+      Crypto.wipeKey(oldFileKey)
+      Crypto.wipeKey(newFileKey)
     }
   },
 
