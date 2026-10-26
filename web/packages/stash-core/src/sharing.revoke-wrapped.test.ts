@@ -104,15 +104,19 @@ describe('revokeAndReencryptFile: wrapped key mode', () => {
     ;(Keys as { wrappedKeyMode: boolean }).wrappedKeyMode = false
   })
 
-  it('uses HKDF derivation when wrappedKeyMode is false and file is not wrapped', async () => {
+  // Key model: a revoke never derives the new key, even for an old derived
+  // file on a client that has not learned wrappedKeyMode (it used to).
+  it('wraps a random new key when wrappedKeyMode is false and the file is not wrapped', async () => {
     ;(Keys as { wrappedKeyMode: boolean }).wrappedKeyMode = false
 
     const { owner_key: _unused, ...unwrappedFile } = testFile
     const result = await Sharing.revokeAndReencryptFile(unwrappedFile as never)
 
     expect(result.newFileId).toBe('new-file-id-after-revoke')
-    expect(generateFileKeyCalled).toBe(false)
-    expect(wrapFileKeyForOwnerCalled).toBe(false)
+    expect(generateFileKeyCalled).toBe(true)
+    expect(wrapFileKeyForOwnerCalled).toBe(true)
+    const tags = (capturedMetadataEvent as { tags: string[][] }).tags
+    expect(tags.find((t: string[]) => t[0] === 'owner_key')).toBeTruthy()
   })
 
   it('PER-FILE: already-wrapped file stays wrapped even when wrappedKeyMode is false (fresh client)', async () => {
@@ -157,6 +161,18 @@ describe('revokeAndReencryptFile: wrapped key mode', () => {
       'new-file-id-after-revoke',
       RANDOM_KEY,
     )
+  })
+
+  // A failed upload must not leave a folder wk for a file that never existed.
+  it('a failed re-upload writes no wrapped key into the folder', async () => {
+    const { API } = await import('./api')
+    const upload = vi.spyOn(API, 'uploadFile').mockRejectedValueOnce(new Error('blossom down'))
+    vi.mocked(addWrappedKeyToFolder).mockClear()
+
+    await expect(Sharing.revokeAndReencryptFile(testFile as never)).rejects.toThrow('blossom down')
+    expect(addWrappedKeyToFolder).not.toHaveBeenCalled()
+    expect(capturedMetadataEvent).toBeNull()
+    upload.mockRestore()
   })
 
   it('old HKDF key cannot decrypt data encrypted with random key', async () => {
