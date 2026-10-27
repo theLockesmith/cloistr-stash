@@ -149,6 +149,7 @@ export const Relay = {
               )
               this.pendingAuthRetry.set(eventId, pending)
               this.pendingPublishes.delete(eventId)
+              this.armPublishTimer(pending)
               // Note: don't reject - wait for auth and retry
             } else {
               pending.reject(new Error(okMessage || 'Publish rejected'))
@@ -208,6 +209,10 @@ export const Relay = {
       this.failPendingAuthRetry(new AuthSignerError('no signer connected'))
       return
     }
+
+    // What is parked now waits on a bounded signer (AUTH_TIMEOUT_MS), not on
+    // the relay: its round trip starts again from here.
+    for (const parked of this.pendingAuthRetry.values()) this.armPublishTimer(parked)
 
     let timer: ReturnType<typeof setTimeout> | undefined
     try {

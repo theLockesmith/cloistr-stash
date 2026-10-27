@@ -105,6 +105,28 @@ describe('a publish that needs NIP-42 auth on a slow signer', () => {
   })
 })
 
+describe('a publish parked for auth', () => {
+  // Code review 2026-10-27: the first send's timer kept running while the
+  // event waited for a challenge that came late and a signer that was slow.
+  it('is not failed by the first send\'s timer while the signer works', async () => {
+    let signAuth!: (e: SignedEvent) => void
+    const auth: RelayAuthPort = { isConnected: true, signEvent: () => new Promise((r) => (signAuth = r)) }
+    Relay.configure({ auth })
+
+    const settled = settle(Relay.publish(event('late1')))
+    relayMsg(['OK', 'late1', false, 'auth-required: please authenticate'])
+    await vi.advanceTimersByTimeAsync(8000)
+    relayMsg(['AUTH', 'challenge-late'])
+    await vi.advanceTimersByTimeAsync(AUTH_TIMEOUT_MS - 1000) // 17s since the first send
+    signAuth(event('auth-ev'))
+    await vi.advanceTimersByTimeAsync(1000)
+    relayMsg(['OK', 'late1', true, ''])
+
+    const r = await settled
+    expect(r.ok).toBe(true)
+  })
+})
+
 describe('a publish whose OK never arrives', () => {
   it('succeeds when the relay holds the event', async () => {
     const settled = settle(Relay.publish(event('landed1')))
