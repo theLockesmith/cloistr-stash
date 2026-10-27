@@ -65,6 +65,9 @@ export const Relay = {
   defaultUrl: RELAY_URL,
 
   socket: null as WebSocket | null,
+  // The connect in flight: callers that arrive while it opens share it, rather
+  // than opening a second socket that replaces the first under its caller.
+  connecting: null as Promise<boolean> | null,
   url: null as string | null,
 
   connected: false,
@@ -86,8 +89,9 @@ export const Relay = {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       return true
     }
+    if (this.connecting) return this.connecting
 
-    return new Promise((resolve, reject) => {
+    const attempt = new Promise<boolean>((resolve, reject) => {
       const timeout = setTimeout(() => {
         // Drop the half-open socket so a late onopen can't mark us connected.
         const stale = this.socket
@@ -126,6 +130,11 @@ export const Relay = {
         reject(err as Error)
       }
     })
+    const shared: Promise<boolean> = attempt.finally(() => {
+      if (this.connecting === shared) this.connecting = null
+    })
+    this.connecting = shared
+    return shared
   },
 
   handleMessage(data: string): void {
@@ -391,6 +400,7 @@ export const Relay = {
   },
 
   disconnect(): void {
+    this.connecting = null
     if (this.socket) {
       this.socket.close()
       this.socket = null
