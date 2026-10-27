@@ -17,7 +17,7 @@
     "@cloistr/auth": "^1.4.1",
     "@cloistr/collab-common": "^0.8.0",
     "@cloistr/stash-core": "^0.1.0",
-    "@cloistr/ui": "^0.50.4",
+    "@cloistr/ui": "^0.50.6",
     "dompurify": "^3.4.17",
     "libsodium-wrappers": "^0.8.4",
     "marked": "^18.1.1",
