@@ -29,8 +29,8 @@ import {
   fileIdOf,
   moveFile as opMoveFile,
   BlobDeleteError,
-  deleteFileBlobs,
   permanentDeleteFile as opPermanentDeleteFile,
+  permanentDeleteFiles as opPermanentDeleteFiles,
   renameFile as opRenameFile,
   renameFolder as opRenameFolder,
   restoreFile as opRestoreFile,
@@ -655,12 +655,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     setError(null)
     try {
-      const fileIds = trashFiles.map((f) => fileIdOf(f)).filter(Boolean)
-      if (fileIds.length > 0) {
-        const event = await Events.createBatchDeleteEvent(fileIds, [])
-        await authPort.publishEvent(event)
-        await deleteFileBlobs(trashFiles)
-      }
+      await opPermanentDeleteFiles(trashFiles)
       await loadSpecialView('trash')
     } catch (err) {
       console.error('emptyTrash failed', err)

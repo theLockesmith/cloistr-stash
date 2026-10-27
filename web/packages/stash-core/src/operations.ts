@@ -191,6 +191,36 @@ export async function permanentDeleteFile(file: StashFile): Promise<void> {
 }
 
 /**
+ * Permanently delete many files (Empty Trash): one kind:5 for the old-shape
+ * records, the sealed delete for each sealed one (a kind:5 naming 30078:<id>
+ * never reaches a sealed record), then the blobs of the files whose record
+ * went. A record that will not delete keeps its blob, and its error wins.
+ */
+export async function permanentDeleteFiles(files: StashFile[]): Promise<void> {
+  const plain = files.filter((f) => f.sealed !== true && fileIdOf(f))
+  const gone: StashFile[] = []
+  let recordErr: unknown
+  try {
+    if (plain.length > 0) {
+      await authPort.publishEvent(await Events.createBatchDeleteEvent(plain.map(fileIdOf), []))
+      gone.push(...plain)
+    }
+    for (const file of files.filter((f) => f.sealed === true)) {
+      await Sealed.deleteFile(await writeContext(), fileRef(file), (file.folder_id as string) || null)
+      gone.push(file)
+    }
+  } catch (err) {
+    recordErr = err
+  }
+  try {
+    await deleteFileBlobs(gone)
+  } catch (err) {
+    if (recordErr === undefined) throw err
+  }
+  if (recordErr !== undefined) throw recordErr
+}
+
+/**
  * Set tags on a file: re-publish its current event with the new tag list.
  * Existing tags are replaced entirely. Pass [] to clear all tags.
  */

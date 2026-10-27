@@ -1,6 +1,7 @@
 // Found live 2026-10-27: permanent deletes left every encrypted blob in
-// Blossom. Empty Trash is the batch form of the same delete, so it must delete
-// the trashed files' blobs too, after the kind 5 for their records.
+// Blossom. Empty Trash is the batch form of the same delete, so it must go
+// through permanentDeleteFiles, which deletes each record the way its shape
+// needs (sealed records are not reached by a kind 5) and then their blobs.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -14,11 +15,10 @@ function callback(name: string): string {
 }
 
 describe('Empty Trash', () => {
-  it('deletes the trashed blobs after publishing the deletion of their records', () => {
+  it('deletes records and blobs through permanentDeleteFiles, not its own kind 5', () => {
     const body = callback('emptyTrash')
-    const blobsAt = body.indexOf('deleteFileBlobs(trashFiles)')
-    expect(blobsAt, 'Empty Trash never deletes the blobs').toBeGreaterThan(-1)
-    expect(blobsAt).toBeGreaterThan(body.indexOf('publishEvent(event)'))
+    expect(body, 'Empty Trash never deletes the blobs').toContain('opPermanentDeleteFiles(trashFiles)')
+    expect(body).not.toContain('createBatchDeleteEvent')
   })
 
   it('says so when a blob stays behind, rather than calling the delete a failure', () => {

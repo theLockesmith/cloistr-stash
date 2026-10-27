@@ -6,12 +6,13 @@
 // first leaves a listed file that can never open.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { ME, calls, api, sealed } = vi.hoisted(() => {
+const { ME, calls, published, api, sealed } = vi.hoisted(() => {
   const ME = '4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766'
   const calls: string[] = []
+  const published: Array<{ kind: number; tags: string[][] }> = []
   const api = { deleteFile: vi.fn(async (sha: string, auth: string) => { calls.push(`blob:${sha}:${auth}`); return {} }) }
   const sealed = { deleteFile: vi.fn(async () => { calls.push('sealed-record') }) }
-  return { ME, calls, api, sealed }
+  return { ME, calls, published, api, sealed }
 })
 
 vi.mock('./api', () => ({ API: api, default: api }))
@@ -20,7 +21,7 @@ vi.mock('./authBridge', () => ({
     isConnected: true,
     pubkey: ME,
     signEvent: async (e: Record<string, unknown>) => ({ ...e, id: 'id', sig: 'sig', pubkey: ME }),
-    publishEvent: async (e: { kind: number }) => { calls.push(`publish:${e.kind}`) },
+    publishEvent: async (e: { kind: number; tags: string[][] }) => { calls.push(`publish:${e.kind}`); published.push(e) },
     createDeleteAuth: async (sha: string) => `auth(${sha.slice(0, 4)})`,
   },
   getSigner: () => ({}),
@@ -35,7 +36,7 @@ vi.mock('./sealedDrive', () => ({
   writesSealed: async () => true,
 }))
 
-import { BlobDeleteError, deleteFileBlobs, permanentDeleteFile } from './operations'
+import { BlobDeleteError, deleteFileBlobs, permanentDeleteFile, permanentDeleteFiles } from './operations'
 import type { StashFile } from './types'
 
 const A = 'a'.repeat(64)
@@ -44,6 +45,7 @@ const C = 'c'.repeat(64)
 
 beforeEach(() => {
   calls.length = 0
+  published.length = 0
   api.deleteFile.mockClear()
   sealed.deleteFile.mockClear()
 })
@@ -84,5 +86,41 @@ describe('permanentDeleteFile deletes the blob too', () => {
   it('skips anything that is not a blob hash', async () => {
     await deleteFileBlobs([{ sha256: '', name: 'no blob' } as StashFile, { sha256: 'file-id-not-hash', name: 'z' } as StashFile])
     expect(api.deleteFile).not.toHaveBeenCalled()
+  })
+})
+
+// Empty Trash used one kind 5 naming `30078:<me>:<id>` for every trashed file.
+// A sealed file's record is a different kind under a random d, so that kind 5
+// never touched it: the record stayed in Trash. Deleting its blob as well would
+// leave a listed file that can never open.
+describe('permanentDeleteFiles (Empty Trash)', () => {
+  const plain = { id: 'p1', sha256: A, name: 'old.txt' } as StashFile
+  const sealedFile = { id: 's1', sha256: B, name: 'new.txt', sealed: true, folder_id: 'dir' } as unknown as StashFile
+
+  it('one kind 5 for the old-shape records only, the sealed delete for each sealed one, then every blob', async () => {
+    await permanentDeleteFiles([plain, sealedFile])
+    expect(published).toHaveLength(1)
+    expect(published[0].tags).toEqual([['a', `30078:${ME}:p1`]])
+    expect(sealed.deleteFile).toHaveBeenCalledTimes(1)
+    expect(calls.slice(0, 2)).toEqual(['publish:5', 'sealed-record'])
+    expect(calls.slice(2).sort()).toEqual([`blob:${A}:auth(aaaa)`, `blob:${B}:auth(bbbb)`])
+  })
+
+  it('only sealed files: no kind 5 at all', async () => {
+    await permanentDeleteFiles([sealedFile])
+    expect(published).toHaveLength(0)
+    expect(calls).toEqual(['sealed-record', `blob:${B}:auth(bbbb)`])
+  })
+
+  it('a sealed record that will not delete keeps its blob; the ones already gone lose theirs', async () => {
+    sealed.deleteFile.mockRejectedValueOnce(new Error('relay down'))
+    await expect(permanentDeleteFiles([plain, sealedFile])).rejects.toThrow('relay down')
+    expect(api.deleteFile).toHaveBeenCalledTimes(1)
+    expect(calls).toContain(`blob:${A}:auth(aaaa)`)
+  })
+
+  it('records gone but a blob stuck: BlobDeleteError', async () => {
+    api.deleteFile.mockRejectedValueOnce(new Error('500'))
+    await expect(permanentDeleteFiles([plain])).rejects.toBeInstanceOf(BlobDeleteError)
   })
 })
