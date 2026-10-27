@@ -358,3 +358,25 @@ describe('listSharedFolder, old-shape folders', () => {
     expect(list.files.map((f) => f.name)).not.toContain('wrapped.txt')
   })
 })
+
+// Found 2026-10-27: an old-shape file keeps its versions as 'v' tags on its own
+// event, but the row never carried them, so a permanent delete removed only the
+// current blob and left every earlier version's blob in Blossom.
+describe('old-shape version tags', () => {
+  it('reach file.versions, so a permanent delete can find every blob', async () => {
+    const ev = signed({
+      kind: 30078,
+      created_at: 0,
+      tags: [
+        ['d', 'versioned'], ['x', 'b'.repeat(64)], ['size', '1'], ['encrypted', 'xchacha20-poly1305'],
+        ['v', 'a'.repeat(64), '1', '100', OWNER], ['v', 'b'.repeat(64), '2', '200', OWNER], ['current', 'b'.repeat(64)],
+      ],
+      content: JSON.stringify({ name: 'v.txt', size: 1, encrypted: true }),
+    })
+    const drive = await buildOwnDrive([ev], OWNER, null)
+    expect(drive.files[0].versions).toEqual([
+      { sha256: 'a'.repeat(64), version: 1, createdAt: 100 },
+      { sha256: 'b'.repeat(64), version: 2, createdAt: 200 },
+    ])
+  })
+})

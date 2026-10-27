@@ -6,13 +6,14 @@
 // first leaves a listed file that can never open.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { ME, calls, published, api, sealed } = vi.hoisted(() => {
+const { ME, calls, published, api, sealed, history } = vi.hoisted(() => {
   const ME = '4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766'
   const calls: string[] = []
   const published: Array<{ kind: number; tags: string[][] }> = []
   const api = { deleteFile: vi.fn(async (sha: string, auth: string) => { calls.push(`blob:${sha}:${auth}`); return {} }) }
   const sealed = { deleteFile: vi.fn(async () => { calls.push('sealed-record') }) }
-  return { ME, calls, published, api, sealed }
+  const history = { getVersionHistory: vi.fn(async (_id: string): Promise<Array<{ sha256: string }>> => []) }
+  return { ME, calls, published, api, sealed, history }
 })
 
 vi.mock('./api', () => ({ API: api, default: api }))
@@ -26,6 +27,7 @@ vi.mock('./authBridge', () => ({
   },
   getSigner: () => ({}),
 }))
+vi.mock('./versioning', () => ({ Versioning: history }))
 vi.mock('./driveWrite', () => ({ deleteFile: sealed.deleteFile }))
 vi.mock('./sealedDrive', () => ({
   writeContext: async () => ({}),
@@ -48,6 +50,8 @@ beforeEach(() => {
   published.length = 0
   api.deleteFile.mockClear()
   sealed.deleteFile.mockClear()
+  history.getVersionHistory.mockReset()
+  history.getVersionHistory.mockResolvedValue([])
 })
 
 describe('permanentDeleteFile deletes the blob too', () => {
@@ -122,5 +126,25 @@ describe('permanentDeleteFiles (Empty Trash)', () => {
   it('records gone but a blob stuck: BlobDeleteError', async () => {
     api.deleteFile.mockRejectedValueOnce(new Error('500'))
     await expect(permanentDeleteFiles([plain])).rejects.toBeInstanceOf(BlobDeleteError)
+  })
+})
+
+// The old vanilla app republished the file event on each save with only the
+// newest 'v' tag, so older version blobs are named only in the version history
+// of the device that saved them (IndexedDB 'cloistr-drive-versions').
+describe('version blobs named only in this device\'s history', () => {
+  const D = 'd'.repeat(64)
+
+  it('are deleted too', async () => {
+    history.getVersionHistory.mockResolvedValueOnce([{ sha256: D }, { sha256: A }])
+    await permanentDeleteFile({ id: 'h1', sha256: A, name: 'h.txt' } as StashFile)
+    expect(history.getVersionHistory).toHaveBeenCalledWith('h1')
+    expect(calls.slice(1).sort()).toEqual([`blob:${A}:auth(aaaa)`, `blob:${D}:auth(dddd)`])
+  })
+
+  it('a history that cannot be read does not stop the delete', async () => {
+    history.getVersionHistory.mockRejectedValueOnce(new Error('no indexedDB'))
+    await permanentDeleteFile({ id: 'h2', sha256: A, name: 'h.txt' } as StashFile)
+    expect(calls).toEqual(['publish:5', `blob:${A}:auth(aaaa)`])
   })
 })
