@@ -76,16 +76,18 @@ func (s *Store) Connect(ctx context.Context) error {
 	s.connMu.Lock()
 	defer s.connMu.Unlock()
 
-	// Store base context for reconnection
-	s.baseCtx, s.cancelFunc = context.WithCancel(ctx)
+	// Reconnects outlive ctx: main passes a 10s startup timeout, and a base
+	// derived from it failed every later reconnect at once (found live
+	// 2026-10-27). ctx bounds only this first dial.
+	s.baseCtx, s.cancelFunc = context.WithCancel(context.Background())
 
-	return s.connectLocked()
+	return s.connectLocked(ctx)
 }
 
 // connectLocked performs the actual connection (must hold connMu)
-func (s *Store) connectLocked() error {
+func (s *Store) connectLocked(dialCtx context.Context) error {
 	// Use a timeout to prevent indefinite hangs on connection failures
-	ctx, cancel := context.WithTimeout(s.baseCtx, 15*time.Second)
+	ctx, cancel := context.WithTimeout(dialCtx, 15*time.Second)
 	defer cancel()
 
 	relay, err := nostr.RelayConnect(ctx, s.relayURL)
@@ -125,7 +127,7 @@ func (s *Store) ensureConnected() error {
 	}
 
 	// Reconnect
-	if err := s.connectLocked(); err != nil {
+	if err := s.connectLocked(s.baseCtx); err != nil {
 		s.consecutiveFailures++
 		if s.consecutiveFailures >= maxConsecutiveFailures {
 			s.unhealthy = true
