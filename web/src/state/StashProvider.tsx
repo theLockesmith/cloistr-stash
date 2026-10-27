@@ -765,7 +765,18 @@ export function StashProvider({ children }: { children: ReactNode }) {
           next[idx] = it
           return next
         })
-      const existing = view === 'my-files' ? files : specialFiles
+      // The duplicate check reads the folder fresh: the list on screen can predate
+      // a publish that landed late, and a retry of that "failed" upload would
+      // then store the file twice.
+      let existing = view === 'my-files' ? files : specialFiles
+      const pubkey = authPort.pubkey
+      if (pubkey) {
+        try {
+          existing = filesIn(await fetchDrive(pubkey), folderIdRef.current)
+        } catch (err) {
+          console.warn('uploadFiles: fresh listing failed, checking duplicates against the list on screen -', (err as Error).message)
+        }
+      }
       const results = await libUploadFiles(list, { folderId: folderIdRef.current || null, existing, onItem: upsert })
       recordFilesAccess(results.filter((r) => r.status === 'success' && r.sha256).map((r) => r.sha256!))
       for (const r of results) if (r.status === 'success') logActivity('upload', { name: r.name })

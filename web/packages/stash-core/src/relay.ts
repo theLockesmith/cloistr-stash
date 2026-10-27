@@ -11,6 +11,12 @@
 // auth event within AUTH_TIMEOUT_MS. A signer that refuses or never answers
 // fails every publish queued behind the auth with AuthSignerError at once,
 // instead of leaving them parked until the publish timer runs out.
+//
+// Each send gets its own PUBLISH_TIMEOUT_MS: the wait for auth is already
+// bounded by AUTH_TIMEOUT_MS, and on a NIP-46 signer it can use most of the
+// budget, leaving the re-sent event too little (found live 2026-10-27). A
+// sent event whose OK never comes is looked up on the relay before failing:
+// a "failed" upload that in fact landed gets retried, and duplicated.
 
 import {
   AuthSignerError,
@@ -20,6 +26,9 @@ import {
 } from '@cloistr/collab-common/core'
 import type { SignedEvent } from './api'
 import { RELAY_URL } from './serviceConfig'
+
+/** How long a timed-out publish waits for the relay to say whether it holds the event. */
+export const PUBLISH_VERIFY_TIMEOUT_MS = 5000
 
 // Re-export so the data-layer modules can source both event types from './relay'.
 export type { SignedEvent } from './api'
@@ -41,7 +50,7 @@ export type NostrFilter = Record<string, unknown>
 
 interface PendingPublish {
   event: SignedEvent
-  timeout: ReturnType<typeof setTimeout>
+  timeout: ReturnType<typeof setTimeout> | undefined
   resolve: (result: { success: boolean; message?: string }) => void
   reject: (err: Error) => void
 }
@@ -260,6 +269,7 @@ export const Relay = {
         this.pendingAuthRetry.delete(eventId)
 
         this.send(['EVENT', pending.event])
+        this.armPublishTimer(pending)
         console.log('Relay: Retried event', eventId.slice(0, 8) + '...')
       } catch (err) {
         console.error('Relay: Failed to retry event', eventId.slice(0, 8) + '...:', err)
@@ -290,35 +300,53 @@ export const Relay = {
     }
 
     return new Promise((resolve, reject) => {
-      // Covers the whole round trip, including a wait in pendingAuthRetry.
-      const timeout = setTimeout(() => {
-        this.pendingPublishes.delete(signedEvent.id)
-        this.pendingAuthRetry.delete(signedEvent.id)
-        reject(new PublishTimeoutError(PUBLISH_TIMEOUT_MS))
-      }, PUBLISH_TIMEOUT_MS)
-
-      this.pendingPublishes.set(signedEvent.id, {
+      const pending: PendingPublish = {
         event: signedEvent,
-        timeout,
+        timeout: undefined,
         resolve: (result) => {
-          clearTimeout(timeout)
+          clearTimeout(pending.timeout)
           resolve(result)
         },
         reject: (err) => {
-          clearTimeout(timeout)
+          clearTimeout(pending.timeout)
           reject(err)
         },
-      })
+      }
+      this.pendingPublishes.set(signedEvent.id, pending)
 
       try {
         this.send(['EVENT', signedEvent])
+        this.armPublishTimer(pending)
         console.log('Relay: Published event', signedEvent.id.slice(0, 8) + '...')
       } catch (err) {
-        clearTimeout(timeout)
         this.pendingPublishes.delete(signedEvent.id)
         reject(err as Error)
       }
     })
+  },
+
+  /** (Re)start the round trip for one send of a pending publish. */
+  armPublishTimer(pending: PendingPublish): void {
+    clearTimeout(pending.timeout)
+    const id = pending.event.id
+    pending.timeout = setTimeout(() => {
+      const fail = () => {
+        this.pendingPublishes.delete(id)
+        this.pendingAuthRetry.delete(id)
+        pending.reject(new PublishTimeoutError(PUBLISH_TIMEOUT_MS))
+      }
+      // Parked for auth: never accepted, nothing to look up.
+      if (this.pendingPublishes.get(id) !== pending) return fail()
+      // Sent and unanswered. A late OK during the lookup still resolves it.
+      this.query([{ ids: [id] }], PUBLISH_VERIFY_TIMEOUT_MS).then(
+        (events) => {
+          if (!events.some((e) => e.id === id)) return fail()
+          this.pendingPublishes.delete(id)
+          pending.resolve({ success: true, message: 'held by relay (OK not received)' })
+        },
+        fail,
+      )
+    }, PUBLISH_TIMEOUT_MS)
   },
 
   async subscribe(filter: NostrFilter, timeout = 10000): Promise<SignedEvent[]> {
