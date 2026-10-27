@@ -28,7 +28,9 @@ import {
   deleteFolders,
   fileIdOf,
   moveFile as opMoveFile,
+  BlobDeleteError,
   permanentDeleteFile as opPermanentDeleteFile,
+  permanentDeleteFiles as opPermanentDeleteFiles,
   renameFile as opRenameFile,
   renameFolder as opRenameFolder,
   restoreFile as opRestoreFile,
@@ -49,6 +51,8 @@ import type { FolderPathItem, StashFile, StashFolder, StashNotification, StashVi
 const STARRED_KEY = 'cloistr-starred'
 const RECENT_KEY = 'cloistr-recent'
 const NOTIFICATIONS_KEY = 'cloistr-notifications'
+/** The records went, but a blob would not: the file is gone, its stored copy is not. */
+const BLOB_LEFT = 'Deleted, but its encrypted data could not be removed from storage'
 /** Poll for new received shares every 30 s (mirrors legacy startNotificationPolling). */
 const NOTIFICATION_POLL_MS = 30_000
 /** First check is deferred 5 s after auth, so the initial file load completes first. */
@@ -632,7 +636,10 @@ export function StashProvider({ children }: { children: ReactNode }) {
         await loadSpecialView('trash')
       } catch (err) {
         console.error('permanentDeleteFile failed', err)
-        setError('Failed to permanently delete file')
+        if (err instanceof BlobDeleteError) {
+          setError(BLOB_LEFT)
+          await loadSpecialView('trash')
+        } else setError('Failed to permanently delete file')
       } finally {
         setLoading(false)
       }
@@ -648,15 +655,14 @@ export function StashProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     setError(null)
     try {
-      const fileIds = trashFiles.map((f) => fileIdOf(f)).filter(Boolean)
-      if (fileIds.length > 0) {
-        const event = await Events.createBatchDeleteEvent(fileIds, [])
-        await authPort.publishEvent(event)
-      }
+      await opPermanentDeleteFiles(trashFiles)
       await loadSpecialView('trash')
     } catch (err) {
       console.error('emptyTrash failed', err)
-      setError('Failed to empty trash')
+      if (err instanceof BlobDeleteError) {
+        setError(BLOB_LEFT)
+        await loadSpecialView('trash')
+      } else setError('Failed to empty trash')
     } finally {
       setLoading(false)
     }
