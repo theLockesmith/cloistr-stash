@@ -279,6 +279,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [quotaAttempt, setQuotaAttempt] = useState(0)
 
   const folderIdRef = useRef('')
+  // The view on screen now; an action that finishes later reloads this one.
+  const viewRef = useRef<StashView>('my-files')
   const treeRef = useRef<StashFolder[]>([])
   const recentRef = useRef<RecentEntry[]>(loadRecent())
   const starredRef = useRef<ReadonlySet<string>>(starredFiles)
@@ -372,6 +374,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
   const setView = useCallback(
     async (next: StashView) => {
+      viewRef.current = next
       setViewState(next)
       if (next === 'my-files') {
         await loadFilesFor(folderIdRef.current)
@@ -414,6 +417,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
   const navigateToFolder = useCallback(
     async (folderId: string, folderName: string) => {
+      viewRef.current = 'my-files'
       setViewState('my-files')
       if (folderId === '') {
         folderIdRef.current = ''
@@ -433,6 +437,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
   const navigateToFolderAbsolute = useCallback(
     async (folderId: string) => {
+      viewRef.current = 'my-files'
       setViewState('my-files')
       folderIdRef.current = folderId
       setCurrentFolderId(folderId)
@@ -501,9 +506,10 @@ export function StashProvider({ children }: { children: ReactNode }) {
   }, [view, files, folders, specialFiles])
 
   const reloadCurrentView = useCallback(async () => {
-    if (view === 'my-files') await loadFilesFor(folderIdRef.current)
-    else if (view === 'starred' || view === 'recent' || view === 'trash') await loadSpecialView(view)
-  }, [view, loadFilesFor, loadSpecialView])
+    const current = viewRef.current
+    if (current === 'my-files') await loadFilesFor(folderIdRef.current)
+    else if (current === 'starred' || current === 'recent' || current === 'trash') await loadSpecialView(current)
+  }, [loadFilesFor, loadSpecialView])
 
   const deleteFile = useCallback(
     async (file: StashFile) => {
