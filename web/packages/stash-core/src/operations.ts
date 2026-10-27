@@ -4,6 +4,7 @@
 
 import { API } from './api'
 import { Events } from './events'
+import { Versioning } from './versioning'
 import { authPort, getSigner } from './authBridge'
 import { editOwnEvent, setTag } from './editEvent'
 import { Keys } from './keys'
@@ -156,13 +157,30 @@ export function blobsOf(file: StashFile): string[] {
 }
 
 /**
+ * Version blobs this device's history names for the file. The old vanilla app
+ * kept only the newest 'v' tag on the event, so older ones are named only here.
+ * Best effort: no history (or no IndexedDB) means none.
+ */
+async function localVersionBlobs(file: StashFile): Promise<string[]> {
+  try {
+    const history = await Versioning.getVersionHistory(fileIdOf(file))
+    return history.map((v) => v.sha256).filter((s) => BLOB_HASH.test(s ?? ''))
+  } catch (err) {
+    console.warn('deleteFileBlobs: no local version history', (err as Error).message)
+    return []
+  }
+}
+
+/**
  * Delete these files' blobs from Blossom, each signed as the owner (kind 24242
- * t=delete). Tries every blob, then throws BlobDeleteError naming the ones
+ * t=delete): the ones the records name, and any version blob this device's
+ * history names. Tries every blob, then throws BlobDeleteError naming the ones
  * that would not go. Call it only after the records are gone.
  */
 export async function deleteFileBlobs(files: StashFile[]): Promise<void> {
   const failed: string[] = []
-  for (const sha256 of new Set(files.flatMap(blobsOf))) {
+  const local = await Promise.all(files.map(localVersionBlobs))
+  for (const sha256 of new Set([...files.flatMap(blobsOf), ...local.flat()])) {
     try {
       await API.deleteFile(sha256, await authPort.createDeleteAuth(sha256))
     } catch (err) {

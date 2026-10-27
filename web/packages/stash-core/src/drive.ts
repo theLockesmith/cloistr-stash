@@ -23,6 +23,7 @@ import {
   rootContainerKey,
   type RingEntry,
   type SealedFileMeta,
+  type SealedVersion,
 } from './sealed'
 import type { StashFile, StashFolder } from './types'
 import { Keys } from './keys'
@@ -123,8 +124,16 @@ function legacyFile(ev: SignedEvent): StashFile | null {
     tags: ev.tags.filter((t) => t[0] === 't').map((t) => t[1]),
     owner_key: tag(ev, 'owner_key'),
     created_at: ev.created_at,
+    versions: versionTags(ev),
     sealed: false,
   }
+}
+
+// An old-shape file's versions: its ['v', sha256, version, createdAt, pubkey] tags.
+function versionTags(ev: SignedEvent): SealedVersion[] {
+  return ev.tags
+    .filter((t) => t[0] === 'v' && t[1])
+    .map((t) => ({ sha256: t[1], version: Number(t[2]) || 0, createdAt: Number(t[3]) || 0 }))
 }
 
 function legacyFolder(ev: SignedEvent): StashFolder | null {
