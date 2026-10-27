@@ -130,10 +130,10 @@ export const Relay = {
         reject(err as Error)
       }
     })
-    this.connecting = attempt.finally(() => {
+    const shared: Promise<boolean> = attempt.finally(() => {
       if (this.connecting === shared) this.connecting = null
     })
-    const shared = this.connecting
+    this.connecting = shared
     return shared
   },
 
