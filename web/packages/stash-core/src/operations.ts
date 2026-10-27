@@ -2,6 +2,7 @@
 // folder branch). Deletes are soft for files (re-publish encrypted metadata
 // with deletedAt) and a batched kind:5 (NIP-09) event for folders.
 
+import { API } from './api'
 import { Events } from './events'
 import { authPort, getSigner } from './authBridge'
 import { editOwnEvent, setTag } from './editEvent'
@@ -138,18 +139,55 @@ export async function restoreFile(file: StashFile): Promise<void> {
   await editFileEvent(file, { deletedAt: null })
 }
 
+/** A permanent delete removed the record but not every blob it pointed at. */
+export class BlobDeleteError extends Error {
+  constructor(readonly sha256s: string[]) {
+    super(`Deleted, but ${sha256s.length} stored blob(s) could not be removed`)
+    this.name = 'BlobDeleteError'
+  }
+}
+
+const BLOB_HASH = /^[0-9a-f]{64}$/
+
+/** Every blob a file points at: its current blob and each recorded version's. */
+export function blobsOf(file: StashFile): string[] {
+  const versions = Array.isArray(file.versions) ? (file.versions as Array<{ sha256?: string }>) : []
+  return [file.sha256, ...versions.map((v) => v.sha256)].filter((s): s is string => BLOB_HASH.test(s ?? ''))
+}
+
 /**
- * Permanently delete a file: publish a kind:5 NIP-09 deletion event for its
- * metadata event. Mirrors the legacy permanentDelete() at app.js:3178.
+ * Delete these files' blobs from Blossom, each signed as the owner (kind 24242
+ * t=delete). Tries every blob, then throws BlobDeleteError naming the ones
+ * that would not go. Call it only after the records are gone.
+ */
+export async function deleteFileBlobs(files: StashFile[]): Promise<void> {
+  const failed: string[] = []
+  for (const sha256 of new Set(files.flatMap(blobsOf))) {
+    try {
+      await API.deleteFile(sha256, await authPort.createDeleteAuth(sha256))
+    } catch (err) {
+      console.warn('deleteFileBlobs: could not delete blob', sha256.slice(0, 12), err)
+      failed.push(sha256)
+    }
+  }
+  if (failed.length > 0) throw new BlobDeleteError(failed)
+}
+
+/**
+ * Permanently delete a file: delete its record (a kind:5 NIP-09 deletion, or
+ * the sealed delete), then its blobs. Record first: a blob deleted before its
+ * record leaves a listed file that can never open.
  */
 export async function permanentDeleteFile(file: StashFile): Promise<void> {
   if (file.sealed === true) {
-    return Sealed.deleteFile(await writeContext(), fileRef(file), (file.folder_id as string) || null)
+    await Sealed.deleteFile(await writeContext(), fileRef(file), (file.folder_id as string) || null)
+  } else {
+    const fileId = fileIdOf(file)
+    if (!fileId) throw new Error('Cannot permanently delete: file has no ID')
+    const event = await Events.createBatchDeleteEvent([fileId], [])
+    await authPort.publishEvent(event)
   }
-  const fileId = fileIdOf(file)
-  if (!fileId) throw new Error('Cannot permanently delete: file has no ID')
-  const event = await Events.createBatchDeleteEvent([fileId], [])
-  await authPort.publishEvent(event)
+  await deleteFileBlobs([file])
 }
 
 /**
