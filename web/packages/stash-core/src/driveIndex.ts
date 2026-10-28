@@ -209,6 +209,7 @@ export async function loadOwnDriveIndexed(
   if (!rootKey) return buildOwnDrive(await fetchAll(query, filter, opts.pageSize), pubkey, null, opts)
 
   const now = (opts.now ?? (() => Math.floor(Date.now() / 1000)))()
+  const generation = generations.get(pubkey) ?? 0
   const key = await indexKey(rootKey, pubkey)
   const had = await readIndex(opts.store, pubkey, key)
   // The stored index, when this load may build on it rather than read in full.
@@ -248,8 +249,10 @@ export async function loadOwnDriveIndexed(
     unwrapOwner: unwrapOwner && ((envelope, d) => rememberOwner(memo, used, envelope, d, unwrapOwner)),
   })
 
-  // An empty read gives nothing to keep, and must not become the base.
-  if (events.length === 0) return drive
+  // A first read that is empty gives nothing to keep, and must not become the
+  // base. (Emptied by two full reads in a row, it is kept.) Nor is anything
+  // written once the index was forgotten (sign-out) while this load ran.
+  if ((events.length === 0 && had === null) || (generations.get(pubkey) ?? 0) !== generation) return drive
 
   // Keep only what this build used: entries for replaced events fall away.
   const kept: Record<string, unknown> = {}
@@ -257,7 +260,7 @@ export async function loadOwnDriveIndexed(
   const newest = events.reduce((m, ev) => Math.max(m, ev.created_at), 0)
   await writeIndex(opts.store, pubkey, key, {
     v: INDEX_VERSION,
-    cursor: Math.min(now, newest),
+    cursor: events.length ? Math.min(now, newest) : now,
     fullAt: base ? base.fullAt : now,
     confirmed: base ? base.confirmed : had !== null,
     missing,
@@ -267,8 +270,12 @@ export async function loadOwnDriveIndexed(
   return drive
 }
 
+// Bumped by forgetDriveIndex, so a load already running does not write back.
+const generations = new Map<string, number>()
+
 /** Remove an account's index from the device (sign-out, account switch). */
 export async function forgetDriveIndex(pubkey: string, store: DriveIndexStore = defaultDriveIndexStore()): Promise<void> {
+  generations.set(pubkey, (generations.get(pubkey) ?? 0) + 1)
   try {
     await store.delete(pubkey)
   } catch (err) {

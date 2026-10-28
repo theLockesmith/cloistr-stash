@@ -375,11 +375,13 @@ describe('loadOwnDriveIndexed at the edges', () => {
     await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 })
     const saved = relay.events.splice(0)
     // The relay answers the daily full read with nothing (restarting).
-    const blank = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 + 86_400 })
+    relay.filters.length = 0
+    const blank = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 + 86_400 })
+    expect(relay.filters.every((f) => f.since === undefined)).toBe(true)
     expect(names(blank)).toEqual(['keep.txt', 'old.txt'])
     // Back, but it lost old1 (no kind 5). Within the hour: still listed.
     relay.events.push(saved[1])
-    const soon = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 + 86_400 })
+    const soon = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 300 + 86_400 })
     expect(names(soon)).toEqual(['keep.txt', 'old.txt'])
     relay.filters.length = 0
     const confirmed = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 + 86_400 + 3600 })
@@ -411,6 +413,34 @@ describe('loadOwnDriveIndexed at the edges', () => {
     await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
     expect(await store.get(OWNER)).not.toBeNull()
     await forgetDriveIndex(OWNER, store)
+    expect(await store.get(OWNER)).toBeNull()
+  })
+
+  it('when two full reads an hour apart both find nothing, the empty drive is kept and loads go incremental', async () => {
+    const relay = fakeRelay([legacyFile('old1', 'old.txt')])
+    const store = new MemoryDriveIndexStore()
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 })
+    relay.events.splice(0)
+    expect(names(await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 + 86_400 }))).toEqual(['old.txt'])
+    expect(names(await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 + 86_400 + 3600 }))).toEqual([])
+    relay.filters.length = 0
+    const next = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 300 + 86_400 + 3600 })
+    expect(names(next)).toEqual([])
+    expect(relay.filters.some((f) => typeof f.since === 'number' && f.since > T0)).toBe(true)
+  })
+
+  it('a load still running when the index is forgotten does not write it back', async () => {
+    const s = await sampleDrive()
+    const relay = fakeRelay(s.events)
+    const store = new MemoryDriveIndexStore()
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const slow: QueryFn = async (fs) => (await gate, relay.query(fs))
+    const loading = loadOwnDriveIndexed(slow, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await forgetDriveIndex(OWNER, store)
+    release()
+    expect(names(await loading)).toEqual(['alpha.txt', 'root.txt'])
     expect(await store.get(OWNER)).toBeNull()
   })
 })
