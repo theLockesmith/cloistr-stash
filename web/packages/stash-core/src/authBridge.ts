@@ -8,6 +8,7 @@
 
 import { API } from './api'
 import { Crypto } from './crypto'
+import { forgetDriveIndex } from './driveIndex'
 import { Keys } from './keys'
 import { Relay } from './relay'
 import type { SignedEvent, UnsignedEvent } from './relay'
@@ -189,6 +190,8 @@ export async function updateAuth(signer: Signer | null, state: AuthSnapshot): Pr
   if (switched) {
     Keys.clearCache()
     Relay.disconnect()
+    // The drive index holds every file name and key of that account.
+    if (previousPubkey && state.pubkey !== previousPubkey) await forgetDriveIndex(previousPubkey)
   }
   if (isConnected && state.pubkey && (!wasConnected || switched)) {
     await Keys.init(state.pubkey)
@@ -201,6 +204,7 @@ export async function updateAuth(signer: Signer | null, state: AuthSnapshot): Pr
   } else if (!isConnected && wasConnected) {
     Keys.clearCache()
     Relay.disconnect()
+    if (previousPubkey) await forgetDriveIndex(previousPubkey)
   }
 }
 

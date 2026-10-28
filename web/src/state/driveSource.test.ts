@@ -5,17 +5,23 @@ import { Relay } from '@cloistr/stash-core/relay'
 import { Keys } from '@cloistr/stash-core/keys'
 import { fetchDrive, filesIn, foldersIn } from './driveSource'
 import type { DriveSnapshot } from '@cloistr/stash-core/drive'
+import { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
 
-const OWNER = 'a'.repeat(64)
-const legacyFile = (d: string, name: string, folder?: string) => ({
-  id: d.padEnd(64, '0'),
-  pubkey: OWNER,
-  created_at: 1,
-  kind: 30078,
-  sig: '',
-  tags: [['d', d], ['x', 'e'.repeat(64)], ...(folder ? [['folder', folder]] : [])],
-  content: JSON.stringify({ name }),
-})
+// Signed for real: the drive index keeps only events whose signature checks out.
+const SK = new Uint8Array(32).fill(7)
+const OWNER = getPublicKey(SK)
+const legacyFile = (d: string, name: string, folder?: string) => {
+  const { id, pubkey, sig, kind, created_at, tags, content } = finalizeEvent(
+    {
+      created_at: 1,
+      kind: 30078,
+      tags: [['d', d], ['x', 'e'.repeat(64)], ...(folder ? [['folder', folder]] : [])],
+      content: JSON.stringify({ name }),
+    },
+    SK,
+  )
+  return { id, pubkey, sig, kind, created_at, tags, content }
+}
 
 beforeEach(() => vi.restoreAllMocks())
 
