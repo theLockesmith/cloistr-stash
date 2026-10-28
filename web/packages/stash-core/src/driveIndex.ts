@@ -13,7 +13,9 @@
 // 30079) and kind 5 are few and carry every delete and move, so they are read
 // in full on every load; only file events (30078), the bulk, are incremental.
 // A file edit stamped more than SYNC_SKEW_SECONDS before the newest event
-// waits for the next full read.
+// waits for the next full read. A file a ring lists but the index has no
+// event for (a new upload or move-in from a slow device) is fetched by its d
+// in one more request, so it shows at once.
 //
 // A full read never shrinks the stored set on its own word: an event it lacks
 // is dropped only when a second full read, CONFIRM_SECONDS later, lacks it
@@ -170,7 +172,8 @@ function prune(events: SignedEvent[]): SignedEvent[] {
 // tags) and to the key it was opened with. Failures are never remembered.
 const keyTag = (key: Uint8Array) => Crypto.bytesToHex(key.subarray(0, 8))
 
-function memoOpener(base: DriveOpener, memo: Record<string, unknown>, used: Set<string>): DriveOpener {
+// `listed` collects the d of every file the opened rings list (tombstones excluded).
+function memoOpener(base: DriveOpener, memo: Record<string, unknown>, used: Set<string>, listed: Set<string>): DriveOpener {
   const remember = async <T>(k: string, open: () => Promise<T>): Promise<T> => {
     used.add(k)
     if (k in memo) return memo[k] as T
@@ -179,7 +182,12 @@ function memoOpener(base: DriveOpener, memo: Record<string, unknown>, used: Set<
     return v
   }
   return {
-    ring: (ev, key, id) => remember(`r:${ev.id}:${keyTag(key)}:${id}`, () => base.ring(ev, key, id)),
+    ring: async (ev, key, id) => {
+      const ring = await remember(`r:${ev.id}:${keyTag(key)}:${id}`, () => base.ring(ev, key, id))
+      const gone = new Set(ring.tombstones.map((t) => t.d))
+      for (const f of ring.files) if (!gone.has(f.d)) listed.add(f.d)
+      return ring
+    },
     folder: (ev, key) => remember(`c:${ev.id}:${keyTag(key)}`, () => base.folder(ev, key)),
     file: (ev, key) => remember(`f:${ev.id}:${keyTag(key)}`, () => base.file(ev, key)),
     ringD: (key, id) => remember(`d:${id}:${keyTag(key)}`, () => base.ringD(key, id)),
@@ -241,13 +249,35 @@ export async function loadOwnDriveIndexed(
 
   const memo = had?.memo ?? {}
   const used = new Set<string>()
-  const opener = memoOpener(opts.opener ?? directOpener, memo, used)
+  const listed = new Set<string>()
+  const opener = memoOpener(opts.opener ?? directOpener, memo, used, listed)
   const unwrapOwner = opts.unwrapOwner
-  const drive = await buildOwnDrive(events, pubkey, rootKey, {
-    ...opts,
-    opener,
-    unwrapOwner: unwrapOwner && ((envelope, d) => rememberOwner(memo, used, envelope, d, unwrapOwner)),
-  })
+  const build = () =>
+    buildOwnDrive(events, pubkey, rootKey, {
+      ...opts,
+      opener,
+      unwrapOwner: unwrapOwner && ((envelope, d) => rememberOwner(memo, used, envelope, d, unwrapOwner)),
+    })
+  let drive = await build()
+
+  // Files the rings list but whose event the incremental read skipped
+  // (stamped before the cursor): fetch them by d, then build again.
+  if (!fullDue) {
+    const haveD = new Set(events.filter((ev) => ev.kind === FILE_KIND).map((ev) => ev.tags.find((t) => t[0] === 'd')?.[1]))
+    const absent = [...listed].filter((d) => !haveD.has(d))
+    if (absent.length) {
+      const got = (
+        await Promise.all(
+          chunks(absent, D_PER_FILTER).map((ds) => fetchAll(query, { kinds: [FILE_KIND], authors: [pubkey], '#d': ds }, opts.pageSize)),
+        )
+      ).flat()
+      const added = await verifiedEvents(got.filter((ev) => ev.pubkey === pubkey && !known.has(ev.id)))
+      if (added.length) {
+        events = prune([...events, ...added])
+        drive = await build()
+      }
+    }
+  }
 
   // A first read that is empty gives nothing to keep, and must not become the
   // base. (Emptied by two full reads in a row, it is kept.) Nor is anything
@@ -269,6 +299,9 @@ export async function loadOwnDriveIndexed(
   })
   return drive
 }
+
+const D_PER_FILTER = 200
+const chunks = <T>(xs: T[], n: number): T[][] => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, (i + 1) * n))
 
 // Bumped by forgetDriveIndex, so a load already running does not write back.
 const generations = new Map<string, number>()
