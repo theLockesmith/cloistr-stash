@@ -3,14 +3,14 @@
 // and /api/folders (drive interop Phase 1). Goes through this device's drive
 // index (stash-core driveIndex), so a load fetches only what changed.
 import type { DriveSnapshot } from '@cloistr/stash-core/drive'
-import { IndexedDBDriveIndexStore, loadOwnDriveIndexed } from '@cloistr/stash-core/driveIndex'
+import { defaultDriveIndexStore, loadOwnDriveIndexed } from '@cloistr/stash-core/driveIndex'
 import { Keys } from '@cloistr/stash-core/keys'
 import { Relay } from '@cloistr/stash-core/relay'
 import { getSigner } from '@cloistr/stash-core/authBridge'
 import { rememberDrive } from '@cloistr/stash-core/sealedDrive'
 import type { StashFile, StashFolder } from './types'
 
-const indexStore = new IndexedDBDriveIndexStore()
+const indexStore = defaultDriveIndexStore()
 
 export async function fetchDrive(pubkey: string): Promise<DriveSnapshot> {
   // Without the root key, old-shape files still list; sealed ones come back

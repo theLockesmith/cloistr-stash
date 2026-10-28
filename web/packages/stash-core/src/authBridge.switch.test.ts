@@ -4,6 +4,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('./migration-wrapped-keys', () => ({ runWrappedKeyMigration: async () => null }))
+const forgotten: string[] = []
+vi.mock('./driveIndex', () => ({ forgetDriveIndex: async (pk: string) => void forgotten.push(pk) }))
 
 import { updateAuth, type Signer } from './authBridge'
 import { Keys } from './keys'
@@ -27,6 +29,7 @@ beforeEach(async () => {
   vi.spyOn(Relay, 'disconnect').mockImplementation(() => {})
   init.mockClear()
   clear.mockClear()
+  forgotten.length = 0
 })
 
 describe('updateAuth keyed on pubkey + signer', () => {
@@ -53,5 +56,24 @@ describe('updateAuth keyed on pubkey + signer', () => {
     await updateAuth(s, { isConnected: true, pubkey: A })
     expect(init).toHaveBeenCalledTimes(1)
     expect(clear).not.toHaveBeenCalled()
+  })
+
+  // The drive index holds every file name and key of that account (stash !225 review).
+  it('sign-out removes that account\'s drive index from the device', async () => {
+    await updateAuth(signer(), { isConnected: true, pubkey: A })
+    await updateAuth(null, { isConnected: false, pubkey: null })
+    expect(forgotten).toEqual([A])
+  })
+
+  it('an account switch removes the previous account\'s drive index', async () => {
+    await updateAuth(signer(), { isConnected: true, pubkey: A })
+    await updateAuth(signer(), { isConnected: true, pubkey: B })
+    expect(forgotten).toEqual([A])
+  })
+
+  it('a new signer for the same account keeps its drive index', async () => {
+    await updateAuth(signer(), { isConnected: true, pubkey: A })
+    await updateAuth(signer(), { isConnected: true, pubkey: A })
+    expect(forgotten).toEqual([])
   })
 })

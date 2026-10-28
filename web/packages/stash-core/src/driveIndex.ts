@@ -3,9 +3,25 @@
 // the last sync and decrypts only events it has not opened before.
 //
 // Nothing changes on the wire: the relay sees the same author-and-kind filter
-// as a full read (loadOwnDrive), plus `since`. The drive is still built by
-// buildOwnDrive over the whole event set, so deletes (kind 5, ring
-// tombstones) and edits from other devices apply exactly as on a full read.
+// as a full read (loadOwnDrive), plus `since` on file events. The drive is
+// still built by buildOwnDrive over the whole event set, so deletes (kind 5,
+// ring tombstones) and edits from other devices apply exactly as on a full read.
+//
+// created_at is stamped by the device that wrote the event, so the cursor is
+// never this device's clock alone: it is the newest created_at the relay has
+// returned, capped at this device's clock. Folder events, key rings (both
+// 30079) and kind 5 are few and carry every delete and move, so they are read
+// in full on every load; only file events (30078), the bulk, are incremental.
+// A file edit stamped more than SYNC_SKEW_SECONDS before the newest event
+// waits for the next full read.
+//
+// A full read never shrinks the stored set on its own word: an event it lacks
+// is dropped only when a second full read, CONFIRM_SECONDS later, lacks it
+// too. An empty full read is never kept, and the first index on a device is
+// read in full once more before loads go incremental.
+//
+// Events are kept only once their signature checks out and they are by the
+// owner (eventVerify): a forged kind 5 must not persist on the device.
 //
 // At rest the index is one blob per pubkey, encrypted (XChaCha20-Poly1305)
 // under a key derived from the root key: it holds names and file keys, which
@@ -15,15 +31,20 @@ import type { SignedEvent } from './api'
 import { buildOwnDrive, directOpener, fetchAll, type DriveOpener, type DriveSnapshot, type OwnDriveOptions, type QueryFn } from './drive'
 import { Crypto } from './crypto'
 import { Keys } from './keys'
+import { verifiedEvents } from './eventVerify'
 
 const DELETE_KIND = 5
-const DRIVE_KINDS = [DELETE_KIND, 30078, 30079]
-const INDEX_VERSION = 1
+const FILE_KIND = 30078
+const FOLDER_KIND = 30079
+const DRIVE_KINDS = [DELETE_KIND, FILE_KIND, FOLDER_KIND]
+const INDEX_VERSION = 2
 const CONTEXT_INDEX = 'cloistr-stash-index-v1'
-/** An event stamped up to this long before the last sync is still fetched (clock skew between devices). */
-export const SYNC_SKEW_SECONDS = 600
+/** A file event stamped up to this long before the cursor is still fetched (clock skew, slow signers). */
+export const SYNC_SKEW_SECONDS = 3600
 /** After this long, read everything again: drops what the relay lost without a kind 5. */
 export const FULL_SYNC_SECONDS = 86_400
+/** When a full read lacked events the index held, read in full again after this long to confirm. */
+export const CONFIRM_SECONDS = 3600
 
 /** Where the encrypted index blob lives, one per pubkey. */
 export interface DriveIndexStore {
@@ -86,10 +107,14 @@ export class IndexedDBDriveIndexStore implements DriveIndexStore {
 
 interface IndexState {
   v: number
-  /** Local clock (seconds) when the last fetch started. */
-  syncedAt: number
+  /** Newest created_at returned, capped at the local clock when that fetch started. */
+  cursor: number
   /** Local clock (seconds) of the last full read. */
   fullAt: number
+  /** False until a second full read has been compared with the first. */
+  confirmed: boolean
+  /** Ids the last full read lacked: dropped if the next full read lacks them too. */
+  missing: string[]
   events: SignedEvent[]
   /** What opening events gave, by memo key (see memoOpener). */
   memo: Record<string, unknown>
@@ -108,7 +133,7 @@ async function readIndex(store: DriveIndexStore, pubkey: string, key: Uint8Array
     const blob = await store.get(pubkey)
     if (!blob) return null
     const state = fromJSON(new TextDecoder().decode(Crypto.decrypt(blob, key))) as IndexState
-    return state.v === INDEX_VERSION && Array.isArray(state.events) ? state : null
+    return state.v === INDEX_VERSION && Array.isArray(state.events) && Array.isArray(state.missing) ? state : null
   } catch (err) {
     // Another root key, a damaged blob, or no storage: read in full.
     console.warn('driveIndex: index unreadable, reading the drive in full -', (err as Error).message)
@@ -170,8 +195,9 @@ export interface IndexedDriveOptions extends OwnDriveOptions {
 
 /**
  * The owner's drive, as loadOwnDrive gives it, through the device index:
- * fetch events newer than the last sync (less SYNC_SKEW_SECONDS), or all of
- * them on the first load and every FULL_SYNC_SECONDS; merge; build; save.
+ * fetch what changed (see the top of this file), or everything on the first
+ * loads, every FULL_SYNC_SECONDS, and to confirm a short full read; merge;
+ * build; save.
  */
 export async function loadOwnDriveIndexed(
   query: QueryFn,
@@ -185,11 +211,34 @@ export async function loadOwnDriveIndexed(
   const now = (opts.now ?? (() => Math.floor(Date.now() / 1000)))()
   const key = await indexKey(rootKey, pubkey)
   const had = await readIndex(opts.store, pubkey, key)
-  const incremental = had !== null && now - had.fullAt < FULL_SYNC_SECONDS
-  const fresh = await fetchAll(query, incremental ? { ...filter, since: had.syncedAt - SYNC_SKEW_SECONDS } : filter, opts.pageSize)
-  const events = prune(incremental ? [...had.events, ...fresh] : fresh)
+  // The stored index, when this load may build on it rather than read in full.
+  const fullEvery = had?.missing.length ? CONFIRM_SECONDS : FULL_SYNC_SECONDS
+  const base = had && had.confirmed && now - had.fullAt < fullEvery ? had : null
+  const fullDue = base === null
+  const fetched = fullDue
+    ? await fetchAll(query, filter, opts.pageSize)
+    : (
+        await Promise.all([
+          fetchAll(query, { kinds: [DELETE_KIND, FOLDER_KIND], authors: [pubkey] }, opts.pageSize),
+          fetchAll(query, { kinds: [FILE_KIND], authors: [pubkey], since: base.cursor - SYNC_SKEW_SECONDS }, opts.pageSize),
+        ])
+      ).flat()
+  // Check only what is not already kept: those were checked when stored.
+  const known = new Set(had?.events.map((ev) => ev.id))
+  const unseen = fetched.filter((ev) => !known.has(ev.id) && ev.pubkey === pubkey)
+  const fresh = [...fetched.filter((ev) => known.has(ev.id)), ...(await verifiedEvents(unseen))]
 
-  const memo = incremental ? had.memo : {}
+  let events = prune([...(had?.events ?? []), ...fresh])
+  const got = new Set(fresh.map((ev) => ev.id))
+  let missing = had?.missing.filter((id) => !got.has(id)) ?? []
+  if (fullDue && had) {
+    const lacking = new Set(events.filter((ev) => !got.has(ev.id)).map((ev) => ev.id))
+    const twice = new Set(had.missing.filter((id) => lacking.has(id)))
+    events = events.filter((ev) => !twice.has(ev.id))
+    missing = [...lacking].filter((id) => !twice.has(id))
+  }
+
+  const memo = had?.memo ?? {}
   const used = new Set<string>()
   const opener = memoOpener(opts.opener ?? directOpener, memo, used)
   const unwrapOwner = opts.unwrapOwner
@@ -199,17 +248,39 @@ export async function loadOwnDriveIndexed(
     unwrapOwner: unwrapOwner && ((envelope, d) => rememberOwner(memo, used, envelope, d, unwrapOwner)),
   })
 
+  // An empty read gives nothing to keep, and must not become the base.
+  if (events.length === 0) return drive
+
   // Keep only what this build used: entries for replaced events fall away.
   const kept: Record<string, unknown> = {}
   for (const k of used) if (k in memo) kept[k] = memo[k]
+  const newest = events.reduce((m, ev) => Math.max(m, ev.created_at), 0)
   await writeIndex(opts.store, pubkey, key, {
     v: INDEX_VERSION,
-    syncedAt: now,
-    fullAt: incremental ? had.fullAt : now,
+    cursor: Math.min(now, newest),
+    fullAt: base ? base.fullAt : now,
+    confirmed: base ? base.confirmed : had !== null,
+    missing,
     events,
     memo: kept,
   })
   return drive
+}
+
+/** Remove an account's index from the device (sign-out, account switch). */
+export async function forgetDriveIndex(pubkey: string, store: DriveIndexStore = defaultDriveIndexStore()): Promise<void> {
+  try {
+    await store.delete(pubkey)
+  } catch (err) {
+    console.warn('driveIndex: could not remove the index -', (err as Error).message)
+  }
+}
+
+let defaultStore: IndexedDBDriveIndexStore | null = null
+/** The device's index store, shared by the listing and sign-out. */
+export function defaultDriveIndexStore(): IndexedDBDriveIndexStore {
+  defaultStore ??= new IndexedDBDriveIndexStore()
+  return defaultStore
 }
 
 // A key opened through owner_key costs a signer call: remember it by d and envelope.
