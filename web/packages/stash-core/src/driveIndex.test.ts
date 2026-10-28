@@ -53,17 +53,18 @@ const legacyFile = (d: string, name: string, createdAt = T0): SignedEvent =>
     createdAt,
   )
 
-/** A relay over `events`: honours kinds, authors, since, until and limit, newest first. */
+/** A relay over `events`: honours kinds, authors, #d, since, until and limit, newest first. */
 function fakeRelay(events: SignedEvent[]) {
   const filters: NostrFilter[] = []
   const query: QueryFn = async (fs) => {
     filters.push(...fs)
     const out: SignedEvent[] = []
     for (const raw of fs) {
-      const f = raw as { kinds?: number[]; authors?: string[]; since?: number; until?: number; limit?: number }
+      const f = raw as { kinds?: number[]; authors?: string[]; '#d'?: string[]; since?: number; until?: number; limit?: number }
       const hit = events
         .filter((e) => !f.kinds || f.kinds.includes(e.kind))
         .filter((e) => !f.authors || f.authors.includes(e.pubkey))
+        .filter((e) => !f['#d'] || f['#d'].includes(e.tags.find((t) => t[0] === 'd')?.[1] ?? ''))
         .filter((e) => f.since === undefined || e.created_at >= f.since)
         .filter((e) => f.until === undefined || e.created_at <= f.until)
         .sort((a, b) => b.created_at - a.created_at)
@@ -428,6 +429,67 @@ describe('loadOwnDriveIndexed at the edges', () => {
     const next = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 300 + 86_400 + 3600 })
     expect(names(next)).toEqual([])
     expect(relay.filters.some((f) => typeof f.since === 'number' && f.since > T0)).toBe(true)
+  })
+
+  // Re-review of !225 (cloistr-audit): the ring lists the new file, but its
+  // file event is stamped before the cursor, so the incremental read skips it.
+  it('a new upload from a device clock 2 h slow shows on the next incremental load', async () => {
+    // Folders last written days ago; a correct-clock device wrote a file just now (the cursor).
+    const s = await sampleDrive(T0 - 3 * 86_400)
+    const relay = fakeRelay([...s.events, legacyFile('now1', 'now.txt', T0)])
+    const store = new MemoryDriveIndexStore()
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 })
+    const rootCK = await rootContainerKey(ROOT)
+    const up = { id: 'f7'.padEnd(32, '0'), key: k(7), d: randomD() }
+    const slow = T0 + 300 - 7200
+    relay.events.push(
+      signed(await sealRing({ folderKey: rootCK, folderId: '', files: [s.r1, up], folders: [s.A], tombstones: [] }), slow),
+      signed(await sealFileEvent({ d: up.d, q: await folderQ(rootCK, ''), fileKey: up.key, meta: fileMeta(up.id, 'upload.txt', null) }), slow),
+    )
+    relay.filters.length = 0
+    const drive = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 400 })
+    // Still an incremental load, plus one request for the listed file by its d.
+    expect(relay.filters.some((f) => typeof f.since === 'number')).toBe(true)
+    expect(names(drive)).toEqual(['alpha.txt', 'now.txt', 'root.txt', 'upload.txt'])
+    expect(names(drive)).toEqual(names(await loadOwnDrive(relay.query, OWNER, ROOT)))
+    // Kept: the next load needs no extra request for it.
+    relay.filters.length = 0
+    expect(names(await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 500 }))).toEqual(['alpha.txt', 'now.txt', 'root.txt', 'upload.txt'])
+    expect(relay.filters.some((f) => '#d' in f)).toBe(false)
+  })
+
+  it('a file moved into a folder from a slow device, whose record this device never had, shows in that folder', async () => {
+    const s = await sampleDrive(T0 - 3 * 86_400)
+    // The file was written on another device and then moved, both on its slow clock; this device never stored it.
+    const relay = fakeRelay([...s.events, legacyFile('now1', 'now.txt', T0)])
+    const store = new MemoryDriveIndexStore()
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 })
+    const mv = { id: 'f8'.padEnd(32, '0'), key: k(8), d: randomD() }
+    const slow = T0 + 300 - 7200
+    relay.events.push(
+      signed(await sealRing({ folderKey: s.A.key, folderId: s.A.id, files: [s.a1, mv], folders: [], tombstones: [] }), slow),
+      signed(await sealFileEvent({ d: mv.d, q: await folderQ(s.A.key, s.A.id), fileKey: mv.key, meta: fileMeta(mv.id, 'moved.txt', s.A.id) }), slow),
+    )
+    const drive = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 400 })
+    expect(drive.files.find((f) => f.name === 'moved.txt')?.folder_id).toBe(s.A.id)
+    expect(names(drive)).toEqual(names(await loadOwnDrive(relay.query, OWNER, ROOT)))
+  })
+
+  it('a ring entry whose file is gone from the relay costs one request and does not break the listing', async () => {
+    const s = await sampleDrive()
+    const relay = fakeRelay(s.events)
+    const store = new MemoryDriveIndexStore()
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 })
+    const rootCK = await rootContainerKey(ROOT)
+    const ghost = { id: 'f6'.padEnd(32, '0'), key: k(6), d: randomD() }
+    relay.events.push(signed(await sealRing({ folderKey: rootCK, folderId: '', files: [s.r1, ghost], folders: [s.A], tombstones: [] }), T0 + 300))
+    relay.filters.length = 0
+    const drive = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 400 })
+    expect(names(drive)).toEqual(['alpha.txt', 'root.txt'])
+    expect(relay.filters.filter((f) => '#d' in f)).toEqual([expect.objectContaining({ '#d': [ghost.d] })])
   })
 
   it('a load still running when the index is forgotten does not write it back', async () => {
