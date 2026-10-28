@@ -74,6 +74,8 @@ export const Relay = {
   authenticated: false,
 
   pendingPublishes: new Map<string, PendingPublish>(),
+  /** Publishes started on this page; a read begun before one may be stale (driveSource). */
+  published: 0,
   pendingAuthRetry: new Map<string, PendingPublish>(),
   pendingSubscriptions: new Map<string, PendingSubscription>(),
 
@@ -302,6 +304,7 @@ export const Relay = {
   },
 
   async publish(signedEvent: SignedEvent): Promise<{ success: boolean; message?: string }> {
+    this.published++
     if (!this.connected || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
       console.log(
         'Relay: Reconnecting before publish (connected:',
