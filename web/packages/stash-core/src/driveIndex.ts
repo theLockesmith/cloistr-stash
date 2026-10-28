@@ -202,6 +202,8 @@ export interface IndexedDriveOptions extends OwnDriveOptions {
   pageSize?: number
   /** Local clock in seconds (tests). */
   now?: () => number
+  /** driveIndexGeneration when the caller's read began, if before this call. */
+  generation?: number
 }
 
 /**
@@ -220,7 +222,7 @@ export async function loadOwnDriveIndexed(
   if (!rootKey) return buildOwnDrive(await fetchAll(query, filter, opts.pageSize), pubkey, null, opts)
 
   const now = (opts.now ?? (() => Math.floor(Date.now() / 1000)))()
-  const generation = generations.get(pubkey) ?? 0
+  const generation = opts.generation ?? generations.get(pubkey) ?? 0
   const key = await indexKey(rootKey, pubkey)
   const had = await readIndex(opts.store, pubkey, key)
   // The stored index, when this load may build on it rather than read in full.

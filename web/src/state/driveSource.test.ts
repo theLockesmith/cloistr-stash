@@ -3,8 +3,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Relay } from '@cloistr/stash-core/relay'
 import { Keys } from '@cloistr/stash-core/keys'
+import { Crypto } from '@cloistr/stash-core/crypto'
 import { fetchDrive, filesIn, foldersIn } from './driveSource'
-import { forgetDriveIndex } from '@cloistr/stash-core/driveIndex'
+import { forgetDriveIndex, IndexedDBDriveIndexStore } from '@cloistr/stash-core/driveIndex'
 import { rememberDrive } from '@cloistr/stash-core/sealedDrive'
 import type { DriveSnapshot } from '@cloistr/stash-core/drive'
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
@@ -112,6 +113,22 @@ describe('fetchDrive shares one read', () => {
     await Promise.all([old, fresh])
     expect(query).toHaveBeenCalledTimes(4)
     expect(rememberDrive).toHaveBeenCalledTimes(1)
+  })
+
+  it('a sign-out while the root key loads leaves no index for the old session', async () => {
+    await Crypto.init()
+    vi.spyOn(Relay, 'query').mockResolvedValue([legacyFile('f1', 'a.txt')])
+    let giveKey!: (k: Uint8Array) => void
+    vi.spyOn(Keys, 'getRootKey').mockReturnValue(new Promise((r) => (giveKey = r)))
+    vi.spyOn(IndexedDBDriveIndexStore.prototype, 'get').mockResolvedValue(null)
+    vi.spyOn(IndexedDBDriveIndexStore.prototype, 'delete').mockResolvedValue()
+    const put = vi.spyOn(IndexedDBDriveIndexStore.prototype, 'put').mockResolvedValue()
+    const old = fetchDrive(OWNER)
+    await forgetDriveIndex(OWNER)
+    giveKey(new Uint8Array(32).fill(1))
+    await old
+    expect(put).not.toHaveBeenCalled()
+    expect(rememberDrive).not.toHaveBeenCalled()
   })
 
   it("another account never gets this account's read", async () => {

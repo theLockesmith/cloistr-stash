@@ -41,6 +41,7 @@ async function readDrive(pubkey: string): Promise<DriveSnapshot> {
   }
   const drive = await loadOwnDriveIndexed((filters) => Relay.query(filters), pubkey, rootKey, {
     store: indexStore,
+    generation,
     // A file whose ring entry was lost still reaches its owner (one signer call each).
     unwrapOwner: (envelope, d) => Keys.unwrapFileKeyFromOwner(envelope, d, getSigner()),
   })
