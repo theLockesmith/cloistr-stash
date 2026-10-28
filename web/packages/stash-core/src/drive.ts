@@ -21,8 +21,10 @@ import {
   openRing,
   ringD,
   rootContainerKey,
+  type Ring,
   type RingEntry,
   type SealedFileMeta,
+  type SealedFolderMeta,
   type SealedVersion,
 } from './sealed'
 import type { StashFile, StashFolder } from './types'
@@ -152,6 +154,20 @@ function legacyFolder(ev: SignedEvent): StashFolder | null {
   }
 }
 
+/**
+ * How sealed events are opened while building a drive. The default decrypts
+ * every time; the drive index (driveIndex.ts) remembers what it has opened.
+ */
+export interface DriveOpener {
+  ring(ev: SignedEvent, folderKey: Uint8Array, folderId: string): Promise<Ring>
+  folder(ev: SignedEvent, folderKey: Uint8Array): Promise<SealedFolderMeta>
+  file(ev: SignedEvent, fileKey: Uint8Array): Promise<SealedFileMeta>
+  /** The d of a folder's key ring (an HKDF per folder). */
+  ringD(folderKey: Uint8Array, folderId: string): Promise<string>
+}
+
+export const directOpener: DriveOpener = { ring: openRing, folder: openFolderEvent, file: openFileEvent, ringD }
+
 interface Container {
   id: string
   key: Uint8Array
@@ -169,6 +185,7 @@ async function walkRings(
   snap: DriveSnapshot,
   reached: Set<string>,
   tombstoned: Set<string> = new Set(),
+  opener: DriveOpener = directOpener,
 ): Promise<void> {
   const queue = [...start]
   const seen = new Set<string>()
@@ -178,13 +195,13 @@ async function walkRings(
     const c = queue.shift()!
     if (seen.has(c.id)) continue
     seen.add(c.id)
-    const rd = await ringD(c.key, c.id)
+    const rd = await opener.ringD(c.key, c.id)
     const ringEv = bySealedD.get(`${SEALED_FOLDER_KIND}:${rd}`)
     if (!ringEv) continue
     reached.add(`${SEALED_FOLDER_KIND}:${rd}`)
     let ring
     try {
-      ring = await openRing(ringEv, c.key, c.id)
+      ring = await opener.ring(ringEv, c.key, c.id)
     } catch (err) {
       snap.unreadable.push({ kind: SEALED_FOLDER_KIND, d: rd, reason: (err as Error).message })
       continue
@@ -196,7 +213,7 @@ async function walkRings(
       if (!ev || deleted.has(addr) || tombstoned.has(f.d)) continue
       reached.add(addr)
       try {
-        const meta = await openFolderEvent(ev, f.key)
+        const meta = await opener.folder(ev, f.key)
         if (meta.id !== f.id) throw new Error('folder id differs from its ring entry')
         snap.folders.push({
           id: meta.id,
@@ -230,7 +247,7 @@ async function walkRings(
     done.add(f.d)
     reached.add(addr)
     try {
-      const m = await openFileEvent(ev, f.key)
+      const m = await opener.file(ev, f.key)
       if (m.id !== f.id) throw new Error('file id differs from its ring entry')
       pushSealedFile(snap, ev, f.d, f.key, m)
     } catch (err) {
@@ -274,6 +291,8 @@ export interface OwnDriveOptions {
    * race, so the owner never loses a file to one. One signer call each.
    */
   unwrapOwner?: (envelope: string, d: string) => Promise<Uint8Array>
+  /** Opens sealed events; directOpener unless given. */
+  opener?: DriveOpener
 }
 
 /** Build the owner's drive from every event they authored (kinds 5, 30078, 30079). */
@@ -320,7 +339,7 @@ export async function buildOwnDrive(
       : [...sealed.values()].some((ev) => tag(ev, 'q'))
         ? 'unknown'
         : 'legacy'
-    await walkRings([{ id: '', key: rootCK }], sealed, deleted, snap, reached, tombstoned)
+    await walkRings([{ id: '', key: rootCK }], sealed, deleted, snap, reached, tombstoned, opts.opener)
   }
   const reason = rootKey ? 'not in any key ring' : 'root key unavailable'
   for (const [addr, ev] of sealed) {
@@ -337,7 +356,7 @@ export async function buildOwnDrive(
     if (rootKey && envelope && opts.unwrapOwner) {
       try {
         const key = await opts.unwrapOwner(envelope, d)
-        pushSealedFile(snap, ev, d, key, await openFileEvent(ev, key))
+        pushSealedFile(snap, ev, d, key, await (opts.opener ?? directOpener).file(ev, key))
         continue
       } catch (err) {
         snap.unreadable.push({ kind: ev.kind, d, reason: `${reason}; owner_key: ${(err as Error).message}` })

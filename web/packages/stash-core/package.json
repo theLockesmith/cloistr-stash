@@ -28,6 +28,8 @@
     "@cloistr/auth": "^1.4.1",
     "@cloistr/collab-common": "^0.8.0",
     "libsodium-wrappers": "^0.8.4",
+    "nostr-tools": "^2.25.2",
+    "nostr-wasm": "^0.1.0",
     "yjs": "^13.6.33"
   },
   "devDependencies": {
