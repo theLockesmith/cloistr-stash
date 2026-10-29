@@ -146,3 +146,14 @@ describe('multi-step mutations keep the page busy', () => {
     }
   })
 })
+
+describe('sign-in reads the drive once', () => {
+  // The folder tree and the file list share one in-flight relay read per
+  // account. Awaiting one before starting the other lets the first read finish,
+  // so the second starts a read of its own (two per page load).
+  it('starts the folder tree and the file list together', () => {
+    const src = readFileSync(join(appSrc, 'App.tsx'), 'utf8')
+    expect(src).toContain('await Promise.all([loadFolderTree(), loadFiles()])')
+    expect(src).not.toMatch(/await loadFolderTree\(\)\s*\n\s*await loadFiles\(\)/)
+  })
+})
