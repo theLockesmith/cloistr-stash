@@ -6,7 +6,7 @@
 // byte-identical. Do NOT rename these — they reference existing user data.
 
 import { Crypto } from './crypto'
-import { Keys } from './keys'
+import { Keys, type AccountFence } from './keys'
 import { API } from './api'
 import { editOwnEvent, loadOwnEvent, setTag } from './editEvent'
 import { authPort } from './authBridge'
@@ -42,6 +42,8 @@ export interface FileVersion {
 export interface VersionCreateOptions {
   versionNote?: string
   autoSave?: boolean
+  /** The account the save is for (Keys.accountFence); taken now when omitted. */
+  fence?: AccountFence
 }
 
 export interface VersionComparisonResult {
@@ -187,6 +189,9 @@ export const Versioning = {
     options: VersionCreateOptions = {},
   ): Promise<FileVersion> {
     const { versionNote = '', autoSave = false } = options
+    // Every signature, upload and publish below refuses once the account
+    // changes, so a save that outlives an account switch writes nothing.
+    const fence = options.fence ?? Keys.accountFence() ?? undefined
 
     if (!authPort.isConnected) {
       throw new Error('Not connected')
@@ -201,6 +206,7 @@ export const Versioning = {
     const sealed = (file as Record<string, unknown>).sealed === true
     const ref = sealed ? fileRef(file as StashFile) : null
     const currentEvent = sealed ? null : await loadOwnEvent(30078, fileId)
+    Keys.assertAccount(fence)
 
     // History lives on this device. On a device with none yet, seed it from
     // the file event first, so the content before this save stays listed and
@@ -213,7 +219,7 @@ export const Versioning = {
     const newVersionNumber = currentVersions.reduce((n, v) => Math.max(n, Number(v.version) || 0), currentVersions.length) + 1
 
     // The file's own key: its wrapped key, or HKDF for a legacy file.
-    const fileKey = await fileKeyFor(file as FileRef)
+    const fileKey = await fileKeyFor(file as FileRef, fence)
 
     try {
       const encryptedData = await Crypto.encryptFile(newFileData, fileKey)
@@ -223,7 +229,9 @@ export const Versioning = {
       )
 
       // Upload the new version blob
+      Keys.assertAccount(fence)
       const authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
+      Keys.assertAccount(fence)
       const encryptedFile = new Blob([encryptedData as BufferSource], { type: 'application/octet-stream' })
       const uploadResult = await API.uploadFile(encryptedFile, authHeader)
       const uploadedSha256 = uploadResult['sha256'] as string
@@ -245,6 +253,7 @@ export const Versioning = {
       }
 
       // Store version metadata locally
+      Keys.assertAccount(fence)
       await this.storeVersionMeta(versionMeta)
 
       // Merge the new version into the file's CURRENT event: owner_key (the
@@ -252,7 +261,9 @@ export const Versioning = {
       // other field are kept; only the blob-specific fields change.
       // (Rebuilding it from `file` dropped owner_key: found 2026-10-09.)
       if (ref) {
-        await updateFile(await writeContext(), ref, (m) =>
+        const ctx = await writeContext()
+        Keys.assertAccount(fence)
+        await updateFile(ctx, ref, (m) =>
           withNewVersion(
             m,
             { sha256: uploadedSha256, size: versionMeta.size, encryptedSize: versionMeta.encryptedSize, plaintextHash },
@@ -272,7 +283,7 @@ export const Versioning = {
         }
         draft.tags.push(['v', uploadedSha256, String(newVersionNumber), String(versionMeta.timestamp), authPort.pubkey!])
         setTag(draft, 'current', uploadedSha256)
-      })
+      }, fence)
 
       console.log(`Versioning: Created version ${newVersionNumber} for file ${fileId.slice(0, 8)}...`)
 
@@ -340,7 +351,7 @@ export const Versioning = {
   },
 
   // Download and decrypt a specific version
-  async downloadVersion(file: VersionableFile, versionNumber: number): Promise<Uint8Array> {
+  async downloadVersion(file: VersionableFile, versionNumber: number, fence?: AccountFence): Promise<Uint8Array> {
     const fileId = extractFileId(file)
     const folderId = extractFolderId(file)
 
@@ -363,14 +374,14 @@ export const Versioning = {
     // may also hold versions saved before 2026-10-07 under the derived key;
     // a wrong key fails authentication cleanly (XChaCha20-Poly1305 yields no
     // plaintext on failure), so try that one second.
-    const fileKey = await fileKeyFor(file as FileRef)
+    const fileKey = await fileKeyFor(file as FileRef, fence)
     try {
       try {
         return await Crypto.decryptFile(encryptedData, fileKey)
       } catch (err) {
         if (!(file as FileRef).owner_key) throw err
         const legacyKey = folderId
-          ? await Keys.deriveFileKey(folderId, fileId)
+          ? await Keys.deriveFileKey(folderId, fileId, fence)
           : await Keys.deriveRootFileKey(fileId)
         try {
           return await Crypto.decryptFile(encryptedData, legacyKey)
@@ -386,13 +397,16 @@ export const Versioning = {
 
   // Restore a previous version (creates a new version from old data)
   async restoreVersion(file: VersionableFile, versionNumber: number): Promise<FileVersion> {
+    // One account for both halves: the download can outlive a switch.
+    const fence = Keys.accountFence() ?? undefined
     // Download the old version
-    const oldVersionData = await this.downloadVersion(file, versionNumber)
+    const oldVersionData = await this.downloadVersion(file, versionNumber, fence)
 
     // Create a new version with the old data
     const newVersion = await this.createVersion(file, oldVersionData, {
       versionNote: `Restored from version ${versionNumber}`,
       autoSave: false,
+      fence,
     })
 
     console.log(`Versioning: Restored version ${versionNumber} as version ${newVersion.version}`)
@@ -493,10 +507,12 @@ export const Versioning = {
   async autoSaveVersion(
     file: VersionableFile,
     newFileData: Uint8Array | ArrayBuffer,
+    fence?: AccountFence,
   ): Promise<FileVersion> {
     return this.createVersion(file, newFileData, {
       versionNote: 'Auto-save',
       autoSave: true,
+      fence,
     })
   },
 

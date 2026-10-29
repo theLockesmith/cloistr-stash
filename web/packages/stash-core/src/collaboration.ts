@@ -17,7 +17,7 @@
 //   be wired to a live subscription when the signaling flow is implemented.
 
 import * as Y from 'yjs'
-import { Keys } from './keys'
+import { Keys, type AccountFence } from './keys'
 import { authPort } from './authBridge'
 import { Crypto } from './crypto'
 import { fileIdOf, fileKeyFor, type FileRef } from './fileKey'
@@ -73,6 +73,8 @@ export interface CollabSession {
   provider: null
   editor: unknown | null
   startedAt: number
+  /** The account the session was opened for; its saves and signals refuse once that changes. */
+  fence?: AccountFence
   callbacks: {
     onSync: ((session: CollabSession) => void) | null
     onAwarenessChange: ((changes: unknown, states: unknown) => void) | null
@@ -90,9 +92,9 @@ export interface CollabDepsPort {
   createVersion?: (
     file: CollabFile,
     data: Uint8Array,
-    opts: { versionNote: string; autoSave: boolean },
+    opts: { versionNote: string; autoSave: boolean; fence?: AccountFence },
   ) => Promise<void>
-  autoSaveVersion?: (file: CollabFile, data: Uint8Array) => Promise<void>
+  autoSaveVersion?: (file: CollabFile, data: Uint8Array, fence?: AccountFence) => Promise<void>
   shareFile?: (
     file: CollabFile,
     recipientPubkey: string,
@@ -211,9 +213,11 @@ export const Collaboration = {
 
     // Generate session ID
     const sessionId = this.generateSessionId(fileId)
+    const fence = Keys.accountFence() ?? undefined
 
     // Generate or derive session key for encrypting CRDT updates
-    const sessionKey = await this.deriveSessionKey(file)
+    const sessionKey = await this.deriveSessionKey(file, fence)
+    Keys.assertAccount(fence)
     this.sessionKeys.set(sessionId, sessionKey)
 
     // Create Yjs document
@@ -235,6 +239,7 @@ export const Collaboration = {
       provider: null,
       editor: null,
       startedAt: Date.now(),
+      fence,
       callbacks: {
         onSync: onSync,
         onAwarenessChange: onAwarenessChange,
@@ -258,14 +263,14 @@ export const Collaboration = {
   // Derive session key from file key
   // PRESERVED: HKDF context 'cloistr-drive-collab-v1' — changing this breaks
   //   decryption of all existing collaborative CRDT update blobs.
-  async deriveSessionKey(file: CollabFile): Promise<Uint8Array> {
+  async deriveSessionKey(file: CollabFile, fence?: AccountFence): Promise<Uint8Array> {
     if (!fileIdOf(file as FileRef)) {
       throw new Error('Cannot derive session key: missing file ID')
     }
 
     // The file's own key (wrapped, or HKDF for a legacy file, where the two are
     // the same key, so legacy session keys are unchanged).
-    const fileKey = await fileKeyFor(file as FileRef)
+    const fileKey = await fileKeyFor(file as FileRef, fence)
 
     try {
       // PRESERVED: context string 'cloistr-drive-collab-v1'
@@ -545,6 +550,7 @@ export const Collaboration = {
     recipientPubkey: string,
     message: SignalingPayload,
   ): Promise<void> {
+    Keys.assertAccount(session.fence)
     const encrypted = await authPort.nip04Encrypt(
       recipientPubkey,
       JSON.stringify({ sessionId: session.id, ...message }),
@@ -561,7 +567,9 @@ export const Collaboration = {
       content: encrypted,
     }
 
+    Keys.assertAccount(session.fence)
     const signedEvent = await authPort.signEvent(event)
+    Keys.assertAccount(session.fence)
     await authPort.publishEvent(signedEvent)
   },
 
@@ -573,10 +581,12 @@ export const Collaboration = {
     const encoder = new TextEncoder()
     const data = encoder.encode(content)
 
+    Keys.assertAccount(session.fence)
     if (this.deps?.createVersion) {
       await this.deps.createVersion(session.file, data, {
         versionNote: 'Collaborative edit',
         autoSave: false,
+        fence: session.fence,
       })
     }
 
@@ -592,8 +602,9 @@ export const Collaboration = {
     const encoder = new TextEncoder()
     const data = encoder.encode(content)
 
+    Keys.assertAccount(session.fence)
     if (this.deps?.autoSaveVersion) {
-      await this.deps.autoSaveVersion(session.file, data)
+      await this.deps.autoSaveVersion(session.file, data, session.fence)
     }
 
     console.log('Collaboration: Auto-saved')

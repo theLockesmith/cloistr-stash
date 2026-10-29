@@ -178,10 +178,11 @@ export default function App() {
               data,
               opts,
             ).then(() => undefined),
-          autoSaveVersion: (file, data) =>
+          autoSaveVersion: (file, data, fence) =>
             Versioning.autoSaveVersion(
               file as Parameters<typeof Versioning.autoSaveVersion>[0],
               data,
+              fence,
             ).then(() => undefined),
           shareFile: (file, recipientPubkey, opts) =>
             Sharing.shareFile(

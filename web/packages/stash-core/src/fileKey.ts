@@ -8,7 +8,7 @@
 // and every wrapped-key upload failed "Decryption failed" until 2026-10-07.)
 
 import { Crypto } from './crypto'
-import { Keys } from './keys'
+import { Keys, type AccountFence } from './keys'
 import { API } from './api'
 import { getSigner } from './authBridge'
 import { sealedFileKey } from './sealedDrive'
@@ -27,7 +27,7 @@ export function folderIdOf(file: FileRef): string | null {
 }
 
 /** The key that decrypts this file's blob. The caller wipes it when done. */
-export async function fileKeyFor(file: FileRef): Promise<Uint8Array> {
+export async function fileKeyFor(file: FileRef, fence?: AccountFence): Promise<Uint8Array> {
   const fileId = fileIdOf(file)
   if (!fileId) throw new Error('Cannot decrypt: missing file ID')
   // A sealed file: its key from the ring (last listing), else its owner
@@ -45,7 +45,7 @@ export async function fileKeyFor(file: FileRef): Promise<Uint8Array> {
   return Keys.getFileKey(
     folderIdOf(file),
     fileId,
-    ownerKey ? { ownerEnvelope: ownerKey, signer: getSigner() } : undefined,
+    ownerKey ? { ownerEnvelope: ownerKey, signer: getSigner(), fence } : fence ? { fence } : undefined,
   )
 }
 

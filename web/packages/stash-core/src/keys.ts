@@ -456,9 +456,10 @@ export const Keys = {
     return this._rootKeyInFlight
   },
 
-  async generateFolderKey(folderId: string): Promise<Uint8Array> {
+  async generateFolderKey(folderId: string, fence?: AccountFence): Promise<Uint8Array> {
     const folderKey = Crypto.generateKey()
-    await this.storeEncryptedKey(`folder:${folderId}`, folderKey, folderId, { sharedBy: this.userPubkey ?? undefined })
+    await this.storeEncryptedKey(`folder:${folderId}`, folderKey, folderId, { sharedBy: this.userPubkey ?? undefined, fence })
+    this.assertAccount(fence)
     this.keyCache.set(`folder:${folderId}`, folderKey)
     console.log('Keys: Generated folder key for', folderId.slice(0, 8) + '...')
     return folderKey

@@ -7,6 +7,7 @@
 // never "empty": nothing is published unless the current event was loaded.
 
 import { authPort } from './authBridge'
+import { Keys, type AccountFence } from './keys'
 import { Relay } from './relay'
 
 export class EventUnavailableError extends Error {
@@ -58,8 +59,12 @@ export async function editOwnEvent(
   kind: number,
   d: string,
   edit: (draft: EventDraft, current: OwnEvent) => boolean | void | Promise<boolean | void>,
+  // The account the edit is for. Each await below can outlive an account
+  // switch; the edit then stops rather than publish as the new account.
+  fence: AccountFence | undefined = Keys.accountFence() ?? undefined,
 ): Promise<boolean> {
   const current = await loadOwnEvent(kind, d)
+  Keys.assertAccount(fence)
   let content: Record<string, unknown>
   try {
     content = JSON.parse(current.content) as Record<string, unknown>
@@ -68,6 +73,7 @@ export async function editOwnEvent(
   }
   const draft: EventDraft = { tags: current.tags.map((t) => [...t]), content }
   if ((await edit(draft, current)) === false) return false
+  Keys.assertAccount(fence)
   const event = await authPort.signEvent({
     kind,
     // Strictly newer than the event it replaces, even with clock skew.
@@ -75,6 +81,7 @@ export async function editOwnEvent(
     tags: draft.tags,
     content: JSON.stringify(draft.content),
   })
+  Keys.assertAccount(fence)
   await authPort.publishEvent(event)
   return true
 }
