@@ -1,4 +1,5 @@
-// "Publish publicly" — the deliberate, per-file exception to zero-knowledge.
+// "Publish publicly" — the deliberate, per-file exception to end-to-end
+// encryption of file contents.
 //
 // This modal exists as much for its COPY as its behaviour. "Share link" and
 // "Publish publicly" sound like the same feature and do opposite things:

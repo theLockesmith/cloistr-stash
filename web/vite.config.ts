@@ -22,6 +22,26 @@ export function manualChunks(id: string): string | undefined {
   }
 }
 
+// Workbox (service worker) options, exported so a test can hold the share-link
+// exclusion in place: if /public/ fell through to navigateFallback, the worker
+// would answer a share link (key in its #fragment) with the cached index.html
+// and none of the server's no-referrer / no-framing headers.
+export const workboxOptions = {
+  // Explicit: with injectRegister false the plugin no longer adds
+  // clientsClaim. src/pwaUpdate.ts relies on the new worker taking over.
+  skipWaiting: true,
+  clientsClaim: true,
+  globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+  // /config.js is per-environment and served no-store by the Go server;
+  // a precached copy would pin one environment's addresses forever.
+  globIgnores: ['config.js'],
+  maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+  navigateFallback: '/index.html',
+  // Share links always go to the server: it checks the blob exists and
+  // sends the reader page's own headers (no-referrer, no framing).
+  navigateFallbackDenylist: [/^\/public\//],
+}
+
 // Stash frontend (React + @cloistr/ui). Go backend serves the built `dist/`
 // in production (`server --web web/dist`); in dev we proxy API calls to it.
 export default defineConfig({
@@ -35,22 +55,11 @@ export default defineConfig({
       // new release; the generated registerSW.js only called register().
       injectRegister: false,
       includeAssets: ['favicon.svg', 'favicon.ico', 'apple-touch-icon.png'],
-      workbox: {
-        // Explicit: with injectRegister false the plugin no longer adds
-        // clientsClaim. src/pwaUpdate.ts relies on the new worker taking over.
-        skipWaiting: true,
-        clientsClaim: true,
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
-        // /config.js is per-environment and served no-store by the Go server;
-        // a precached copy would pin one environment's addresses forever.
-        globIgnores: ['config.js'],
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-        navigateFallback: '/index.html',
-      },
+      workbox: workboxOptions,
       manifest: {
         name: 'Cloistr Stash',
         short_name: 'Stash',
-        description: 'Nostr-native file storage with end-to-end encryption',
+        description: 'Nostr-native file storage with end-to-end encrypted file contents',
         start_url: '/',
         display: 'standalone',
         background_color: '#1a1a2e',

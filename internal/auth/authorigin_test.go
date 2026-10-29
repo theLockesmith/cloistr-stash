@@ -43,12 +43,12 @@ func TestNIP98ConfiguredOriginIsExact(t *testing.T) {
 	}
 	for name, c := range map[string][2]string{
 		"event signed for another service, Host spoofed to match": {"https://evil.example/api/files", "/api/files"},
-		"origin differs in case":  {"https://STASH.cloistr.xyz/api/files", "/api/files"},
-		"path differs in case":    {stashOrigin + "/API/files", "/api/files"},
-		"trailing slash":          {stashOrigin + "/api/files/", "/api/files"},
-		"different query":         {stashOrigin + "/api/files?pubkey=a", "/api/files?pubkey=b"},
-		"query dropped":           {stashOrigin + "/api/files", "/api/files?pubkey=a"},
-		"http scheme":             {"http://stash.cloistr.xyz/api/files", "/api/files"},
+		"origin differs in case":                                  {"https://STASH.cloistr.xyz/api/files", "/api/files"},
+		"path differs in case":                                    {stashOrigin + "/API/files", "/api/files"},
+		"trailing slash":                                          {stashOrigin + "/api/files/", "/api/files"},
+		"different query":                                         {stashOrigin + "/api/files?pubkey=a", "/api/files?pubkey=b"},
+		"query dropped":                                           {stashOrigin + "/api/files", "/api/files?pubkey=a"},
+		"http scheme":                                             {"http://stash.cloistr.xyz/api/files", "/api/files"},
 	} {
 		if err := ok(c[0], c[1]); !errors.Is(err, ErrAuthURL) {
 			t.Fatalf("%s: want ErrAuthURL, got %v", name, err)

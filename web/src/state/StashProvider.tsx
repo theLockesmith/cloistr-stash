@@ -24,10 +24,13 @@ import { authPort } from '@cloistr/stash-core/authBridge'
 import { EventUnavailableError } from '@cloistr/stash-core/editEvent'
 import {
   delay,
+  createFolder as opCreateFolder,
   deleteFolders,
   fileIdOf,
   moveFile as opMoveFile,
+  BlobDeleteError,
   permanentDeleteFile as opPermanentDeleteFile,
+  permanentDeleteFiles as opPermanentDeleteFiles,
   renameFile as opRenameFile,
   renameFolder as opRenameFolder,
   restoreFile as opRestoreFile,
@@ -36,19 +39,20 @@ import {
   softDeleteFile,
 } from '@cloistr/stash-core/operations'
 import { busyWhileRunning } from '../pwaUpdate'
+import { fetchDrive, filesIn, foldersIn } from './driveSource'
 import { uploadFiles as libUploadFiles, copyFile as libCopyFile, type UploadItem } from '@cloistr/stash-core/upload'
 import { Search, type SearchResult } from '@cloistr/stash-core/search'
 import { Sharing, type DecryptedIncomingShare, type IncomingShare } from '@cloistr/stash-core/sharing'
+import { withAccess, type RecentEntry } from './recent'
+import { logActivity } from '@cloistr/stash-core/activity'
 import type { FolderPathItem, StashFile, StashFolder, StashNotification, StashView, SortField, SortDir, SortPrefs } from './types'
 
-interface RecentEntry {
-  sha256: string
-  accessedAt: number
-}
 
 const STARRED_KEY = 'cloistr-starred'
 const RECENT_KEY = 'cloistr-recent'
 const NOTIFICATIONS_KEY = 'cloistr-notifications'
+/** The records went, but a blob would not: the file is gone, its stored copy is not. */
+const BLOB_LEFT = 'Deleted, but its encrypted data could not be removed from storage'
 /** Poll for new received shares every 30 s (mirrors legacy startNotificationPolling). */
 const NOTIFICATION_POLL_MS = 30_000
 /** First check is deferred 5 s after auth, so the initial file load completes first. */
@@ -132,11 +136,13 @@ export interface StashContextValue {
   setFileTags: (file: StashFile, tags: string[]) => Promise<void>
   uploadItems: UploadItem[]
   uploadFiles: (files: File[]) => Promise<void>
+  /** Clear the Uploads panel. */
+  dismissUploads: () => void
   searchResults: SearchResult[] | null
   runSearch: (query: string) => Promise<void>
   clearSearch: () => void
   sharedItems: DecryptedIncomingShare[]
-  acceptShare: (share: DecryptedIncomingShare) => Promise<void>
+  acceptShare: (share: DecryptedIncomingShare) => Promise<boolean>
   /** Create a new encrypted folder in the current directory. */
   createFolder: (name: string) => Promise<void>
   /**
@@ -158,7 +164,8 @@ export interface StashContextValue {
   unreadNotificationCount: number
   markNotificationRead: (id: string) => void
   markAllNotificationsRead: () => void
-  acceptNotification: (id: string) => void
+  /** Accept the share behind a notification; resolves true once its key is stored. */
+  acceptNotification: (id: string) => Promise<boolean>
   declineNotification: (id: string) => void
   /**
    * Storage quota from the server. null while loading or when the server
@@ -242,6 +249,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [selectionMode, setSelectionMode] = useState(false)
   const [starredFiles, setStarredFiles] = useState<ReadonlySet<string>>(() => loadStarred())
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
+  const dismissUploads = useCallback(() => setUploadItems([]), [])
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
   const [sharedItems, setSharedItems] = useState<DecryptedIncomingShare[]>([])
   const [migrationFiles, setMigrationFiles] = useState<StashFile[]>([])
@@ -275,6 +283,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [quotaAttempt, setQuotaAttempt] = useState(0)
 
   const folderIdRef = useRef('')
+  // The view on screen now; an action that finishes later reloads this one.
+  const viewRef = useRef<StashView>('my-files')
   const treeRef = useRef<StashFolder[]>([])
   const recentRef = useRef<RecentEntry[]>(loadRecent())
   const starredRef = useRef<ReadonlySet<string>>(starredFiles)
@@ -287,13 +297,9 @@ export function StashProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     setError(null)
     try {
-      const [foldersResponse, filesResponse] = await Promise.all([
-        API.listFolders(pubkey, folderId),
-        API.listFilesInFolder(pubkey, folderId),
-      ])
-
-      const loadedFolders = (foldersResponse.folders || []) as StashFolder[]
-      const visibleFiles = ((filesResponse.files || []) as StashFile[]).filter(isVisibleFile)
+      const drive = await fetchDrive(pubkey)
+      const loadedFolders = foldersIn(drive, folderId)
+      const visibleFiles = filesIn(drive, folderId).filter(isVisibleFile)
 
       await restoreFolderKeys(loadedFolders)
       setUnverifiedFolders(snapshotUnverified())
@@ -329,8 +335,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     setError(null)
     try {
-      const response = await API.listFiles(pubkey)
-      const allFiles = (response.files || []) as StashFile[]
+      const allFiles = (await fetchDrive(pubkey)).files.filter((f) => f.id !== 'root-key')
 
       let result: StashFile[] = []
       if (which === 'trash') {
@@ -373,6 +378,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
   const setView = useCallback(
     async (next: StashView) => {
+      viewRef.current = next
       setViewState(next)
       if (next === 'my-files') {
         await loadFilesFor(folderIdRef.current)
@@ -389,8 +395,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
     const pubkey = authPort.pubkey
     if (!authPort.isConnected || !pubkey) return
     try {
-      const result = await API.listFolders(pubkey)
-      const tree = (result.folders || []) as StashFolder[]
+      const tree = (await fetchDrive(pubkey)).folders
       treeRef.current = tree
       setFolderTreeData(tree)
       await restoreFolderKeys(tree)
@@ -416,6 +421,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
   const navigateToFolder = useCallback(
     async (folderId: string, folderName: string) => {
+      viewRef.current = 'my-files'
       setViewState('my-files')
       if (folderId === '') {
         folderIdRef.current = ''
@@ -435,6 +441,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
   const navigateToFolderAbsolute = useCallback(
     async (folderId: string) => {
+      viewRef.current = 'my-files'
       setViewState('my-files')
       folderIdRef.current = folderId
       setCurrentFolderId(folderId)
@@ -458,16 +465,16 @@ export function StashProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const recordFileAccess = useCallback((sha256: string) => {
-    const filtered = recentRef.current.filter((r) => r.sha256 !== sha256)
-    filtered.unshift({ sha256, accessedAt: Math.floor(Date.now() / 1000) })
-    recentRef.current = filtered.slice(0, 100)
+  const recordFilesAccess = useCallback((sha256s: string[]) => {
+    recentRef.current = withAccess(recentRef.current, sha256s, Math.floor(Date.now() / 1000))
     try {
       localStorage.setItem(RECENT_KEY, JSON.stringify(recentRef.current))
     } catch (err) {
       console.warn('Failed to save recent state:', err)
     }
   }, [])
+
+  const recordFileAccess = useCallback((sha256: string) => recordFilesAccess([sha256]), [recordFilesAccess])
 
   const toggleFileSelection = useCallback((sha256: string) => {
     setSelectedFiles((prev) => {
@@ -503,9 +510,10 @@ export function StashProvider({ children }: { children: ReactNode }) {
   }, [view, files, folders, specialFiles])
 
   const reloadCurrentView = useCallback(async () => {
-    if (view === 'my-files') await loadFilesFor(folderIdRef.current)
-    else if (view === 'starred' || view === 'recent' || view === 'trash') await loadSpecialView(view)
-  }, [view, loadFilesFor, loadSpecialView])
+    const current = viewRef.current
+    if (current === 'my-files') await loadFilesFor(folderIdRef.current)
+    else if (current === 'starred' || current === 'recent' || current === 'trash') await loadSpecialView(current)
+  }, [loadFilesFor, loadSpecialView])
 
   const deleteFile = useCallback(
     async (file: StashFile) => {
@@ -513,6 +521,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       setError(null)
       try {
         await softDeleteFile(file)
+        logActivity('delete', { name: file.name ?? 'file' })
         await reloadCurrentView()
       } catch (err) {
         console.error('deleteFile failed', err)
@@ -627,7 +636,10 @@ export function StashProvider({ children }: { children: ReactNode }) {
         await loadSpecialView('trash')
       } catch (err) {
         console.error('permanentDeleteFile failed', err)
-        setError('Failed to permanently delete file')
+        if (err instanceof BlobDeleteError) {
+          setError(BLOB_LEFT)
+          await loadSpecialView('trash')
+        } else setError('Failed to permanently delete file')
       } finally {
         setLoading(false)
       }
@@ -643,15 +655,14 @@ export function StashProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     setError(null)
     try {
-      const fileIds = trashFiles.map((f) => fileIdOf(f)).filter(Boolean)
-      if (fileIds.length > 0) {
-        const event = await Events.createBatchDeleteEvent(fileIds, [])
-        await authPort.publishEvent(event)
-      }
+      await opPermanentDeleteFiles(trashFiles)
       await loadSpecialView('trash')
     } catch (err) {
       console.error('emptyTrash failed', err)
-      setError('Failed to empty trash')
+      if (err instanceof BlobDeleteError) {
+        setError(BLOB_LEFT)
+        await loadSpecialView('trash')
+      } else setError('Failed to empty trash')
     } finally {
       setLoading(false)
     }
@@ -662,6 +673,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       setError(null)
       try {
         await opRenameFile(file, newName)
+        logActivity('rename', { oldName: file.name ?? 'file', newName })
         await reloadCurrentView()
       } catch (err) {
         console.error('renameFile failed', err)
@@ -676,6 +688,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       setError(null)
       try {
         await opRenameFolder(folder, newName)
+        logActivity('folder_rename', { oldName: folder.name ?? 'folder', newName })
         await Promise.all([reloadCurrentView(), loadFolderTree()])
       } catch (err) {
         console.error('renameFolder failed', err)
@@ -690,6 +703,10 @@ export function StashProvider({ children }: { children: ReactNode }) {
       setError(null)
       try {
         await opMoveFile(file, targetFolderId)
+        const destination = targetFolderId
+          ? (treeRef.current.find((f) => f.id === targetFolderId)?.name ?? 'folder')
+          : 'My Files'
+        logActivity('move', { name: file.name ?? 'file', destination })
         await reloadCurrentView()
       } catch (err) {
         console.error('moveFile failed', err)
@@ -754,11 +771,24 @@ export function StashProvider({ children }: { children: ReactNode }) {
           next[idx] = it
           return next
         })
-      const existing = view === 'my-files' ? files : specialFiles
-      await libUploadFiles(list, { folderId: folderIdRef.current || null, existing, onItem: upsert })
+      // The duplicate check reads the folder fresh: the list on screen can predate
+      // a publish that landed late, and a retry of that "failed" upload would
+      // then store the file twice.
+      let existing = view === 'my-files' ? files : specialFiles
+      const pubkey = authPort.pubkey
+      if (pubkey) {
+        try {
+          existing = filesIn(await fetchDrive(pubkey), folderIdRef.current)
+        } catch (err) {
+          console.warn('uploadFiles: fresh listing failed, checking duplicates against the list on screen -', (err as Error).message)
+        }
+      }
+      const results = await libUploadFiles(list, { folderId: folderIdRef.current || null, existing, onItem: upsert })
+      recordFilesAccess(results.filter((r) => r.status === 'success' && r.sha256).map((r) => r.sha256!))
+      for (const r of results) if (r.status === 'success') logActivity('upload', { name: r.name })
       await Promise.all([reloadCurrentView(), loadFolderTree()])
     },
-    [view, files, specialFiles, reloadCurrentView, loadFolderTree],
+    [view, files, specialFiles, reloadCurrentView, loadFolderTree, recordFilesAccess],
   )
 
   const runSearch = useCallback(async (query: string) => {
@@ -780,43 +810,28 @@ export function StashProvider({ children }: { children: ReactNode }) {
     setSearchResults(null)
   }, [])
 
+  // Resolves true once the share's key is stored; the caller tells the user
+  // either way (a failure must not replace the Shared list with an error).
   const acceptShare = useCallback(
     async (share: DecryptedIncomingShare) => {
-      setError(null)
       try {
         await Sharing.acceptShare(share)
-        await Promise.all([loadFolderTree(), loadShared()])
       } catch (err) {
         console.error('acceptShare failed', err)
-        setError('Failed to accept share')
+        return false
       }
+      // The key is stored; a failed refresh does not undo that.
+      await Promise.all([loadFolderTree(), loadShared()]).catch((err) => console.error('refresh after accept failed', err))
+      return true
     },
     [loadFolderTree, loadShared],
   )
 
-  // Port of app.js App.createFolder().
-  // (1) Generate a random 16-byte folder ID; (2) derive and locally cache a fresh
-  // AES key; (3) self-encrypt the key hex via NIP-44/NIP-04; (4) build a signed
-  // kind:30079 event; (5) publish directly to the relay (client-side, no HTTP round-trip);
-  // (6) reload files and folder tree.
+  // Old-shape or sealed, by the drive's shape: stash-core Operations.createFolder.
   const createFolder = useCallback(
     async (name: string) => {
-      const pubkey = authPort.pubkey
-      if (!authPort.isConnected || !pubkey) throw new Error('Not connected')
-
-      const folderId = Events.generateFolderId()
-      const folderKey = await Keys.generateFolderKey(folderId)
-      const folderKeyHex = Crypto.bytesToHex(folderKey)
-      const encryptedFolderKey = await Keys.selfEncrypt(pubkey, folderKeyHex)
-
-      const signedEvent = await Events.createEncryptedFolderEvent({
-        id: folderId,
-        name: name.trim(),
-        parentId: folderIdRef.current || undefined,
-        encryptedFolderKey,
-      })
-
-      await authPort.publishEvent(signedEvent)
+      await opCreateFolder(name, folderIdRef.current || null)
+      logActivity('folder', { name: name.trim() })
       await Promise.all([loadFilesFor(folderIdRef.current), loadFolderTree()])
     },
     [loadFilesFor, loadFolderTree],
@@ -851,20 +866,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
         return all
       }
 
-      const createFolderIn = async (name: string, parentId: string | undefined): Promise<string> => {
-        const folderId = Events.generateFolderId()
-        const folderKey = await Keys.generateFolderKey(folderId)
-        const folderKeyHex = Crypto.bytesToHex(folderKey)
-        const encryptedFolderKey = await Keys.selfEncrypt(pubkey, folderKeyHex)
-        const signedEvent = await Events.createEncryptedFolderEvent({
-          id: folderId,
-          name: name.trim(),
-          parentId: parentId || undefined,
-          encryptedFolderKey,
-        })
-        await authPort.publishEvent(signedEvent)
-        return folderId
-      }
+      const createFolderIn = (name: string, parentId: string | undefined): Promise<string> =>
+        opCreateFolder(name, parentId || null)
 
       const processEntries = async (ents: FileSystemEntry[], folderId: string | undefined) => {
         const files: File[] = []
@@ -882,7 +885,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
           }
         }
         if (files.length > 0) {
-          await libUploadFiles(files, { folderId: folderId || null })
+          const results = await libUploadFiles(files, { folderId: folderId || null })
+          for (const r of results) if (r.status === 'success') logActivity('upload', { name: r.name })
         }
       }
 
@@ -938,7 +942,18 @@ export function StashProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const acceptNotification = useCallback(
-    (id: string) => {
+    async (id: string) => {
+      // Same accept path as the Shared view: the share's key is stored, and
+      // only then is the notification marked accepted.
+      const shareId = notificationsRef.current.find((n) => n.id === id)?.data.shareId
+      let share: DecryptedIncomingShare | undefined
+      try {
+        share = (await Sharing.listIncomingShares()).find((s) => s.id === shareId)
+      } catch (err) {
+        console.error('acceptNotification: listing shares failed', err)
+      }
+      if (!share || !share.decrypted) return false
+      if (!(await acceptShare(share))) return false
       setNotifications((prev) => {
         const next = prev.map((n) =>
           n.id === id ? { ...n, read: true, accepted: true } : n,
@@ -946,10 +961,9 @@ export function StashProvider({ children }: { children: ReactNode }) {
         saveStoredNotifications(next)
         return next
       })
-      // Refresh shared view so the newly-accepted share appears.
-      void loadShared()
+      return true
     },
-    [loadShared],
+    [acceptShare],
   )
 
   const declineNotification = useCallback(
@@ -976,12 +990,13 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
     try {
       // Relay is the source of truth; API is the fallback.
-      let shares: Array<{ id: string; owner_pubkey: string; name?: string; isFolder?: boolean }>
+      let shares: Array<{ id: string; owner_pubkey: string; encrypted_content?: string; name?: string; isFolder?: boolean }>
       try {
         const relayShares = await Sharing.queryIncomingSharesFromRelay(pubkey)
         shares = relayShares.map((s: IncomingShare) => ({
           id: s.id,
           owner_pubkey: s.owner_pubkey,
+          encrypted_content: s.encrypted_content,
         }))
       } catch {
         const response = (await API.listShares(pubkey, 'received')) as unknown as {
@@ -1000,6 +1015,13 @@ export function StashProvider({ children }: { children: ReactNode }) {
       const newNotifications: StashNotification[] = []
       for (const share of shares) {
         if (existingIds.has(share.id)) continue
+        // The name is inside the encrypted content. Only new shares get here,
+        // so the signer is not asked again on every poll.
+        if (!share.name && share.encrypted_content) {
+          const described = await Sharing.describeIncomingShare(share as IncomingShare)
+          share.name = described.name ?? undefined
+          share.isFolder = share.isFolder ?? described.isFolder
+        }
         const from =
           share.owner_pubkey && share.owner_pubkey.length > 8
             ? `${share.owner_pubkey.slice(0, 8)}…`
@@ -1141,6 +1163,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       copyFile: busyWhileRunning(copyFile),
       setFileTags,
       uploadItems,
+      dismissUploads,
       uploadFiles: busyWhileRunning(uploadFiles),
       searchResults,
       runSearch,
@@ -1205,6 +1228,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       copyFile,
       setFileTags,
       uploadItems,
+      dismissUploads,
       uploadFiles,
       searchResults,
       runSearch,

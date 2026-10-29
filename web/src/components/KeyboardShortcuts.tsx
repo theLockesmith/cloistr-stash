@@ -23,6 +23,7 @@ import { ConfirmModal } from '@cloistr/ui/components'
 import { useStash } from '../state/useStash'
 import type { StashFile, StashFolder } from '../state/types'
 import { readFileBytes } from '@cloistr/stash-core/fileKey'
+import { logActivity } from '@cloistr/stash-core/activity'
 
 export interface KeyboardShortcutsProps {
   /** Opens the new-folder modal. Wired when NewFolderModal is available. */
@@ -69,6 +70,7 @@ async function triggerFileDownload(file: StashFile): Promise<void> {
   a.click()
   document.body.removeChild(a)
   setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000)
+  logActivity('download', { name: file.name ?? 'file' })
 }
 
 export function KeyboardShortcuts({ onNewFolder, onOpenSelected }: KeyboardShortcutsProps) {

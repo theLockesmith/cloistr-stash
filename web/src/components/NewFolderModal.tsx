@@ -71,7 +71,7 @@ export function NewFolderModal({ open, onClose }: NewFolderModalProps) {
           </button>
         </div>
         <div className="modal-body">
-          <p className="modal-description">Create a new encrypted folder:</p>
+          <p className="modal-description">Create a new folder. Files in it are encrypted; the folder name is not yet, so keep it non-sensitive.</p>
           <input
             ref={inputRef}
             id="new-folder-name"

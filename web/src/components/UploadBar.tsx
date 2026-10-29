@@ -1,8 +1,12 @@
 // Upload button (file picker) + floating progress panel. Encryption + upload
 // run in the store via the ported upload pipeline. Only shown in my-files.
 
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useStash } from '../state/useStash'
+import { uploadsSettled } from './uploadPanel'
+
+/** How long a panel of finished, all-successful uploads stays up. */
+const AUTO_HIDE_MS = 4000
 
 export function UploadButton() {
   const { uploadFiles, view } = useStash()
@@ -42,12 +46,27 @@ const LABELS: Record<string, string> = {
 }
 
 export function UploadProgress() {
-  const { uploadItems } = useStash()
+  const { uploadItems, dismissUploads } = useStash()
+  const settled = uploadsSettled(uploadItems)
+
+  // All done and nothing failed: hide after a moment. A failure stays up
+  // until closed, so it cannot be missed.
+  useEffect(() => {
+    if (uploadItems.length === 0 || settled !== 'done') return
+    const timer = setTimeout(dismissUploads, AUTO_HIDE_MS)
+    return () => clearTimeout(timer)
+  }, [uploadItems, settled, dismissUploads])
+
   if (uploadItems.length === 0) return null
 
   return (
     <div className="upload-progress" role="status" aria-live="polite">
-      <div className="upload-progress-title">Uploads</div>
+      <div className="upload-progress-title">
+        Uploads
+        <button type="button" className="upload-progress-close" aria-label="Close uploads" onClick={dismissUploads}>
+          &times;
+        </button>
+      </div>
       <ul className="upload-progress-list">
         {uploadItems.map((item) => (
           <li key={item.id} className={`upload-progress-item status-${item.status}`}>

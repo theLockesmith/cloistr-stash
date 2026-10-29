@@ -18,12 +18,12 @@ function walk(dir: string, visit: (path: string, name: string) => void) {
 }
 
 describe('who may derive a file key directly', () => {
-  // keys (the derivation itself), migration (wraps legacy keys), upload and
-  // sharing (writes outside wrapped-key mode), versioning (pre-fix fallback).
-  // A new caller must go through fileKeyFor instead.
+  // keys (the derivation itself), migration (wraps legacy keys), versioning
+  // (pre-fix fallback). No writer derives a new key (key-model.md); a new
+  // caller must go through fileKeyFor instead.
   it('is limited to the known writers and the version fallback', () => {
     const allowed = new Set(
-      ['keys.ts', 'migration-wrapped-keys.ts', 'upload.ts', 'sharing.ts', 'versioning.ts'].map((f) => `packages/stash-core/src/${f}`),
+      ['keys.ts', 'migration-wrapped-keys.ts', 'versioning.ts'].map((f) => `packages/stash-core/src/${f}`),
     )
     const found: string[] = []
     for (const root of [appSrc, coreSrc]) {
@@ -86,7 +86,8 @@ describe('own folder keys come from the relay copy', () => {
 
   it('both upload entry points refuse an unverified folder before encrypting', () => {
     const src = readFileSync(join(coreSrc, 'upload.ts'), 'utf8')
-    expect((src.match(/if \(folderId\) Keys\.assertFolderKeyUsable\(folderId\)/g) ?? []).length).toBe(2)
+    // A sealed drive skips it: its folder keys come from the rings, not the derived-key store.
+    expect((src.match(/if \(folderId && !sealed\) Keys\.assertFolderKeyUsable\(folderId\)/g) ?? []).length).toBe(2)
   })
 })
 

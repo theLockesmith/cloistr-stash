@@ -92,6 +92,18 @@ describe('FileKeyStorage', () => {
     expect(files.length).toBe(2)
   })
 
+  it('lists only the records of the given pubkey', async () => {
+    await storage.put(makeRecord('user:root', 'root'))
+    await storage.put(makeRecord('user:folder:a', 'folder:a'))
+    await storage.put({ ...makeRecord('other:root', 'root'), pubkey: 'other' })
+    const mine = await storage.list('test-pubkey')
+    expect(mine.map((r) => r.id).sort()).toEqual(['user:folder:a', 'user:root'])
+  })
+
+  it('lists nothing when the key directory does not exist yet', async () => {
+    expect(await new FileKeyStorage(join(dir, 'never-created')).list('test-pubkey')).toEqual([])
+  })
+
   it('declares refuseOverwrite so Keys enforces the key-replacement rule', () => {
     expect(storage.refuseOverwrite).toBe(true)
   })

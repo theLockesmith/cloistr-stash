@@ -138,8 +138,17 @@ export function EncryptionInfoModal({ file, onClose }: EncryptionInfoModalProps)
               Your encryption keys are stored locally in your browser (IndexedDB),
               protected by your Nostr identity via NIP-44 self-encryption. The root
               key is also published as an encrypted Nostr event so you can recover
-              access from any device. The server never sees your keys or unencrypted
-              data.
+              access from any device. The server never sees your keys or this file's
+              contents.
+            </p>
+          </div>
+
+          <div className="encryption-info-section">
+            <h4>Not encrypted yet</h4>
+            <p className="encryption-storage-info">
+              This file's name, size and type, its folder's name, and a hash of its
+              unencrypted contents are stored readable on the Nostr relay. Anyone who
+              looks up your public key can see them.
             </p>
           </div>
         </div>

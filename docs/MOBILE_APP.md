@@ -213,7 +213,7 @@ cloistr-stash-mobile/
 
 ```yaml
 name: cloistr_drive
-description: Zero-knowledge file manager with E2E encryption
+description: File manager with end-to-end encrypted file contents
 version: 1.0.0
 
 environment:

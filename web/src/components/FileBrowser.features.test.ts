@@ -18,6 +18,7 @@ const EVENTS = readFileSync(join(__dirname, '../../packages/stash-core/src/event
 const SHARE_MODAL = readFileSync(join(__dirname, 'ShareModal.tsx'), 'utf8')
 const APP = readFileSync(join(__dirname, '../App.tsx'), 'utf8')
 const MOVE_MODAL = readFileSync(join(__dirname, 'MoveModal.tsx'), 'utf8')
+const SAVE = readFileSync(join(__dirname, 'SharedFolderView.tsx'), 'utf8')
 
 describe('Tags feature', () => {
   it('file menu includes Tags… action', () => {
@@ -217,5 +218,49 @@ describe('Shared ContextMenu from @cloistr/ui', () => {
     expect(SOURCE, 'local ContextMenu function still present').not.toContain(
       'function ContextMenu(',
     )
+  })
+})
+
+describe('Editing refreshes the file list (STASH-10: same-session download returned the old text)', () => {
+  const EDITOR = readFileSync(join(__dirname, 'EditorModal.tsx'), 'utf8')
+
+  it('EditorModal reports every successful save through onSaved', () => {
+    expect(EDITOR).toMatch(/onSaved\?: \(\) => void/)
+    const saves = EDITOR.match(/\.then\(\(\) => \{[^}]*onSaved\?\.\(\)/g) ?? []
+    expect(saves.length, 'Save and Save & Close must both call onSaved').toBe(2)
+  })
+
+  it('FileBrowser reloads the files after a save, so the row points at the new blob', () => {
+    const editor = SOURCE.slice(SOURCE.indexOf('<EditorModal'), SOURCE.indexOf('/>', SOURCE.indexOf('<EditorModal')))
+    expect(editor).toContain('onSaved={() => void loadFiles()}')
+  })
+})
+
+
+describe('Shared view (STASH-19: Accept did nothing, shared files could not be downloaded)', () => {
+  const sharedView = SOURCE.slice(SOURCE.indexOf("if (view === 'shared')"), SOURCE.indexOf('const empty ='))
+
+  it('offers Download on a file share, through Sharing.downloadSharedFile', () => {
+    expect(sharedView).toMatch(/>\s*Download\s*</)
+    expect(SOURCE).toContain('Sharing.downloadSharedFile(')
+  })
+
+  it('shows an accepted share as Accepted instead of its Accept button', () => {
+    expect(sharedView).toContain('share.accepted')
+    expect(sharedView).toMatch(/Accepted/)
+  })
+
+  it('never gives a received file the sender\'s MIME type (a text/html blob would run as this app)', () => {
+    const fn = SOURCE.slice(SOURCE.indexOf('const onDownloadShare'), SOURCE.indexOf('// --- ', SOURCE.indexOf('const onDownloadShare')))
+    expect(fn).toContain('saveAsDownload(data, name)')
+    expect(fn).not.toMatch(/type: mimeType/)
+    const save = SAVE.slice(SAVE.indexOf('export function saveAsDownload'), SAVE.indexOf('interface Level'))
+    expect(save).toContain("type: 'application/octet-stream'")
+    expect(save).not.toMatch(/mimeType/)
+  })
+
+  it('confirms or reports the result of Accept to the user', () => {
+    expect(SOURCE).toMatch(/success\(`Accepted /)
+    expect(PROVIDER).toMatch(/acceptShare: \(share: DecryptedIncomingShare\) => Promise<boolean>/)
   })
 })
