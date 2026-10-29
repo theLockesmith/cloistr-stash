@@ -222,12 +222,9 @@ export const Versioning = {
         newFileData instanceof Uint8Array ? newFileData : new Uint8Array(newFileData),
       )
 
-      // Upload the new version blob (a sealed file sends no name to the server)
+      // Upload the new version blob
       const authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
-      const blobName = sealed ? 'blob.encrypted' : `${file.name}.v${newVersionNumber}.encrypted`
-      const encryptedFile = new File([encryptedData as BufferSource], blobName, {
-        type: 'application/octet-stream',
-      })
+      const encryptedFile = new Blob([encryptedData as BufferSource], { type: 'application/octet-stream' })
       const uploadResult = await API.uploadFile(encryptedFile, authHeader)
       const uploadedSha256 = uploadResult['sha256'] as string
 

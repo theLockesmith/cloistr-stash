@@ -50,9 +50,6 @@ export interface UploadOptions {
 
 const RELAY_UPLOAD_DELAY_MS = 500
 
-// The multipart filename reaches the server; a sealed drive sends no name.
-const blobName = (name: string, sealed: boolean) => (sealed ? 'blob.encrypted' : name + '.encrypted')
-
 function makeItem(file: File): UploadItem & { file: File } {
   return {
     id: crypto.randomUUID(),
@@ -130,9 +127,7 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
           authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
         }
 
-        const encryptedFile = new File([encryptedData as BlobPart], blobName(item.file.name, sealed), {
-          type: 'application/octet-stream',
-        })
+        const encryptedFile = new Blob([encryptedData as BlobPart], { type: 'application/octet-stream' })
         const result = await API.uploadFile(encryptedFile, authHeader, 'e2e')
         const sha256 = (result.sha256 as string) || encryptedHash
 
@@ -242,9 +237,7 @@ export async function uploadEncryptedBytes(
       authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
     }
 
-    const encryptedFile = new File([encryptedData as BlobPart], blobName(name, sealed), {
-      type: 'application/octet-stream',
-    })
+    const encryptedFile = new Blob([encryptedData as BlobPart], { type: 'application/octet-stream' })
     const result = await API.uploadFile(encryptedFile, authHeader, 'e2e')
     const sha256 = (result.sha256 as string) || encryptedHash
 

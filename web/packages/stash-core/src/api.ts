@@ -75,7 +75,8 @@ export const API = {
     encryptionMode: EncryptionMode = 'e2e',
   ): Promise<FileMetadata> {
     const formData = new FormData()
-    formData.append('file', file)
+    // The multipart filename reaches the server; never send the real one.
+    formData.append('file', file, 'blob')
 
     const headers: Record<string, string> = {}
     if (authHeader) headers['X-Blossom-Auth'] = authHeader
