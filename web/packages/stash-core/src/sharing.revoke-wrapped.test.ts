@@ -80,6 +80,9 @@ vi.mock('./authBridge', () => ({
 vi.mock('./upload', () => ({
   addWrappedKeyToFolder: vi.fn(async () => {}),
 }))
+// An old-shape drive. The revoke asks which kind, as upload does; sealed drives
+// are covered in sharing.revoke-incomplete.test.ts.
+vi.mock('./sealedDrive', () => ({ writesSealed: async () => false, writeContext: async () => ({}) }))
 
 // Must import after mocks
 import { Sharing } from './sharing'
