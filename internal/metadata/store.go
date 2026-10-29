@@ -134,15 +134,16 @@ func (s *Store) ensureConnected() error {
 		s.consecutiveFailures++
 		if s.consecutiveFailures >= maxConsecutiveFailures {
 			s.unhealthy = true
-			s.logger.Error("relay connection unhealthy, marking for restart",
+			s.logger.Error("relay connection unhealthy, still retrying",
 				"consecutive_failures", s.consecutiveFailures,
 				"url", s.relayURL)
 		}
 		return fmt.Errorf("failed to reconnect to relay: %w", err)
 	}
 
-	// Success - reset failure count
+	// Success - reset failure count; a background reconnect counts too
 	s.consecutiveFailures = 0
+	s.unhealthy = false
 	s.lastSuccessTime = time.Now()
 	s.logger.Info("reconnected to relay", "url", s.relayURL)
 	return nil

@@ -155,3 +155,36 @@ func TestReconnectOutlivesTheStartupContext(t *testing.T) {
 		t.Fatalf("root key read after reconnect: %v", err)
 	}
 }
+
+// cloistr-audit on !192: a store marked unhealthy stayed so after the relay
+// came back until a data request arrived, which an unready pod never gets.
+// A background reconnect alone must clear it.
+func TestBackgroundReconnectClearsUnhealthy(t *testing.T) {
+	ln := httptest.NewUnstartedServer(nil)
+	addr := ln.Listener.Addr().String()
+	ln.Close()
+
+	s := NewStore("ws://"+addr, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	_ = s.Connect(ctx)
+	for i := 0; i < maxConsecutiveFailures; i++ {
+		_ = s.ensureConnected()
+	}
+	if s.IsHealthy() {
+		t.Fatal("not unhealthy after the failure limit")
+	}
+
+	startRelayAt(t, addr)
+	go s.KeepConnected(ctx, 50*time.Millisecond)
+	deadline := time.Now().Add(10 * time.Second)
+	for !s.IsConnected() {
+		if time.Now().After(deadline) {
+			t.Fatal("KeepConnected did not reconnect within 10s")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !s.IsHealthy() {
+		t.Fatal("still unhealthy after the relay came back, with no data request")
+	}
+}

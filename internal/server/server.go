@@ -260,17 +260,11 @@ func (s *Server) ListenAndServe(addr string) error {
 	return http.ListenAndServe(addr, s.Handler())
 }
 
-// handleHealth is the health check endpoint
+// handleHealth is the liveness probe: the process answers. It never depends
+// on the relay: KeepConnected recovers a lost relay, and a 503 here restarted
+// every pod in a loop during a relay outage (cloistr-audit on !192).
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-
-	// Check metadata store health (relay connection)
-	if s.metadata != nil && !s.metadata.IsHealthy() {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = fmt.Fprint(w, `{"status":"unhealthy","reason":"relay connection failed"}`)
-		return
-	}
-
 	w.WriteHeader(http.StatusOK)
 	_, _ = fmt.Fprint(w, `{"status":"healthy"}`)
 }

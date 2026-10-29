@@ -118,3 +118,25 @@ func TestReadyStaysUpWhileRelayIsDown(t *testing.T) {
 		t.Fatalf("/health = %d, want 200", w.Code)
 	}
 }
+
+// cloistr-audit on !192: data requests during a relay outage counted toward
+// the store's 10-failure limit, after which /health said 503. Both probes
+// pointed at /health, so every pod left the Service and restarted in a loop.
+// Liveness must never depend on the relay.
+func TestHealthStaysUpPastTheRelayFailureLimit(t *testing.T) {
+	rs := newRelayStub(t, "none")
+	rs.down.Store(true)
+	s := setupTestServer(t)
+	s.metadata = storeFor(t, rs.URL, false)
+	sk := nostr.GeneratePrivateKey()
+	for i := 0; i < 12; i++ {
+		if w := ownGet(t, s, sk, "/api/files?"); w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("relay down, request %d: /api/files = %d, want 503", i, w.Code)
+		}
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("after %d failed relay reads: /health = %d, want 200", i+1, w.Code)
+		}
+	}
+}
