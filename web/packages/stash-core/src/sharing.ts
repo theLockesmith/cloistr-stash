@@ -19,6 +19,9 @@ import { API } from './api'
 import { Relay } from './relay'
 import { authPort, getSigner } from './authBridge'
 import { addWrappedKeyToFolder } from './upload'
+import { Events } from './events'
+import * as Sealed from './driveWrite'
+import { writeContext } from './sealedDrive'
 import { listSharedFolder, type DriveSnapshot } from './drive'
 import type { UnsignedEvent, SignedEvent } from './relay'
 import type { StashFile, StashFolder } from './types'
@@ -87,7 +90,7 @@ export interface ReencryptResult {
 }
 
 /** How far a revoke-and-re-encrypt got before it stopped. */
-export type RevokeStage = 'not-started' | 'old-copy-remains' | 'share-notices'
+export type RevokeStage = 'not-started' | 'old-copy-remains' | 'share-notices' | 'old-record'
 
 /** A revoke that stopped partway, kept until Sharing.retryRevoke finishes it. */
 export interface PendingRevoke {
@@ -98,6 +101,14 @@ export interface PendingRevoke {
   oldSha256: string
   newFileId?: string
   newHash?: string
+  /** The old file's sealed record (its d and container), when it was sealed. */
+  oldSealed?: { d: string; folderId: string | null }
+  /**
+   * The new copy's signed record when its publish threw: it may have landed
+   * with the answer lost. A retry asks the relay for it before publishing it
+   * again, and removes nothing until it is there.
+   */
+  newEvent?: SignedEvent
 }
 
 /**
@@ -107,6 +118,8 @@ export interface PendingRevoke {
  *  - 'old-copy-remains': the new copy is published but the old blob is still
  *    stored, so the people the file was shared with can still open it.
  *  - 'share-notices': the old blob is gone, but the share records were not withdrawn.
+ *  - 'old-record': all of that is done, but the old file's record is still
+ *    listed beside the new copy, naming a blob that no longer exists.
  * Never report a revoke that threw this as done.
  */
 export class RevokeIncompleteError extends Error {
@@ -121,7 +134,8 @@ export class RevokeIncompleteError extends Error {
 
 // Unfinished revokes by file id. Kept in localStorage so a reload or an account
 // switch does not forget one; memory only where localStorage is unavailable.
-// Ids and blob hashes only, never a key.
+// Ids, blob hashes and at most the new copy's signed record (whose only key
+// is the owner's wrapped envelope), never a raw key.
 const PENDING_REVOKES_KEY = 'cloistr-stash-pending-revokes'
 let pendingRevokes: Record<string, PendingRevoke> | null = null
 
@@ -724,10 +738,13 @@ export const Sharing = {
     // The account this revoke is for: every key fetch, signature, upload,
     // publish and delete below refuses once it changes.
     const fence = Keys.accountFence() ?? undefined
+    // A sealed record is reached by its d, never by the file id.
+    const oldSealed = file.sealed === true && file.d ? { d: file.d as string, folderId } : undefined
     // How far it got, so a stop is reported as unfinished and can be resumed.
     let stage: RevokeStage = 'not-started'
     let newFileId: string | undefined
     let uploadedHash: string | undefined
+    let unconfirmed: SignedEvent | undefined
 
     // UI.toast dropped (pure UI)
 
@@ -792,11 +809,24 @@ export const Sharing = {
         ownerEnvelope,
       })
       Keys.assertAccount(fence)
-      await authPort.publishEvent(metadataEvent)
+      // From here a failure may still have landed (the answer lost), so it is
+      // kept with the signed record rather than thrown with no trace, which
+      // made a second revoke publish a second copy.
       stage = 'old-copy-remains'
+      unconfirmed = metadataEvent
+      await authPort.publishEvent(metadataEvent)
+      unconfirmed = undefined
 
       return await this.completeRevoke(
-        { stage, pubkey: fence?.pubkey ?? '', fileId, oldSha256: file.sha256, newFileId, newHash: uploadedHash },
+        {
+          stage,
+          pubkey: fence?.pubkey ?? '',
+          fileId,
+          oldSha256: file.sha256,
+          newFileId,
+          newHash: uploadedHash,
+          oldSealed,
+        },
         fence,
       )
     } catch (err) {
@@ -812,6 +842,8 @@ export const Sharing = {
         oldSha256: file.sha256,
         newFileId,
         newHash: uploadedHash,
+        oldSealed,
+        newEvent: unconfirmed,
       }
       pendingRevokeStore()[fileId] = pending
       savePendingRevokes()
@@ -824,13 +856,25 @@ export const Sharing = {
 
   /**
    * The rest of a revoke once the new copy is published: remove the old blob
-   * (the step that actually stops old shares opening the file), then withdraw
-   * the share records. Throws RevokeIncompleteError, keeping the record, if
-   * either stops; clears the record when both are done.
+   * (the step that actually stops old shares opening the file), withdraw the
+   * share records, then withdraw the old file's own record. Throws
+   * RevokeIncompleteError, keeping the record, if any stops; clears it when
+   * all are done.
    */
   async completeRevoke(p: PendingRevoke, fence?: AccountFence): Promise<ReencryptResult> {
     let stage = p.stage
+    let newEvent = p.newEvent
     try {
+      if (stage === 'old-copy-remains' && newEvent) {
+        // Never remove the old copy before the new one's record is on the relay.
+        const ev = newEvent
+        const found = await Relay.query([{ ids: [ev.id] }])
+        if (!found.some((e) => e.id === ev.id)) {
+          Keys.assertAccount(fence)
+          await authPort.publishEvent(ev)
+        }
+        newEvent = undefined
+      }
       if (stage === 'old-copy-remains') {
         Keys.assertAccount(fence)
         const deleteAuth = await createDeleteAuth(p.oldSha256)
@@ -851,26 +895,42 @@ export const Sharing = {
       // was withdrawn. It does not name the recipient, but it signals that a
       // revocation happened. Prefer expiry over deletion where both are available.
       // Best-effort, except that an account switch leaves it unfinished.
-      try {
-        const staleShares = await this.listOutgoingSharesForFile(p.fileId)
-        for (const share of staleShares) {
-          const deleteEvent: UnsignedEvent = {
-            kind: 5,
-            created_at: Math.floor(Date.now() / 1000),
-            tags: [['a', `30080:${authPort.pubkey}:${share.id}`]],
-            content: '',
+      if (stage === 'share-notices') {
+        try {
+          const staleShares = await this.listOutgoingSharesForFile(p.fileId)
+          for (const share of staleShares) {
+            const deleteEvent: UnsignedEvent = {
+              kind: 5,
+              created_at: Math.floor(Date.now() / 1000),
+              tags: [['a', `30080:${authPort.pubkey}:${share.id}`]],
+              content: '',
+            }
+            Keys.assertAccount(fence)
+            const signed = await authPort.signEvent(deleteEvent)
+            Keys.assertAccount(fence)
+            await authPort.publishEvent(signed)
           }
-          Keys.assertAccount(fence)
-          const signed = await authPort.signEvent(deleteEvent)
-          Keys.assertAccount(fence)
-          await authPort.publishEvent(signed)
+        } catch (err) {
+          if (err instanceof AccountChangedError) throw err
+          // Otherwise best-effort: failure is expected and documented
         }
-      } catch (err) {
-        if (err instanceof AccountChangedError) throw err
-        // Otherwise best-effort: failure is expected and documented
+        stage = 'old-record'
+      }
+
+      // The old file's record: left behind, it lists a file whose blob is gone
+      // beside its new copy. Not best-effort: a failure here is reported.
+      if (stage === 'old-record') {
+        Keys.assertAccount(fence)
+        if (p.oldSealed) {
+          await Sealed.deleteFile(await writeContext(), { d: p.oldSealed.d }, p.oldSealed.folderId)
+        } else {
+          const deletion = await Events.createBatchDeleteEvent([p.fileId], [])
+          Keys.assertAccount(fence)
+          await authPort.publishEvent(deletion)
+        }
       }
     } catch (err) {
-      const pending: PendingRevoke = { ...p, stage }
+      const pending: PendingRevoke = { ...p, stage, newEvent }
       pendingRevokeStore()[p.fileId] = pending
       savePendingRevokes()
       throw new RevokeIncompleteError(pending, err)
