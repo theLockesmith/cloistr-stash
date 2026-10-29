@@ -120,6 +120,7 @@ export const Keys = {
   // Own folders whose local key could not be verified this session (see
   // resolveOwnFolderKeyStatus); new files are not added to them.
   unverifiedFolders: new Set<string>(),
+  restoreQueue: Promise.resolve() as Promise<unknown>,
   userPubkey: null as string | null,
 
   // Injected dependencies (formerly globals Auth / API)
@@ -706,11 +707,11 @@ export const Keys = {
     const foreign = !!record?.sharedBy && record.sharedBy !== this.userPubkey
 
     if (keyTag) {
-      this.unverifiedFolders.delete(folderId)
       if (record && !foreign && record.verifiedTag === keyTag) {
         const local = await this.loadEncryptedKey(keyId)
         if (local) {
           this.keyCache.set(keyId, local)
+          this.unverifiedFolders.delete(folderId)
           return { key: local, status: 'ok' }
         }
       }
@@ -723,6 +724,7 @@ export const Keys = {
         verifiedTag: keyTag,
       })
       this.keyCache.set(keyId, real)
+      this.unverifiedFolders.delete(folderId)
       if (local && !same) {
         console.warn('Keys: repaired folder key for', folderId.slice(0, 8) + '...', '(local key did not match the relay copy)')
         return { key: real, status: 'repaired', replaced: local }
@@ -731,8 +733,8 @@ export const Keys = {
     }
 
     // Untagged: any key here hangs off the parent's (or root's) key. Under an
-    // unverified parent nothing can be vouched for, whatever is stored.
-    this.unverifiedFolders.delete(folderId)
+    // unverified parent nothing can be vouched for, whatever is stored. The
+    // flag changes only on a verdict, never while one is pending (!229 audit).
     if (parentId && this.unverifiedFolders.has(parentId)) {
       this.unverifiedFolders.add(folderId)
       return { key: await this.getFolderKey(folderId, parentId), status: 'unverified' }
@@ -767,7 +769,9 @@ export const Keys = {
         return { key: local, status: 'unverified' }
       }
     }
-    return { key: await this.getFolderKey(folderId, parentId), status: 'ok' }
+    const key = await this.getFolderKey(folderId, parentId)
+    this.unverifiedFolders.delete(folderId)
+    return { key, status: 'ok' }
   },
 
   /**
@@ -832,21 +836,34 @@ export const Keys = {
    * verified. Parents are handled before children. Each tag is decrypted once
    * (verifiedTag), so steady-state loads cost no signer calls.
    */
-  async restoreOwnFolderKeys(
+  restoreOwnFolderKeys(
+    folders: Array<{ id: string; encrypted_key?: string; parent_id?: string; [k: string]: unknown }>,
+  ): Promise<{ restored: number; repaired: number; errors: number; unverified: string[] }> {
+    // One at a time: sign-in loads the tree and the file list together, and
+    // two runs repairing the same keys must not interleave (!229 audit).
+    const run = this.restoreQueue.then(() => this.restoreOwnFolderKeysNow(folders))
+    this.restoreQueue = run.catch(() => undefined)
+    return run
+  },
+
+  async restoreOwnFolderKeysNow(
     folders: Array<{ id: string; encrypted_key?: string; parent_id?: string; [k: string]: unknown }>,
   ): Promise<{ restored: number; repaired: number; errors: number; unverified: string[] }> {
     const result = { restored: 0, repaired: 0, errors: 0, unverified: [] as string[] }
     if (!this.auth?.isConnected || !this.userPubkey) return result
     const storage = await this.ensureStorage()
-    // Recomputed below for every listed folder, so a flag never outlives its cause.
-    for (const folder of folders) this.unverifiedFolders.delete(folder.id)
+    // Each listed folder's flag is recomputed below, on its verdict; an error
+    // leaves the flag as it was (refusing writes) rather than lifting it.
     for (const folder of parentsFirst(folders)) {
       try {
         const parentUnverified = !!folder.parent_id && this.unverifiedFolders.has(folder.parent_id)
         if (!folder.encrypted_key && !parentUnverified) {
           // Untagged: only act on a key that is not already known to be ours.
           const rec = await storage.get(`${this.userPubkey}:folder:${folder.id}`)
-          if (!rec || rec.sharedBy === this.userPubkey) continue
+          if (!rec || rec.sharedBy === this.userPubkey) {
+            this.unverifiedFolders.delete(folder.id)
+            continue
+          }
         }
         const { key, status, replaced } = await this.resolveOwnFolderKeyStatus(
           folder.id,
