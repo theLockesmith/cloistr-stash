@@ -8,6 +8,7 @@
 
 import { API } from './api'
 import { Crypto } from './crypto'
+import { forgetDriveIndex } from './driveIndex'
 import { Keys } from './keys'
 import { Relay } from './relay'
 import type { SignedEvent, UnsignedEvent } from './relay'
@@ -134,14 +135,19 @@ const authPort = {
   },
 
   // NIP-98 HTTP auth (kind 27235) for one request: u = absolute URL, method.
-  // The server accepts it within 60s of created_at, for that URL+method only.
+  // The server accepts it within 60s of created_at, for that URL+method only,
+  // and each event id once. The random nonce keeps two requests for the same
+  // URL in the same second from signing the same id (the second would be 401).
   async createHttpAuth(url: string, method: string): Promise<string> {
+    const nonce = new Uint8Array(16)
+    crypto.getRandomValues(nonce)
     const signed = await requireSigner().signEvent({
       kind: 27235,
       created_at: Math.floor(Date.now() / 1000),
       tags: [
         ['u', url],
         ['method', method],
+        ['nonce', Crypto.bytesToHex(nonce)],
       ],
       content: '',
     })
@@ -189,6 +195,8 @@ export async function updateAuth(signer: Signer | null, state: AuthSnapshot): Pr
   if (switched) {
     Keys.clearCache()
     Relay.disconnect()
+    // The drive index holds every file name and key of that account.
+    if (previousPubkey && state.pubkey !== previousPubkey) await forgetDriveIndex(previousPubkey)
   }
   if (isConnected && state.pubkey && (!wasConnected || switched)) {
     await Keys.init(state.pubkey)
@@ -201,6 +209,7 @@ export async function updateAuth(signer: Signer | null, state: AuthSnapshot): Pr
   } else if (!isConnected && wasConnected) {
     Keys.clearCache()
     Relay.disconnect()
+    if (previousPubkey) await forgetDriveIndex(previousPubkey)
   }
 }
 

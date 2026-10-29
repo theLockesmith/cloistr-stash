@@ -2,7 +2,9 @@
 
 ## What is Cloistr Stash?
 
-Cloistr Stash is a zero-knowledge file manager - a Google Drive replacement where **we cannot read your files**. All encryption happens in your browser before files are uploaded. Your Nostr identity is your login.
+Cloistr Stash is an encrypted file manager - a Google Drive replacement where **we cannot read the contents of your files**. File contents and keys are encrypted in your browser before anything is uploaded. Your Nostr identity is your login.
+
+**Not encrypted yet:** file names, sizes, types, folder names and a hash of each file's unencrypted contents are stored readable on the Nostr relay, where anyone can look them up by your public key. Don't put anything sensitive in a file or folder name until this changes (see [Privacy and Security](#privacy-and-security)).
 
 ## Getting Started
 
@@ -260,12 +262,20 @@ Click **Activity** in the sidebar to view:
 
 ## Privacy and Security
 
-### Zero-Knowledge Architecture
+### What Is Encrypted, and What Is Not Yet
 
-- All files are encrypted **before** leaving your browser
-- Encryption keys are derived from your Nostr identity
-- We cannot read your files, even if we wanted to
-- File names can optionally be encrypted
+Encrypted in your browser, before upload:
+
+- File contents
+- Your keys (root, folder and file keys)
+
+**Not encrypted yet**, stored readable on the Nostr relay:
+
+- File names, sizes and types (MIME)
+- Folder names, and which folder each file is in
+- A hash of each file's unencrypted contents, which lets someone who already has a copy of a file confirm that you stored it too
+
+Anyone can read these from the relay by asking for your public key's events; no sign-in is needed. We cannot read your file contents, but we and anyone else can see these details. Moving them into the encrypted part is planned.
 
 ### Key Management
 

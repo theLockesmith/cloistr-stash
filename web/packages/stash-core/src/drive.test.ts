@@ -1,0 +1,382 @@
+// Drive interop Phase 1, step 2: reading a drive from the relay. The owner
+// lists with ONE filter (author + kinds) and builds the tree locally, so the
+// relay never learns parent-to-child edges (conscience 2026-10-16). A
+// recipient lists one shared folder by #q.
+import { describe, it, expect } from 'vitest'
+import { buildOwnDrive, fetchAll, loadOwnDrive, listSharedFolder, type QueryFn } from './drive'
+import {
+  folderQ,
+  randomD,
+  ringD,
+  rootContainerKey,
+  sealFileEvent,
+  sealFolderEvent,
+  sealRing,
+  type SealedFileMeta,
+} from './sealed'
+import type { SignedEvent } from './api'
+import { Keys } from './keys'
+import { Crypto } from './crypto'
+import type { UnsignedEvent } from './relay'
+
+const OWNER = 'a'.repeat(64)
+const ROOT = new Uint8Array(32).fill(1)
+const k = (n: number) => new Uint8Array(32).fill(n)
+
+let seq = 0
+function signed(ev: UnsignedEvent, createdAt = 1_760_000_000): SignedEvent {
+  seq++
+  return { ...ev, created_at: createdAt, pubkey: OWNER, id: seq.toString(16).padStart(64, '0'), sig: '' }
+}
+
+const fileMeta = (id: string, name: string, folderId: string | null): SealedFileMeta => ({
+  id,
+  name,
+  folderId,
+  sha256: id.repeat(2).slice(0, 64).padEnd(64, '0'),
+  size: 10,
+  mimeType: 'text/plain',
+})
+
+// Root: file r1 and folder A. A: file a1 and folder B. B: file b1.
+async function sampleDrive() {
+  const rootCK = await rootContainerKey(ROOT)
+  const A = { id: 'a1'.padEnd(32, '0'), key: k(2), d: randomD() }
+  const B = { id: 'b1'.padEnd(32, '0'), key: k(3), d: randomD() }
+  const r1 = { id: 'f1'.padEnd(32, '0'), key: k(4), d: randomD() }
+  const a1 = { id: 'f2'.padEnd(32, '0'), key: k(5), d: randomD() }
+  const b1 = { id: 'f3'.padEnd(32, '0'), key: k(6), d: randomD() }
+  const gone = { id: 'f4'.padEnd(32, '0'), key: k(7), d: randomD() }
+  const events: SignedEvent[] = [
+    signed(await sealRing({ folderKey: rootCK, folderId: '', files: [r1], folders: [A], tombstones: [] })),
+    signed(await sealRing({ folderKey: A.key, folderId: A.id, files: [a1, gone], folders: [B], tombstones: [{ d: gone.d, deletedAt: 1 }] })),
+    signed(await sealRing({ folderKey: B.key, folderId: B.id, files: [b1], folders: [], tombstones: [] })),
+    signed(await sealFolderEvent({ d: A.d, q: await folderQ(rootCK, ''), folderKey: A.key, meta: { id: A.id, name: 'Alpha', parentId: null } })),
+    signed(await sealFolderEvent({ d: B.d, q: await folderQ(A.key, A.id), folderKey: B.key, meta: { id: B.id, name: 'Beta', parentId: A.id } })),
+    signed(await sealFileEvent({ d: r1.d, q: await folderQ(rootCK, ''), fileKey: r1.key, meta: fileMeta(r1.id, 'root.txt', null) })),
+    signed(await sealFileEvent({ d: a1.d, q: await folderQ(A.key, A.id), fileKey: a1.key, meta: fileMeta(a1.id, 'alpha.txt', A.id) })),
+    signed(await sealFileEvent({ d: b1.d, q: await folderQ(B.key, B.id), fileKey: b1.key, meta: fileMeta(b1.id, 'beta.txt', B.id) })),
+    signed(await sealFileEvent({ d: gone.d, q: await folderQ(A.key, A.id), fileKey: gone.key, meta: fileMeta(gone.id, 'gone.txt', A.id) })),
+  ]
+  return { events, rootCK, A, B, r1, a1, b1, gone }
+}
+
+const legacyFile = (d: string, name: string, folder?: string): SignedEvent =>
+  signed({
+    kind: 30078,
+    created_at: 0,
+    tags: [['d', d], ['x', 'e'.repeat(64)], ['m', 'image/png'], ['size', '42'], ['encrypted', 'xchacha20-poly1305'], ...(folder ? [['folder', folder]] : [])],
+    content: JSON.stringify({ name, size: 42, encrypted_size: 58, mime_type: 'image/png', encrypted: true }),
+  })
+
+describe('buildOwnDrive', () => {
+  it('rebuilds the whole tree from the root ring, with keys, and drops tombstoned files', async () => {
+    const s = await sampleDrive()
+    const drive = await buildOwnDrive(s.events, OWNER, ROOT)
+    const byName = Object.fromEntries(drive.files.map((f) => [f.name, f]))
+    expect(Object.keys(byName).sort()).toEqual(['alpha.txt', 'beta.txt', 'root.txt'])
+    expect(byName['root.txt'].folder_id).toBe('')
+    expect(byName['alpha.txt'].folder_id).toBe(s.A.id)
+    expect(byName['beta.txt'].folder_id).toBe(s.B.id)
+    expect(byName['beta.txt'].sealed).toBe(true)
+    expect(drive.folders.map((f) => [f.name, f.parent_id ?? ''])).toEqual(
+      expect.arrayContaining([['Alpha', ''], ['Beta', s.A.id]]),
+    )
+    expect(drive.fileKeys.get(s.b1.id)).toEqual(s.b1.key)
+    expect(drive.folderKeys.get(s.B.id)).toEqual(s.B.key)
+    expect(drive.unreadable).toEqual([])
+  })
+
+  it('reads old-shape files and folders alongside, newest replaceable version wins, kind 5 hides', async () => {
+    const s = await sampleDrive()
+    const oldFolder = signed({ kind: 30079, created_at: 0, tags: [['d', 'oldfolder']], content: JSON.stringify({ name: 'Old' }) })
+    const deletedFolder = signed({ kind: 30079, created_at: 0, tags: [['d', 'deadfolder']], content: JSON.stringify({ name: 'Dead' }) })
+    const del = signed({ kind: 5, created_at: 0, tags: [['a', `30079:${OWNER}:deadfolder`]], content: '' })
+    const v1 = legacyFile('legacy1', 'old-name.png', 'oldfolder')
+    const v2 = signed({ ...legacyFile('legacy1', 'new-name.png', 'oldfolder') }, 1_760_000_500)
+    const rootKeyEvent = signed({ kind: 30078, created_at: 0, tags: [['d', 'root-key']], content: 'nip44...' })
+    const prefs = signed({ kind: 30078, created_at: 0, tags: [['d', 'cloistr-relays']], content: '{"relays":[]}' })
+    const drive = await buildOwnDrive([...s.events, oldFolder, deletedFolder, del, v1, v2, rootKeyEvent, prefs], OWNER, ROOT)
+    const legacy = drive.files.filter((f) => !f.sealed)
+    expect(legacy.map((f) => [f.name, f.folder_id, f.mime_type, f.size])).toEqual([['new-name.png', 'oldfolder', 'image/png', 42]])
+    expect(drive.folders.map((f) => f.name).sort()).toEqual(['Alpha', 'Beta', 'Old'])
+  })
+
+  it('does not mistake the root-key event or other apps\' kind 30078 events for lost sealed files', async () => {
+    const s = await sampleDrive()
+    const rootKeyEvent = signed({ kind: 30078, created_at: 0, tags: [['d', 'root-key'], ['key', 'nip44ciphertext']], content: '' })
+    const otherApp = signed({ kind: 30078, created_at: 0, tags: [['d', 'some-app-setting']], content: 'AQIDBAUG' })
+    const drive = await buildOwnDrive([...s.events, rootKeyEvent, otherApp], OWNER, ROOT)
+    expect(drive.unreadable).toEqual([])
+    expect(drive.files.map((f) => f.name).sort()).toEqual(['alpha.txt', 'beta.txt', 'root.txt'])
+  })
+
+  it('reports a sealed file no ring reaches as unreadable instead of dropping it silently', async () => {
+    const s = await sampleDrive()
+    const stray = signed(await sealFileEvent({ d: randomD(), q: 'x', fileKey: k(9), meta: fileMeta('f9'.padEnd(32, '0'), 'stray', null) }))
+    const drive = await buildOwnDrive([...s.events, stray], OWNER, ROOT)
+    expect(drive.unreadable).toEqual([{ kind: 30078, d: stray.tags[0][1], reason: 'not in any key ring' }])
+  })
+
+  it('places a file by its own content when a stale ring entry still lists it elsewhere', async () => {
+    const s = await sampleDrive()
+    // a1 moved to B: its content names B, but A's ring still lists it (stale).
+    const moved = signed(
+      await sealFileEvent({ d: s.a1.d, q: await folderQ(s.B.key, s.B.id), fileKey: s.a1.key, meta: fileMeta(s.a1.id, 'alpha.txt', s.B.id) }),
+      1_760_000_900,
+    )
+    const drive = await buildOwnDrive([...s.events, moved], OWNER, ROOT)
+    expect(drive.files.find((f) => f.name === 'alpha.txt')!.folder_id).toBe(s.B.id)
+  })
+
+  it('without the root key still lists old-shape files and reports each sealed one as unreadable', async () => {
+    const s = await sampleDrive()
+    const drive = await buildOwnDrive([...s.events, legacyFile('legacy1', 'old.png')], OWNER, null)
+    expect(drive.files.map((f) => f.name)).toEqual(['old.png'])
+    expect(drive.unreadable).toHaveLength(4)
+    expect(new Set(drive.unreadable.map((u) => u.reason))).toEqual(new Set(['root key unavailable']))
+  })
+
+  it('ignores events from anyone but the owner', async () => {
+    const s = await sampleDrive()
+    const forged = s.events.map((e) => ({ ...e, pubkey: 'b'.repeat(64) }))
+    expect((await buildOwnDrive(forged, OWNER, ROOT)).files).toEqual([])
+  })
+})
+
+describe('loadOwnDrive', () => {
+  it('asks the relay with one filter by author and kinds, never by #q or #d', async () => {
+    const s = await sampleDrive()
+    const asked: unknown[][] = []
+    const query: QueryFn = async (filters) => {
+      asked.push(filters)
+      return s.events
+    }
+    const drive = await loadOwnDrive(query, OWNER, ROOT)
+    expect(drive.files).toHaveLength(3)
+    // Paging repeats the request (a final one confirms the end), but every
+    // request is the same single filter: author and kinds, never #q or #d.
+    expect(asked.length).toBeGreaterThanOrEqual(1)
+    for (const req of asked) {
+      expect(req).toEqual([expect.objectContaining({ authors: [OWNER], kinds: [5, 30078, 30079] })])
+      for (const f of req as Record<string, unknown>[]) {
+        expect(Object.keys(f).some((key) => key.startsWith('#'))).toBe(false)
+      }
+    }
+  })
+
+  it('pages past the relay limit with until, and stops when a page adds nothing new', async () => {
+    const s = await sampleDrive()
+    const all = s.events.map((e, i) => ({ ...e, created_at: 1_760_000_000 + i }))
+    const pages: number[] = []
+    const query: QueryFn = async (filters) => {
+      const f = filters[0] as { until?: number; limit: number }
+      pages.push(f.until ?? -1)
+      return all
+        .filter((e) => f.until === undefined || e.created_at <= f.until)
+        .sort((a, b) => b.created_at - a.created_at)
+        .slice(0, f.limit)
+    }
+    const drive = await loadOwnDrive(query, OWNER, ROOT, { pageSize: 4 })
+    expect(drive.files).toHaveLength(3)
+    expect(pages.length).toBeGreaterThan(2)
+  })
+})
+
+describe('fetchAll', () => {
+  // A relay that answers at most `cap` events per REQ, newest first (NIP-01).
+  const cappedRelay = (events: SignedEvent[], cap: number): QueryFn => async (filters) => {
+    const f = filters[0] as { until?: number; limit: number }
+    return events
+      .filter((e) => f.until === undefined || e.created_at <= f.until)
+      .sort((a, b) => b.created_at - a.created_at || (a.id < b.id ? -1 : 1))
+      .slice(0, Math.min(f.limit, cap))
+  }
+  const many = (n: number, at: (i: number) => number) =>
+    Array.from({ length: n }, (_, i) => signed({ kind: 30078, created_at: 0, tags: [['d', `e${i}`]], content: '{}' }, at(i)))
+
+  it('reads everything from a relay whose cap is below the page size (cloistr-pr probe: 120 at cap 50)', async () => {
+    const events = many(120, (i) => 1_760_000_000 + i)
+    expect(await fetchAll(cappedRelay(events, 50), {}, 500)).toHaveLength(120)
+  })
+
+  it('completes small drives, including events sharing one second', async () => {
+    expect(await fetchAll(cappedRelay(many(1, () => 5), 500), {}, 500)).toHaveLength(1)
+    expect(await fetchAll(cappedRelay(many(3, () => 5), 500), {}, 500)).toHaveLength(3)
+    expect(await fetchAll(cappedRelay([], 500), {}, 500)).toHaveLength(0)
+  })
+
+  it('throws rather than return a partial drive when one second holds more than the relay cap', async () => {
+    const events = [...many(30, (i) => 1_760_000_100 + i), ...many(60, () => 1_760_000_000)]
+    await expect(fetchAll(cappedRelay(events, 50), {}, 500)).rejects.toThrow(/could not be read in full/)
+  })
+
+  it('throws when the FIRST page is already one full second (cloistr-pr probe: 120 same-second at page 50)', async () => {
+    const events = many(120, () => 1_760_000_000)
+    await expect(fetchAll(cappedRelay(events, 500), {}, 50)).rejects.toThrow(/could not be read in full/)
+  })
+})
+
+describe('listSharedFolder', () => {
+  it('lists exactly the shared folder in one REQ by #q and the ring d, and reads its files and child folders', async () => {
+    const s = await sampleDrive()
+    const asked: Record<string, unknown>[][] = []
+    const query: QueryFn = async (filters) => {
+      asked.push(filters as Record<string, unknown>[])
+      const qs = filters.flatMap((f) => ((f as Record<string, string[]>)['#q'] ?? []))
+      const ds = filters.flatMap((f) => ((f as Record<string, string[]>)['#d'] ?? []))
+      return s.events.filter((e) => e.tags.some((t) => (t[0] === 'q' && qs.includes(t[1])) || (t[0] === 'd' && ds.includes(t[1]))))
+    }
+    const list = await listSharedFolder(query, OWNER, s.A.id, s.A.key)
+    // The sealed level is one REQ by #q and ring d; old-shape reads follow it.
+    expect(asked[0]).toEqual([
+      { kinds: [30078, 30079], authors: [OWNER], '#q': [await folderQ(s.A.key, s.A.id)] },
+      { kinds: [30079], authors: [OWNER], '#d': [await ringD(s.A.key, s.A.id)] },
+    ])
+    expect(list.files.map((f) => f.name)).toEqual(['alpha.txt'])
+    expect(list.folders.map((f) => f.name)).toEqual(['Beta'])
+    expect(list.folderKeys.get(s.B.id)).toEqual(s.B.key)
+  })
+
+  it('with the wrong key reads nothing', async () => {
+    const s = await sampleDrive()
+    const list = await listSharedFolder(async () => s.events, OWNER, s.A.id, k(42))
+    expect(list.files).toEqual([])
+    expect(list.folders).toEqual([])
+  })
+})
+
+// Folder-share browsing (2026-10-19): today's drives are old-shape, so a shared
+// folder must list its old-shape files too. Orchestrator rule: the recipient
+// sees only files whose key the shared folder key reaches (a 'wk' entry that
+// unwraps under it, or HKDF from it for a pre-wrapping file); a folder tag
+// alone never lists a file.
+describe('listSharedFolder, old-shape folders', () => {
+  const F = 'f0'.padEnd(32, '0')
+  const FKEY = k(9)
+  const MALLORY = 'c'.repeat(64)
+
+  const fileEv = (id: string, name: string, extra: string[][] = [], author = OWNER): SignedEvent => ({
+    ...signed({
+      kind: 30078,
+      created_at: 0,
+      tags: [['d', id], ['x', id.slice(0, 2).repeat(32)], ['size', '5'], ['encrypted', 'xchacha20-poly1305'], ...extra],
+      content: JSON.stringify({ name, size: 5, encrypted: true }),
+    }),
+    pubkey: author,
+  })
+  const folderEv = (id: string, name: string, extra: string[][] = []): SignedEvent =>
+    signed({ kind: 30079, created_at: 0, tags: [['d', id], ...extra], content: JSON.stringify({ name }) })
+
+  /** A relay answering author / kind / #d filters, like the real one. */
+  const relay = (events: SignedEvent[]): QueryFn => async (filters) =>
+    events.filter((e) =>
+      filters.some((f) => {
+        const g = f as Record<string, unknown>
+        if (g.kinds && !(g.kinds as number[]).includes(e.kind)) return false
+        if (g.authors && !(g.authors as string[]).includes(e.pubkey)) return false
+        for (const t of ['d', 'q']) {
+          const want = g[`#${t}`] as string[] | undefined
+          if (want && !e.tags.some((x) => x[0] === t && want.includes(x[1]))) return false
+        }
+        return true
+      }),
+    )
+
+  async function scene() {
+    await Crypto.init()
+    const plain = { id: 'p1'.padEnd(32, '0') } // pre-wrapping: key is HKDF(folder key, id)
+    const wrapped = { id: 'w1'.padEnd(32, '0'), key: k(11) } // wrapped: key in the folder's wk entry
+    const noEntry = { id: 'n1'.padEnd(32, '0') } // wrapped, but no wk entry: not reachable
+    const badEntry = { id: 'b1'.padEnd(32, '0'), key: k(12) } // wk entry under some other key
+    const child = { id: 'c1'.padEnd(32, '0') }
+    const wk = (id: string, key: Uint8Array, under: Uint8Array) => ['wk', id, Keys.wrapFileKeyForFolder(key, id, under) as unknown as string]
+    const events: SignedEvent[] = [
+      folderEv(F, 'Shared', [wk(wrapped.id, wrapped.key, FKEY), wk(badEntry.id, badEntry.key, k(99))]),
+      folderEv(child.id, 'Child', [['parent', F]]),
+      fileEv(plain.id, 'plain.txt', [['folder', F]]),
+      fileEv(wrapped.id, 'wrapped.txt', [['folder', F], ['owner_key', 'env-to-owner']]),
+      fileEv(noEntry.id, 'stamped.txt', [['folder', F], ['owner_key', 'env-to-owner']]),
+      fileEv(badEntry.id, 'bad-entry.txt', [['folder', F], ['owner_key', 'env-to-owner']]),
+      fileEv('o1'.padEnd(32, '0'), 'other-folder.txt', [['folder', 'elsewhere']]),
+      fileEv('t1'.padEnd(32, '0'), 'trashed.txt', [['folder', F], ['deleted_at', '1']]),
+      fileEv('d1'.padEnd(32, '0'), 'deleted.txt', [['folder', F]]),
+      signed({ kind: 5, created_at: 0, tags: [['a', `30078:${OWNER}:${'d1'.padEnd(32, '0')}`]], content: '' }),
+      fileEv('m1'.padEnd(32, '0'), 'not-the-owner.txt', [['folder', F]], MALLORY),
+    ]
+    return { events, plain, wrapped, noEntry, badEntry, child }
+  }
+
+  it('lists a pre-wrapping file with its key derived from the folder key', async () => {
+    const s = await scene()
+    const list = await listSharedFolder(relay(s.events), OWNER, F, FKEY)
+    expect(list.files.map((f) => f.name)).toContain('plain.txt')
+    expect(list.fileKeys.get(s.plain.id)).toEqual(await Keys.deriveKey(FKEY, s.plain.id, Keys.CONTEXT_FILE))
+  })
+
+  it('lists a wrapped file whose wk entry unwraps under the folder key, with that key', async () => {
+    const s = await scene()
+    const list = await listSharedFolder(relay(s.events), OWNER, F, FKEY)
+    expect(list.files.map((f) => f.name)).toContain('wrapped.txt')
+    expect(list.fileKeys.get(s.wrapped.id)).toEqual(s.wrapped.key)
+  })
+
+  it('never lists a file on its folder tag alone: no wk entry, or one the folder key does not open', async () => {
+    const s = await scene()
+    const list = await listSharedFolder(relay(s.events), OWNER, F, FKEY)
+    const names = list.files.map((f) => f.name)
+    expect(names).not.toContain('stamped.txt')
+    expect(names).not.toContain('bad-entry.txt')
+    expect(list.fileKeys.has(s.noEntry.id)).toBe(false)
+    expect(list.fileKeys.has(s.badEntry.id)).toBe(false)
+  })
+
+  it('lists only this folder, nothing trashed or deleted, and nothing another author signed', async () => {
+    const s = await scene()
+    const list = await listSharedFolder(relay(s.events), OWNER, F, FKEY)
+    expect(list.files.map((f) => f.name).sort()).toEqual(['plain.txt', 'wrapped.txt'])
+  })
+
+  it('does not list old-shape child folders: their random keys are wrapped to the owner only', async () => {
+    const s = await scene()
+    const list = await listSharedFolder(relay(s.events), OWNER, F, FKEY)
+    expect(list.folders).toEqual([])
+  })
+
+  it('membership comes only from the latest event: a file moved out of the folder never lists from its older version', async () => {
+    const s = await scene()
+    const moved = 'mv'.padEnd(32, '0')
+    const older = { ...fileEv(moved, 'moved-out.txt', [['folder', F]]), created_at: 1_760_000_000 }
+    const newer = { ...fileEv(moved, 'moved-out.txt', [['folder', 'elsewhere']]), created_at: 1_760_000_100 }
+    const list = await listSharedFolder(relay([...s.events, older, newer]), OWNER, F, FKEY)
+    expect(list.files.map((f) => f.name)).not.toContain('moved-out.txt')
+  })
+
+  it('with the wrong folder key lists no wrapped file', async () => {
+    const s = await scene()
+    const list = await listSharedFolder(relay(s.events), OWNER, F, k(42))
+    expect(list.files.map((f) => f.name)).not.toContain('wrapped.txt')
+  })
+})
+
+// Found 2026-10-27: an old-shape file keeps its versions as 'v' tags on its own
+// event, but the row never carried them, so a permanent delete removed only the
+// current blob and left every earlier version's blob in Blossom.
+describe('old-shape version tags', () => {
+  it('reach file.versions, so a permanent delete can find every blob', async () => {
+    const ev = signed({
+      kind: 30078,
+      created_at: 0,
+      tags: [
+        ['d', 'versioned'], ['x', 'b'.repeat(64)], ['size', '1'], ['encrypted', 'xchacha20-poly1305'],
+        ['v', 'a'.repeat(64), '1', '100', OWNER], ['v', 'b'.repeat(64), '2', '200', OWNER], ['current', 'b'.repeat(64)],
+      ],
+      content: JSON.stringify({ name: 'v.txt', size: 1, encrypted: true }),
+    })
+    const drive = await buildOwnDrive([ev], OWNER, null)
+    expect(drive.files[0].versions).toEqual([
+      { sha256: 'a'.repeat(64), version: 1, createdAt: 100 },
+      { sha256: 'b'.repeat(64), version: 2, createdAt: 200 },
+    ])
+  })
+})

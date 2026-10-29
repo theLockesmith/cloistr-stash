@@ -1,9 +1,9 @@
 # Auth event validation: tasks
 
-- [x] T1 Tests first: table of accepted/refused events per route (internal/auth/authevent_test.go)
-- [x] T2 ValidateAuthEvent + middleware wiring; Bearer falls through to signer session
-- [x] T3 Quota path uses verified pubkey (context for upload/delete; sig-verified for GET /api/quota)
-- [x] T4 go test ./... and go vet pass; web client request shapes match (R4)
+- [x] T1 Tests first: table of accepted/refused events per route (internal/auth/authevent_test.go) (see evidence below)
+- [x] T2 ValidateAuthEvent + middleware wiring; Bearer falls through to signer session (see evidence below)
+- [x] T3 Quota path uses verified pubkey (context for upload/delete; sig-verified for GET /api/quota) (see evidence below)
+- [x] T4 go test ./... and go vet pass; web client request shapes match (R4) (see evidence below)
 - [ ] T5 Merge, deploy, live probe: replay 401, correct NIP-98 passes auth
 - [ ] T6 Impact per handler + log review reported to cloistr-orchestrator
 

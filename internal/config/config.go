@@ -39,6 +39,9 @@ type ServerConfig struct {
 	// https://stash.cloistr.xyz). A NIP-98 'u' tag must name one of them;
 	// empty falls back to the request's Host headers (local use only).
 	AuthOrigins []string `yaml:"auth_origins"`
+	// CORSOrigins are the exact browser origins (e.g. https://space.cloistr.xyz)
+	// allowed to call the API cross-origin. Empty means none. "*" is refused.
+	CORSOrigins []string `yaml:"cors_origins"`
 }
 
 // BlossomConfig represents the Blossom backend configuration
@@ -128,6 +131,14 @@ func Load(path string) (*Config, error) {
 	for _, o := range cfg.Server.AuthOrigins {
 		if strings.Contains(o, "*") || !strings.Contains(o, "://") {
 			return nil, fmt.Errorf("auth origin %q: must be an exact scheme://host", o)
+		}
+	}
+	if origins := os.Getenv("DRIVE_CORS_ORIGINS"); origins != "" {
+		cfg.Server.CORSOrigins = strings.Split(origins, ",")
+	}
+	for _, o := range cfg.Server.CORSOrigins {
+		if strings.Contains(o, "*") {
+			return nil, fmt.Errorf("cors origin %q: wildcards are not allowed, list each origin", strings.TrimSpace(o))
 		}
 	}
 	if blossomURL := os.Getenv("DRIVE_BLOSSOM_URL"); blossomURL != "" {

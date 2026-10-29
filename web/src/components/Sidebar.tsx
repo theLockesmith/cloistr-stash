@@ -79,7 +79,7 @@ export function Sidebar({ collapsed = false, onOpenNotifications, onOpenActivity
             type="button"
             className={`sidebar-view ${view === v.id ? 'active' : ''}`}
             aria-current={view === v.id}
-            onClick={() => void setView(v.id)}
+            onClick={() => void (v.id === 'my-files' ? navigateToRoot() : setView(v.id))}
           >
             <span aria-hidden="true">{v.icon}</span> {v.label}
           </button>

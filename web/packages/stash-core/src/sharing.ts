@@ -19,8 +19,17 @@ import { API } from './api'
 import { Relay } from './relay'
 import { authPort, getSigner } from './authBridge'
 import { addWrappedKeyToFolder } from './upload'
+import { listSharedFolder, type DriveSnapshot } from './drive'
 import type { UnsignedEvent, SignedEvent } from './relay'
 import type { StashFile, StashFolder } from './types'
+
+/** A file in a shared folder that the shared folder's key does not open. */
+export class SharedKeyCannotOpenError extends Error {
+  constructor(name: string) {
+    super(`"${name}" can't be opened with the shared folder's key. Ask the owner to share the file itself.`)
+    this.name = 'SharedKeyCannotOpenError'
+  }
+}
 
 // ─── Public input/output interfaces ──────────────────────────────────────────
 
@@ -90,6 +99,14 @@ export interface DecryptedIncomingShare extends IncomingShare {
   content?: unknown
   decrypted: boolean
   error?: string
+  /** This device holds the key that accepting the share stores. */
+  accepted?: boolean
+}
+
+export interface SharedFileDownload {
+  data: Uint8Array
+  name: string
+  mimeType: string
 }
 
 // ─── Internal content shapes (used when building/parsing events) ──────────────
@@ -644,94 +661,89 @@ export const Sharing = {
       signer: getSigner(),
     })
 
-    const decryptedData = await Crypto.decryptFile(encryptedData, oldFileKey)
-
     // Step 3: Generate new file ID
     const newFileId = Crypto.generateFileId()
 
-    // Step 4: Generate new file key. Random + wrapped in wrappedKeyMode, or when
-    // the file is already wrapped (per-file decision: a fresh device may not have
-    // learned wrappedKeyMode from the relay yet, and a revoke must never downgrade
-    // a wrapped file to a folder-derivable HKDF key). HKDF otherwise.
-    let newFileKey: Uint8Array
-    let ownerEnvelope: string | undefined
-    if (Keys.wrappedKeyMode || file.owner_key) {
-      newFileKey = Keys.generateFileKey()
-      ownerEnvelope = await Keys.wrapFileKeyForOwner(newFileKey, newFileId, getSigner())
+    // Step 4: a new random key, wrapped to the owner and under the folder key.
+    // Never derived (architecture/key-model.md): a revoke must not hand back a
+    // key anyone holding the folder or root key can recompute. Both keys are
+    // wiped on every exit, a failure included.
+    const newFileKey = Keys.generateFileKey()
+    try {
+      const decryptedData = await Crypto.decryptFile(encryptedData, oldFileKey)
+      const ownerEnvelope = await Keys.wrapFileKeyForOwner(newFileKey, newFileId, getSigner())
+
+      // Step 5: Re-encrypt with new key
+      const reencryptedData = await Crypto.encryptFile(decryptedData, newFileKey)
+
+      // Step 6: Calculate new hash
+      const newHash = await Crypto.hash(reencryptedData)
+
+      // Step 7: Upload new encrypted blob
+      const authHeader = await authPort.createUploadAuth(newHash, reencryptedData.length)
+      const encryptedBlob = new Blob([reencryptedData as BlobPart], {
+        type: 'application/octet-stream',
+      })
+      const uploadResult = (await API.uploadFile(encryptedBlob, authHeader)) as { sha256: string }
+
+      // The folder's wrapped copy only once the blob exists, as upload does: a
+      // failed re-encrypt or upload must not leave a wk for a file that is not there.
       if (folderId) {
         await addWrappedKeyToFolder(folderId, newFileId, newFileKey)
       }
-    } else if (folderId) {
-      newFileKey = await Keys.deriveFileKey(folderId, newFileId)
-    } else {
-      newFileKey = await Keys.deriveRootFileKey(newFileId)
-    }
 
-    // Step 5: Re-encrypt with new key
-    const reencryptedData = await Crypto.encryptFile(decryptedData, newFileKey)
+      // Step 8: Publish new metadata event
+      const metadataEvent = await createEncryptedFileMetadataEvent({
+        fileId: newFileId,
+        sha256: uploadResult.sha256,
+        plaintextHash: await Crypto.hash(decryptedData),
+        name: file.name,
+        size: decryptedData.length,
+        encryptedSize: reencryptedData.length,
+        mimeType: (file.mime_type ?? file.mimeType ?? 'application/octet-stream') as string,
+        folderId: folderId,
+        encrypted: true,
+        ownerEnvelope,
+      })
+      await authPort.publishEvent(metadataEvent)
 
-    // Step 6: Calculate new hash
-    const newHash = await Crypto.hash(reencryptedData)
+      // Step 9: Delete old file
+      const deleteAuth = await createDeleteAuth(file.sha256)
+      await API.deleteFile(file.sha256, deleteAuth)
 
-    // Step 7: Upload new encrypted blob
-    const authHeader = await authPort.createUploadAuth(newHash, reencryptedData.length)
-    const encryptedBlob = new Blob([reencryptedData as BlobPart], {
-      type: 'application/octet-stream',
-    })
-    const uploadResult = (await API.uploadFile(encryptedBlob, authHeader)) as { sha256: string }
-
-    // Step 8: Publish new metadata event
-    const metadataEvent = await createEncryptedFileMetadataEvent({
-      fileId: newFileId,
-      sha256: uploadResult.sha256,
-      plaintextHash: await Crypto.hash(decryptedData),
-      name: file.name,
-      size: decryptedData.length,
-      encryptedSize: reencryptedData.length,
-      mimeType: (file.mime_type ?? file.mimeType ?? 'application/octet-stream') as string,
-      folderId: folderId,
-      encrypted: true,
-      ownerEnvelope,
-    })
-    await authPort.publishEvent(metadataEvent)
-
-    // Step 9: Delete old file
-    const deleteAuth = await createDeleteAuth(file.sha256)
-    await API.deleteFile(file.sha256, deleteAuth)
-
-    // Best-effort: request deletion of stale share events from the relay.
-    // These are requests, not guarantees: other relays and local caches retain
-    // copies. The real protection is that the old key no longer decrypts anything.
-    // Note: a deletion request is itself a public event announcing that a share
-    // was withdrawn. It does not name the recipient, but it signals that a
-    // revocation happened. Prefer expiry over deletion where both are available.
-    try {
-      const staleShares = await this.listOutgoingSharesForFile(fileId)
-      for (const share of staleShares) {
-        const deleteEvent: UnsignedEvent = {
-          kind: 5,
-          created_at: Math.floor(Date.now() / 1000),
-          tags: [['a', `30080:${authPort.pubkey}:${share.id}`]],
-          content: '',
+      // Best-effort: request deletion of stale share events from the relay.
+      // These are requests, not guarantees: other relays and local caches retain
+      // copies. The real protection is that the old key no longer decrypts anything.
+      // Note: a deletion request is itself a public event announcing that a share
+      // was withdrawn. It does not name the recipient, but it signals that a
+      // revocation happened. Prefer expiry over deletion where both are available.
+      try {
+        const staleShares = await this.listOutgoingSharesForFile(fileId)
+        for (const share of staleShares) {
+          const deleteEvent: UnsignedEvent = {
+            kind: 5,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [['a', `30080:${authPort.pubkey}:${share.id}`]],
+            content: '',
+          }
+          const signed = await authPort.signEvent(deleteEvent)
+          await authPort.publishEvent(signed)
         }
-        const signed = await authPort.signEvent(deleteEvent)
-        await authPort.publishEvent(signed)
+      } catch {
+        // Best-effort: failure is expected and documented
       }
-    } catch {
-      // Best-effort: failure is expected and documented
-    }
 
-    // Cleanup
-    Crypto.wipeKey(oldFileKey)
-    Crypto.wipeKey(newFileKey)
+      console.log('Sharing: File re-encrypted with new key')
 
-    console.log('Sharing: File re-encrypted with new key')
-
-    return {
-      oldFileId: fileId,
-      newFileId: newFileId,
-      oldHash: file.sha256,
-      newHash: uploadResult.sha256,
+      return {
+        oldFileId: fileId,
+        newFileId: newFileId,
+        oldHash: file.sha256,
+        newHash: uploadResult.sha256,
+      }
+    } finally {
+      Crypto.wipeKey(oldFileKey)
+      Crypto.wipeKey(newFileKey)
     }
   },
 
@@ -801,6 +813,108 @@ export const Sharing = {
     }
 
     throw new Error('Unknown share type')
+  },
+
+  /** Whether acceptShare has stored this share's key on this device (presence only, nothing decrypted). */
+  async isShareAccepted(shareId: string, content: unknown): Promise<boolean> {
+    const c = (content ?? {}) as { type?: string; folderId?: string }
+    if (c.type === this.SHARE_TYPE_FILE) return Keys.hasStoredKey(`share:${shareId}`)
+    if (c.type === this.SHARE_TYPE_FOLDER && c.folderId) return Keys.hasStoredKey(`folder:${c.folderId}`)
+    return false
+  },
+
+  /**
+   * Fetch and decrypt a file someone shared with us. The blob comes from our
+   * own Blossom by the hash in the share, never from the URL the sender wrote
+   * into it, and must match that hash.
+   */
+  async downloadSharedFile(share: DecryptedIncomingShare): Promise<SharedFileDownload> {
+    const content = (share.content ?? {}) as Partial<ShareFileContent>
+    if (!share.decrypted || content.type !== this.SHARE_TYPE_FILE || !content.fileSHA256) {
+      throw new Error('Not a downloadable file share')
+    }
+    const sha256 = content.fileSHA256.toLowerCase()
+    const response = await fetch(API.getDownloadURL(sha256))
+    if (!response.ok) throw new Error(`Download failed: ${response.status}`)
+    const stored = new Uint8Array(await response.arrayBuffer())
+    if ((await Crypto.hash(stored)) !== sha256) {
+      throw new Error('Shared file does not match its hash')
+    }
+
+    let data: Uint8Array = stored
+    if (content.encrypted) {
+      if (!content.fileKey) throw new Error('Share carries no file key')
+      const key = Crypto.hexToBytes(await this.decryptFromSender(share.owner_pubkey, content.fileKey))
+      try {
+        data = await Crypto.decryptFile(stored, key)
+      } finally {
+        Crypto.wipeKey(key)
+      }
+    }
+    return {
+      data,
+      name: content.fileName || 'shared-file',
+      mimeType: content.fileMimeType || 'application/octet-stream',
+    }
+  },
+
+  /** The folder id and key an incoming folder share carries. The caller wipes the key. */
+  async sharedFolderKey(share: DecryptedIncomingShare): Promise<{ folderId: string; key: Uint8Array }> {
+    const content = (share.content ?? {}) as Partial<ShareFolderContent>
+    if (!share.decrypted || content.type !== this.SHARE_TYPE_FOLDER || !content.folderId || !content.folderKey) {
+      throw new Error('Not a folder share')
+    }
+    const key = Crypto.hexToBytes(await this.decryptFromSender(share.owner_pubkey, content.folderKey))
+    if (key.length !== 32) throw new Error('Folder share carries a malformed key')
+    return { folderId: content.folderId, key }
+  },
+
+  /**
+   * One level of a folder someone shared with us, read with the shared key:
+   * the files that key opens and the subfolders it reaches (their keys are in
+   * the snapshot, for browsing down).
+   */
+  async browseSharedFolder(owner: string, folderId: string, folderKey: Uint8Array): Promise<DriveSnapshot> {
+    return listSharedFolder((filters) => Relay.query(filters), owner, folderId, folderKey)
+  },
+
+  /**
+   * Fetch and decrypt a file listed by browseSharedFolder. The blob comes from
+   * our own Blossom by the hash the owner signed and must match it. A blob the
+   * key does not open throws SharedKeyCannotOpenError, never a bare AEAD error.
+   * `mimeType` is the owner's claim: never use it as a blob type (saveAsDownload
+   * always saves application/octet-stream).
+   */
+  async downloadFromSharedFolder(file: StashFile, key: Uint8Array): Promise<SharedFileDownload> {
+    const name = file.name || 'shared-file'
+    if (!file.sha256) throw new Error('File has no content hash')
+    const sha256 = file.sha256.toLowerCase()
+    const response = await fetch(API.getDownloadURL(sha256))
+    if (!response.ok) throw new Error(`Download failed: ${response.status}`)
+    const stored = new Uint8Array(await response.arrayBuffer())
+    if ((await Crypto.hash(stored)) !== sha256) throw new Error('Shared file does not match its hash')
+    let data: Uint8Array
+    try {
+      data = await Crypto.decryptFile(stored, key)
+    } catch {
+      throw new SharedKeyCannotOpenError(name)
+    }
+    return { data, name, mimeType: file.mime_type || 'application/octet-stream' }
+  },
+
+  /** The name and kind of an incoming share, read from its encrypted content (name null if unreadable). */
+  async describeIncomingShare(share: IncomingShare): Promise<{ name: string | null; isFolder: boolean }> {
+    try {
+      const content = JSON.parse(await this.decryptFromSender(share.owner_pubkey, share.encrypted_content)) as {
+        type?: string
+        fileName?: string
+        folderName?: string
+      }
+      const isFolder = content.type === this.SHARE_TYPE_FOLDER
+      return { name: (isFolder ? content.folderName : content.fileName) || null, isFolder }
+    } catch {
+      return { name: null, isFolder: false }
+    }
   },
 
   /** True only if `sender` has a folder share to us for `folderId` whose key is exactly `keyHex`. */
@@ -967,6 +1081,8 @@ export const Sharing = {
           ...share,
           content: content,
           decrypted: true,
+          // A failed lookup reads as not accepted; it must not mark the share undecryptable.
+          accepted: await this.isShareAccepted(share.id, content).catch(() => false),
         })
       } catch (err) {
         decryptedShares.push({

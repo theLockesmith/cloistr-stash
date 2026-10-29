@@ -37,6 +37,7 @@ type Server struct {
 	quota          *quota.Manager
 	rateLimiter    *ratelimit.Limiter
 	blossomUp      atomic.Bool
+	corsOrigins    map[string]bool
 	mux            *http.ServeMux
 	webDir         string
 	logger         *slog.Logger
@@ -51,18 +52,19 @@ type Server struct {
 
 // FileMetadata represents file information returned to the frontend
 type FileMetadata struct {
-	SHA256        string `json:"sha256"`
-	Name          string `json:"name,omitempty"`
-	Size          int64  `json:"size"`
-	MimeType      string `json:"mime_type,omitempty"`
-	FolderID      string `json:"folder_id,omitempty"`
-	CreatedAt     int64  `json:"created_at,omitempty"`
-	DeletedAt     int64  `json:"deleted_at,omitempty"`
-	FileID        string `json:"file_id,omitempty"`
-	PlaintextHash string `json:"plaintext_hash,omitempty"`
-	Encrypted     bool   `json:"encrypted,omitempty"`
-	EncryptedSize int64  `json:"encrypted_size,omitempty"`
-	OwnerKey      string `json:"owner_key,omitempty"`
+	SHA256        string   `json:"sha256"`
+	Name          string   `json:"name,omitempty"`
+	Size          int64    `json:"size"`
+	MimeType      string   `json:"mime_type,omitempty"`
+	FolderID      string   `json:"folder_id,omitempty"`
+	CreatedAt     int64    `json:"created_at,omitempty"`
+	DeletedAt     int64    `json:"deleted_at,omitempty"`
+	FileID        string   `json:"file_id,omitempty"`
+	PlaintextHash string   `json:"plaintext_hash,omitempty"`
+	Encrypted     bool     `json:"encrypted,omitempty"`
+	EncryptedSize int64    `json:"encrypted_size,omitempty"`
+	OwnerKey      string   `json:"owner_key,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
 }
 
 // FolderMetadataResponse represents folder information returned to the frontend
@@ -128,6 +130,7 @@ func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metad
 		authMiddle:     authMiddle,
 		quota:          quotaManager,
 		rateLimiter:    rateLimiter,
+		corsOrigins:    corsOriginSet(cfg.Server.CORSOrigins),
 		mux:            http.NewServeMux(),
 		webDir:         webDir,
 		logger:         logger,
@@ -236,6 +239,12 @@ func (s *Server) Handler() http.Handler {
 
 	// Apply metrics middleware
 	handler = metrics.Middleware(handler)
+
+	// CORS is outermost so a rate-limited (429) answer still carries it and
+	// a preflight costs no token.
+	if len(s.corsOrigins) > 0 {
+		handler = corsMiddleware(s.corsOrigins, handler)
+	}
 
 	return handler
 }
@@ -461,24 +470,30 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, f := range files {
-		response.Files = append(response.Files, FileMetadata{
-			SHA256:        f.SHA256,
-			Name:          f.Name,
-			Size:          f.Size,
-			MimeType:      f.MimeType,
-			FolderID:      f.FolderID,
-			CreatedAt:     f.CreatedAt.Unix(),
-			DeletedAt:     f.DeletedAt,
-			FileID:        f.FileID,
-			PlaintextHash: f.PlaintextHash,
-			Encrypted:     f.Encrypted,
-			EncryptedSize: f.EncryptedSize,
-			OwnerKey:      f.OwnerKey,
-		})
+		response.Files = append(response.Files, fileResponse(f))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(response)
+}
+
+// fileResponse is one row of the file list as the web app reads it.
+func fileResponse(f *metadata.FileMetadata) FileMetadata {
+	return FileMetadata{
+		SHA256:        f.SHA256,
+		Name:          f.Name,
+		Size:          f.Size,
+		MimeType:      f.MimeType,
+		FolderID:      f.FolderID,
+		CreatedAt:     f.CreatedAt.Unix(),
+		DeletedAt:     f.DeletedAt,
+		FileID:        f.FileID,
+		PlaintextHash: f.PlaintextHash,
+		Encrypted:     f.Encrypted,
+		EncryptedSize: f.EncryptedSize,
+		OwnerKey:      f.OwnerKey,
+		Tags:          f.Tags,
+	}
 }
 
 // handleUploadFile handles file uploads
@@ -1146,9 +1161,10 @@ func (s *Server) handleGetKeyring(w http.ResponseWriter, r *http.Request) {
 // The decryption key is in the URL fragment (never sent to server)
 // Format: /public/{sha256}#<base64url-key>
 func (s *Server) handlePublicLink(w http.ResponseWriter, r *http.Request) {
+	setNoFraming(w)
 	sha256 := r.PathValue("id")
-	if sha256 == "" {
-		http.Error(w, "Link ID required", http.StatusBadRequest)
+	if !isBlobHash(sha256) {
+		http.Error(w, "Invalid link", http.StatusBadRequest)
 		return
 	}
 
@@ -1168,146 +1184,21 @@ func (s *Server) handlePublicLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Serve a simple download page
-	// The client-side JS will extract the key from the URL fragment and decrypt
-	html := `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cloistr Stash - Shared File</title>
-    <style>
-        body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-        .container { text-align: center; padding: 2rem; max-width: 600px; }
-        .logo { font-size: 2rem; margin-bottom: 1rem; }
-        h1 { font-size: 1.5rem; margin-bottom: 1rem; }
-        p { color: #aaa; margin-bottom: 2rem; }
-        .btn { background: #6366f1; color: white; border: none; padding: 1rem 2rem; border-radius: 8px; font-size: 1rem; cursor: pointer; }
-        .btn:hover { background: #4f46e5; }
-        .btn:disabled { background: #444; cursor: not-allowed; }
-        .status { margin-top: 1rem; font-size: 0.9rem; color: #888; }
-        .error { color: #ef4444; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="logo">🔐</div>
-        <h1>Encrypted File</h1>
-        <p>This file is end-to-end encrypted. Click download to decrypt and save.</p>
-        <button class="btn" id="download-btn" onclick="downloadAndDecrypt()">Download & Decrypt</button>
-        <div class="status" id="status"></div>
-    </div>
-    <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.13/dist/sodium.js"></script>
-    <script>
-        const sha256 = '` + sha256 + `';
-        const downloadUrl = '/api/files/' + sha256 + '/download';
-        const metadataUrl = '/api/public/' + sha256;
-        let fileMetadata = null;
-
-        // Try to get file metadata on page load
-        (async function() {
-            try {
-                const resp = await fetch(metadataUrl);
-                if (resp.ok) {
-                    fileMetadata = await resp.json();
-                    if (fileMetadata.name) {
-                        document.querySelector('h1').textContent = fileMetadata.name;
-                    }
-                }
-            } catch (e) {
-                console.log('Could not fetch metadata');
-            }
-        })();
-
-        async function downloadAndDecrypt() {
-            const btn = document.getElementById('download-btn');
-            const status = document.getElementById('status');
-
-            // Get key from URL fragment
-            const keyB64 = window.location.hash.slice(1);
-            if (!keyB64) {
-                status.className = 'status error';
-                status.textContent = 'Error: No decryption key in URL';
-                return;
-            }
-
-            btn.disabled = true;
-            status.textContent = 'Downloading encrypted file...';
-
-            try {
-                // Initialize libsodium
-                await window.sodium.ready;
-                const sodium = window.sodium;
-
-                // Decode key from base64url
-                const key = base64urlToBytes(keyB64);
-                if (key.length !== 32) {
-                    throw new Error('Invalid key length');
-                }
-
-                // Download encrypted file
-                const response = await fetch(downloadUrl);
-                if (!response.ok) throw new Error('Download failed: ' + response.status);
-
-                status.textContent = 'Decrypting...';
-                const encrypted = new Uint8Array(await response.arrayBuffer());
-
-                // Decrypt (nonce is prepended to ciphertext)
-                const nonce = encrypted.slice(0, sodium.crypto_secretbox_NONCEBYTES);
-                const ciphertext = encrypted.slice(sodium.crypto_secretbox_NONCEBYTES);
-                const decrypted = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
-
-                // Get filename from metadata or use default
-                const filename = (fileMetadata && fileMetadata.name) || 'download';
-                const mimeType = (fileMetadata && fileMetadata.mime_type) || 'application/octet-stream';
-
-                // Trigger download
-                const blob = new Blob([decrypted], { type: mimeType });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-
-                status.textContent = 'Download complete!';
-
-            } catch (err) {
-                status.className = 'status error';
-                status.textContent = 'Error: ' + err.message;
-            } finally {
-                btn.disabled = false;
-            }
-        }
-
-        function base64urlToBytes(str) {
-            str = str.replace(/-/g, '+').replace(/_/g, '/');
-            while (str.length % 4) str += '=';
-            const binary = atob(str);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) {
-                bytes[i] = binary.charCodeAt(i);
-            }
-            return bytes;
-        }
-    </script>
-</body>
-</html>`
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = fmt.Fprint(w, html)
-
-	s.logger.Info("public link accessed", "sha256", sha256[:16])
+	// The reader page is part of the web app (web/src/public): it downloads the
+	// blob through /api/files/{sha256}/download and decrypts it in the browser
+	// with the key from the URL fragment, which never reaches this server.
+	// Nothing from the request is written into the page.
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Cache-Control", "no-cache")
+	http.ServeFile(w, r, filepath.Join(s.webDir, "index.html"))
 }
 
 // handlePublicLinkAPI returns JSON metadata for a public link
 // Used by the client to check validity before decrypting
 func (s *Server) handlePublicLinkAPI(w http.ResponseWriter, r *http.Request) {
 	sha256 := r.PathValue("id")
-	if sha256 == "" {
-		http.Error(w, "Link ID required", http.StatusBadRequest)
+	if !isBlobHash(sha256) {
+		http.Error(w, "Invalid link", http.StatusBadRequest)
 		return
 	}
 
@@ -1434,4 +1325,28 @@ func (s *Server) handleGetQuota(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(response)
+}
+
+// isBlobHash reports whether id is a Blossom blob hash: 64 lower-case hex
+// characters. The public-link page writes the id into an inline script, and
+// the id is also sent on to Blossom as a path, where a '?' would end the path
+// and let the existence check pass for any text that follows. Nothing but a
+// hash may get that far.
+func isBlobHash(id string) bool {
+	if len(id) != 64 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// setNoFraming stops other sites from framing a page (clickjacking).
+func setNoFraming(w http.ResponseWriter) {
+	w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+	w.Header().Set("X-Frame-Options", "DENY")
 }

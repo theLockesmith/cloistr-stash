@@ -23,6 +23,7 @@ import type { StashFile } from '../state/types'
 import { formatFileSize } from './format'
 import { readFileBytes } from '@cloistr/stash-core/fileKey'
 import { publicUrlForFile, checkPublished, type PublicState } from '@cloistr/stash-core/publish'
+import { logActivity } from '@cloistr/stash-core/activity'
 
 // ─── download helper ─────────────────────────────────────────────────────────
 
@@ -39,6 +40,7 @@ async function triggerDownload(file: StashFile): Promise<void> {
   anchor.click()
   document.body.removeChild(anchor)
   setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000)
+  logActivity('download', { name: file.name ?? 'file' })
 }
 
 // ─── component ───────────────────────────────────────────────────────────────

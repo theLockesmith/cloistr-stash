@@ -21,7 +21,7 @@
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
 const CSS = readFileSync(join(__dirname, '../index.css'), 'utf8')
 const APP = readFileSync(join(__dirname, '../App.tsx'), 'utf8')
@@ -102,6 +102,11 @@ describe('AppShell migration: AppShell is in use', () => {
 })
 
 describe('AppShell migration: menu data is valid', () => {
+  // The first import of App pulls in the whole app (crypto, auth, UI kit),
+  // which can take longer than one test's 5s on a busy CI runner. Load it once
+  // here with room to spare; the tests below then get the cached module.
+  beforeAll(() => import('../App'), 60_000)
+
   it('buildStashMenu returns at least one section', async () => {
     const { buildStashMenu } = await import('../App')
     const sections = buildStashMenu({

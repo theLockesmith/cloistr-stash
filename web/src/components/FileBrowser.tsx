@@ -8,7 +8,7 @@
 // showContextMenu behaviour.  Long-press (500ms) triggers the same menu on touch.
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { ConfirmModal, ContextMenu, useContextMenu, type ContextMenuEntry } from '@cloistr/ui/components'
+import { ConfirmModal, ContextMenu, useContextMenu, useToast, type ContextMenuEntry } from '@cloistr/ui/components'
 import { useStash } from '../state/useStash'
 import type { StashFile, StashFolder, SortField } from '../state/types'
 import { formatDate, formatFileSize, getFileIcon } from './format'
@@ -23,9 +23,11 @@ import { ShareModal } from './ShareModal'
 import { ManageSharesModal } from './ManageSharesModal'
 import { VersionHistoryModal } from './VersionHistoryModal'
 import { Collaboration } from '@cloistr/stash-core/collaboration'
+import { Sharing, type DecryptedIncomingShare } from '@cloistr/stash-core/sharing'
 import { CommentsModal } from './CommentsModal'
 import { FolderCustomizeModal, useFolderCustomizations } from './FolderCustomizeModal'
 import { PublishModal } from './PublishModal'
+import { SharedFolderView, saveAsDownload } from './SharedFolderView'
 import type { FolderCustomization } from './FolderCustomizeModal'
 
 type ViewMode = 'list' | 'grid'
@@ -105,6 +107,35 @@ export function FileBrowser() {
   const [commentsTarget, setCommentsTarget] = useState<StashFile | null>(null)
   const ctxMenu = useContextMenu()
   const [menuItems, setMenuItems] = useState<ContextMenuEntry[]>([])
+  const toast = useToast()
+  // Incoming share with an Accept or Download in flight (null = none).
+  const [busyShareId, setBusyShareId] = useState<string | null>(null)
+
+  // Folder share being browsed in the Shared view (null = the share list).
+  const [browsingShare, setBrowsingShare] = useState<{ share: DecryptedIncomingShare; name: string } | null>(null)
+
+  const onAcceptShare = async (share: DecryptedIncomingShare, name: string) => {
+    setBusyShareId(share.id)
+    try {
+      if (await acceptShare(share)) toast.success(`Accepted ${name}`)
+      else toast.error(`Could not accept ${name}`)
+    } finally {
+      setBusyShareId(null)
+    }
+  }
+
+  const onDownloadShare = async (share: DecryptedIncomingShare) => {
+    setBusyShareId(share.id)
+    try {
+      const { data, name } = await Sharing.downloadSharedFile(share)
+      saveAsDownload(data, name)
+    } catch (err) {
+      console.error('Shared download failed', err)
+      toast.error(`Download failed: ${(err as Error).message}`)
+    } finally {
+      setBusyShareId(null)
+    }
+  }
   // File being published publicly (null = modal closed).
   const [publishTarget, setPublishTarget] = useState<StashFile | null>(null)
   // Folder being customized (null = modal closed).
@@ -119,6 +150,11 @@ export function FileBrowser() {
   const openInfo = (file: StashFile) => {
     recordFileAccess(file.sha256)
     setInfoFile(file)
+  }
+
+  const openPreview = (file: StashFile) => {
+    recordFileAccess(file.sha256)
+    setPreviewFile(file)
   }
 
   /**
@@ -182,14 +218,14 @@ export function FileBrowser() {
       <FileInfoModal
           file={infoFile}
           onClose={() => setInfoFile(null)}
-          onPreview={(f) => { setInfoFile(null); setPreviewFile(f) }}
+          onPreview={(f) => { setInfoFile(null); openPreview(f) }}
           onShare={(f) => setShareTarget(f)}
           onVersions={(f) => setVersionTarget(f)}
           onDelete={(f) => setPendingDelete({ kind: 'file', file: f, name: fileDisplayName(f) })}
         />
       <EncryptionInfoModal file={encInfoFile} onClose={() => setEncInfoFile(null)} />
       <PreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
-      <EditorModal file={editorTarget} onClose={() => setEditorTarget(null)} />
+      <EditorModal file={editorTarget} onClose={() => setEditorTarget(null)} onSaved={() => void loadFiles()} />
       <ShareModal file={shareTarget} onClose={() => setShareTarget(null)} />
       <ManageSharesModal
         file={manageSharesTarget}
@@ -297,7 +333,7 @@ export function FileBrowser() {
     if (view === 'trash') {
       return [
         { key: 'info', label: 'Info', onClick: () => openInfo(file) },
-        { key: 'preview', label: 'Preview', onClick: () => setPreviewFile(file) },
+        { key: 'preview', label: 'Preview', onClick: () => openPreview(file) },
         {
           key: 'restore',
           label: 'Restore',
@@ -316,7 +352,7 @@ export function FileBrowser() {
       ...(Collaboration.isCollaborativeFileType(file.mime_type)
         ? [{ key: 'edit', label: 'Edit', onClick: () => setEditorTarget(file) }]
         : []),
-      { key: 'preview', label: 'Preview', onClick: () => setPreviewFile(file) },
+      { key: 'preview', label: 'Preview', onClick: () => openPreview(file) },
       { key: 'encryption-info', label: 'Encryption Info', onClick: () => setEncInfoFile(file) },
       { key: 'share', label: 'Share', onClick: () => setShareTarget(file) },
       { key: 'manage-shares', label: 'Manage Shares', onClick: () => setManageSharesTarget(file) },
@@ -402,6 +438,15 @@ export function FileBrowser() {
   if (error) return <div className="fb-status fb-error">{error}{modals}<ContextMenu {...ctxMenu.menuProps} items={menuItems} /></div>
 
   // --- Shared (incoming shares) view ---
+  if (view === 'shared' && browsingShare) {
+    return (
+      <>
+        <SharedFolderView {...browsingShare} onClose={() => setBrowsingShare(null)} />
+        {modals}
+      </>
+    )
+  }
+
   if (view === 'shared') {
     return (
       <div className="file-browser">
@@ -426,14 +471,37 @@ export function FileBrowser() {
                     <span className="shared-from">from {share.owner_pubkey.slice(0, 12)}…</span>
                     {!share.decrypted && <span className="fb-e2e">undecryptable</span>}
                   </span>
-                  <button
-                    type="button"
-                    className="selection-btn primary"
-                    disabled={!share.decrypted}
-                    onClick={() => void acceptShare(share)}
-                  >
-                    Accept
-                  </button>
+                  {share.decrypted && content.type === 'file' && (
+                    <button
+                      type="button"
+                      className="selection-btn"
+                      disabled={busyShareId === share.id}
+                      onClick={() => void onDownloadShare(share)}
+                    >
+                      Download
+                    </button>
+                  )}
+                  {share.decrypted && content.type === 'folder' && (
+                    <button
+                      type="button"
+                      className="selection-btn"
+                      onClick={() => setBrowsingShare({ share, name })}
+                    >
+                      Open
+                    </button>
+                  )}
+                  {share.accepted ? (
+                    <span className="shared-accepted">Accepted</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="selection-btn primary"
+                      disabled={!share.decrypted || busyShareId === share.id}
+                      onClick={() => void onAcceptShare(share, name)}
+                    >
+                      Accept
+                    </button>
+                  )}
                 </li>
               )
             })}
@@ -799,7 +867,7 @@ function FileRow({
           {name}
         </button>
         {enc && (
-          <span className="fb-e2e" title="End-to-end encrypted (XChaCha20-Poly1305)">
+          <span className="fb-e2e" title="Contents end-to-end encrypted (XChaCha20-Poly1305). The name, size and type are not encrypted yet.">
             E2E
           </span>
         )}

@@ -27,6 +27,8 @@ export interface KeyStorage {
   put(record: KeyRecord): Promise<void>
   get(id: string): Promise<KeyRecord | null>
   delete(id: string): Promise<void>
+  /** Every record stored for `pubkey` (backup export, clear-all, folder listing). */
+  list(pubkey: string): Promise<KeyRecord[]>
 }
 
 export class IndexedDBKeyStorage implements KeyStorage {
@@ -90,6 +92,17 @@ export class IndexedDBKeyStorage implements KeyStorage {
       request.onerror = () => reject(request.error)
     })
   }
+
+  async list(pubkey: string): Promise<KeyRecord[]> {
+    if (!this.db) await this.init()
+    return new Promise((resolve, reject) => {
+      const tx = this.db!.transaction(this.storeName, 'readonly')
+      const index = tx.objectStore(this.storeName).index('pubkey')
+      const request = index.getAll(IDBKeyRange.only(pubkey))
+      request.onsuccess = () => resolve(request.result as KeyRecord[])
+      request.onerror = () => reject(request.error)
+    })
+  }
 }
 
 export class InMemoryKeyStorage implements KeyStorage {
@@ -108,5 +121,9 @@ export class InMemoryKeyStorage implements KeyStorage {
 
   async delete(id: string): Promise<void> {
     this.store.delete(id)
+  }
+
+  async list(pubkey: string): Promise<KeyRecord[]> {
+    return [...this.store.values()].filter((r) => r.pubkey === pubkey).map((r) => ({ ...r }))
   }
 }

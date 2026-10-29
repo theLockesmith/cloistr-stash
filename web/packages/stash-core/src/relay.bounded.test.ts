@@ -5,7 +5,7 @@ import {
   PublishTimeoutError,
   PUBLISH_TIMEOUT_MS,
 } from '@cloistr/collab-common/core'
-import { Relay, type RelayAuthPort, type SignedEvent } from './relay'
+import { Relay, PUBLISH_VERIFY_TIMEOUT_MS, type RelayAuthPort, type SignedEvent } from './relay'
 
 // Node test env has no WebSocket; Relay only reads the OPEN constant from it.
 class FakeSocket {
@@ -67,7 +67,9 @@ async function publishNeedingAuth(id: string) {
 }
 
 describe('Relay publish is bounded', () => {
-  it('rejects with PublishTimeoutError at PUBLISH_TIMEOUT_MS when the relay never answers', async () => {
+  // After PUBLISH_TIMEOUT_MS the relay is asked whether it holds the event
+  // (relay.slow-auth.test.ts); with no answer to that either, it fails.
+  it('rejects with PublishTimeoutError when the relay never answers', async () => {
     const p = Relay.publish(event('e1'))
     let result: unknown = 'pending'
     p.catch((e) => (result = e))
@@ -75,7 +77,7 @@ describe('Relay publish is bounded', () => {
     await vi.advanceTimersByTimeAsync(PUBLISH_TIMEOUT_MS - 1)
     expect(result).toBe('pending')
 
-    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(1 + PUBLISH_VERIFY_TIMEOUT_MS)
     expect(result).toBeInstanceOf(PublishTimeoutError)
     expect(Relay.pendingPublishes.size).toBe(0)
   })

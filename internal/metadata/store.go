@@ -72,27 +72,25 @@ func NewStoreWithRelayPrefs(relayURL string, logger *slog.Logger, relayPrefsClie
 }
 
 // Connect establishes connection to the relay
-//
-// ctx is kept for every later reconnect, so it must live as long as the
-// store: pass a long-lived context, never one with a timeout (the dial is
-// bounded inside). A 10s startup timeout here made every reconnect fail.
 func (s *Store) Connect(ctx context.Context) error {
 	s.connMu.Lock()
 	defer s.connMu.Unlock()
 
-	// Store base context for reconnection
-	s.baseCtx, s.cancelFunc = context.WithCancel(ctx)
+	// Reconnects outlive ctx: main passes a 10s startup timeout, and a base
+	// derived from it failed every later reconnect at once (found live
+	// 2026-10-27). ctx bounds only this first dial.
+	s.baseCtx, s.cancelFunc = context.WithCancel(context.Background())
 
-	return s.connectLocked()
+	return s.connectLocked(ctx)
 }
 
 // connectLocked performs the actual connection (must hold connMu)
-func (s *Store) connectLocked() error {
-	if s.baseCtx == nil {
+func (s *Store) connectLocked(dialCtx context.Context) error {
+	if dialCtx == nil {
 		return ErrNotConnected // Connect was never called
 	}
 	// Use a timeout to prevent indefinite hangs on connection failures
-	ctx, cancel := context.WithTimeout(s.baseCtx, 15*time.Second)
+	ctx, cancel := context.WithTimeout(dialCtx, 15*time.Second)
 	defer cancel()
 
 	relay, err := nostr.RelayConnect(ctx, s.relayURL)
@@ -132,7 +130,7 @@ func (s *Store) ensureConnected() error {
 	}
 
 	// Reconnect
-	if err := s.connectLocked(); err != nil {
+	if err := s.connectLocked(s.baseCtx); err != nil {
 		s.consecutiveFailures++
 		if s.consecutiveFailures >= maxConsecutiveFailures {
 			s.unhealthy = true

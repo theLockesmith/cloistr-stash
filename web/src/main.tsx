@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import { installDebugConsole } from '@cloistr/ui'
 import { ThemeProvider, SharedAuthProvider, ToastProvider } from '@cloistr/ui/components'
@@ -22,17 +22,30 @@ import './index.css'
 // which is exactly when auth and relay setup happen.
 installDebugConsole()
 
+// /public/{sha256}#{key} is a share link's reader page (src/public). It gets
+// its own small tree: no sign-in, no PWA notice, no full app.
+const PublicRoot = lazy(() => import('./public/PublicRoot'))
+const isPublic = /^\/public\//.test(window.location.pathname)
+
 createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ThemeProvider>
-      <SharedAuthProvider signerUrl={SIGNER_URL}>
-        <ToastProvider>
-          <PwaUpdateNotice />
-          <StashProvider>
-            <App />
-          </StashProvider>
-        </ToastProvider>
-      </SharedAuthProvider>
-    </ThemeProvider>
-  </React.StrictMode>,
+  isPublic ? (
+    <React.StrictMode>
+      <Suspense fallback={null}>
+        <PublicRoot />
+      </Suspense>
+    </React.StrictMode>
+  ) : (
+    <React.StrictMode>
+      <ThemeProvider>
+        <SharedAuthProvider signerUrl={SIGNER_URL}>
+          <ToastProvider>
+            <PwaUpdateNotice />
+            <StashProvider>
+              <App />
+            </StashProvider>
+          </ToastProvider>
+        </SharedAuthProvider>
+      </ThemeProvider>
+    </React.StrictMode>
+  ),
 )
