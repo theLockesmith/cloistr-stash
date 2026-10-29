@@ -8,7 +8,7 @@
 // Search indexing is a no-op until the search module is ported (#5).
 
 import { Crypto } from './crypto'
-import { Keys } from './keys'
+import { Keys, AccountChangedError, type AccountFence } from './keys'
 import { API } from './api'
 import { Events } from './events'
 import { authPort, getSigner } from './authBridge'
@@ -70,6 +70,9 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
   const items = fileList.map(makeItem)
   const { folderId, existing = [], onItem } = opts
   const emit = (it: UploadItem) => onItem?.({ ...it })
+  // The account this queue is for: every signature, key store and publish
+  // below refuses once it changes (an account switch mid-upload).
+  const fence = Keys.accountFence() ?? undefined
   // Once, for the whole queue: a sealed drive takes sealed files only.
   let sealed = false
   try {
@@ -124,6 +127,7 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
         emit(item)
         let authHeader: string | null = null
         if (authPort.isConnected) {
+          Keys.assertAccount(fence)
           authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
         }
 
@@ -134,7 +138,9 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
         if (authPort.isConnected && sealed) {
           item.status = 'publishing'
           emit(item)
-          await addSealedFile(await writeContext(), {
+          const ctx = await writeContext()
+          Keys.assertAccount(fence)
+          await addSealedFile(ctx, {
             key: fileKey,
             meta: {
               id: item.fileId,
@@ -151,8 +157,10 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
           item.status = 'publishing'
           emit(item)
 
+          Keys.assertAccount(fence)
           const ownerEnvelope = await Keys.wrapFileKeyForOwner(fileKey, item.fileId, getSigner())
-          if (folderId) await addWrappedKeyToFolder(folderId, item.fileId, fileKey)
+          Keys.assertAccount(fence)
+          if (folderId) await addWrappedKeyToFolder(folderId, item.fileId, fileKey, fence)
 
           const metadataEvent = await Events.createEncryptedFileMetadataEvent({
             fileId: item.fileId,
@@ -165,6 +173,7 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
             folderId: folderId ?? undefined,
             ownerEnvelope,
           })
+          Keys.assertAccount(fence)
           await authPort.publishEvent(metadataEvent)
         }
 
@@ -197,6 +206,15 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
       item.error = (err as Error).message
       console.error(`Upload failed for ${item.name}:`, err)
       emit(item)
+      if (err instanceof AccountChangedError) {
+        // The rest of the queue was for the previous account.
+        for (const rest of items.slice(i + 1)) {
+          rest.status = 'error'
+          rest.error = err.message
+          emit(rest)
+        }
+        break
+      }
     }
   }
 
@@ -220,6 +238,7 @@ export async function uploadEncryptedBytes(
   folderId?: string | null,
 ): Promise<void> {
   await Crypto.init()
+  const fence = Keys.accountFence() ?? undefined
   const sealed = authPort.isConnected ? await writesSealed() : false
   if (folderId && !sealed) Keys.assertFolderKeyUsable(folderId)
 
@@ -234,6 +253,7 @@ export async function uploadEncryptedBytes(
 
     let authHeader: string | null = null
     if (authPort.isConnected) {
+      Keys.assertAccount(fence)
       authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
     }
 
@@ -242,7 +262,9 @@ export async function uploadEncryptedBytes(
     const sha256 = (result.sha256 as string) || encryptedHash
 
     if (authPort.isConnected && sealed) {
-      await addSealedFile(await writeContext(), {
+      const ctx = await writeContext()
+      Keys.assertAccount(fence)
+      await addSealedFile(ctx, {
         key: fileKey,
         meta: {
           id: fileId,
@@ -256,8 +278,10 @@ export async function uploadEncryptedBytes(
         },
       })
     } else if (authPort.isConnected) {
+      Keys.assertAccount(fence)
       const ownerEnvelope = await Keys.wrapFileKeyForOwner(fileKey, fileId, getSigner())
-      if (folderId) await addWrappedKeyToFolder(folderId, fileId, fileKey)
+      Keys.assertAccount(fence)
+      if (folderId) await addWrappedKeyToFolder(folderId, fileId, fileKey, fence)
 
       const metadataEvent = await Events.createEncryptedFileMetadataEvent({
         fileId,
@@ -270,6 +294,7 @@ export async function uploadEncryptedBytes(
         folderId: folderId ?? undefined,
         ownerEnvelope,
       })
+      Keys.assertAccount(fence)
       await authPort.publishEvent(metadataEvent)
     }
   } finally {
@@ -296,9 +321,11 @@ export async function addWrappedKeyToFolder(
   folderId: string,
   fileId: string,
   fileKey: Uint8Array,
+  fence?: AccountFence,
 ): Promise<void> {
   const pubkey = authPort.pubkey
   if (!pubkey) return
+  Keys.assertAccount(fence)
 
   // Query the current folder event FIRST to get parentId for correct key derivation
   const events = await Relay.subscribe(
@@ -334,7 +361,8 @@ export async function addWrappedKeyToFolder(
   } catch { /* use defaults */ }
 
   // Our folder (authors: [pubkey] above): its relay key tag is authoritative.
-  const folderKey = await Keys.resolveOwnFolderKey(folderId, encryptedFolderKey, parentId ?? null)
+  Keys.assertAccount(fence)
+  const folderKey = await Keys.resolveOwnFolderKey(folderId, encryptedFolderKey, parentId ?? null, fence)
   const envelope = Keys.wrapFileKeyForFolder(fileKey, fileId, folderKey)
 
   // Replace or add this file's wrapped key
@@ -354,6 +382,7 @@ export async function addWrappedKeyToFolder(
     encryptedFolderKey,
     wrappedKeys: updated,
   })
+  Keys.assertAccount(fence)
   await authPort.publishEvent(folderEvent)
 }
 

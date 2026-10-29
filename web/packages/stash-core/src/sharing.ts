@@ -340,15 +340,20 @@ export const Sharing = {
       throw new Error('Cannot share: missing file ID')
     }
 
+    // The account this action is for: the key fetch and any publish below
+    // refuse once it changes (an account switch mid-action).
+    const fence = Keys.accountFence() ?? undefined
     const fileKey = await Keys.getFileKey(folderId, fileId, {
       ownerEnvelope: file.owner_key,
       signer: getSigner(),
+      fence,
     })
 
     // Encrypt the file key for the recipient (NIP-44 preferred, NIP-04 fallback),
     // then wipe it, on failure too: for a wrapped file it is the only key.
     let encryptedFileKey: string
     try {
+      Keys.assertAccount(fence)
       encryptedFileKey = await this.encryptForRecipient(recipientPubkey, Crypto.bytesToHex(fileKey))
     } finally {
       Crypto.wipeKey(fileKey)
@@ -381,6 +386,7 @@ export const Sharing = {
     })
 
     // Publish to relay
+    Keys.assertAccount(fence)
     await authPort.publishEvent(signedEvent)
 
     // Write to local share index so the sharer can list their own outgoing
@@ -425,11 +431,13 @@ export const Sharing = {
 
     // Own folders carry their self-encrypted key tag, which is authoritative;
     // never hand a recipient a key that disagrees with it.
+    const fence = Keys.accountFence() ?? undefined
     const folderKey = folder.encrypted_key
-      ? await Keys.resolveOwnFolderKey(folderId, folder.encrypted_key, folder.parent_id ?? null)
-      : await Keys.getFolderKey(folderId, folder.parent_id ?? null)
+      ? await Keys.resolveOwnFolderKey(folderId, folder.encrypted_key, folder.parent_id ?? null, fence)
+      : await Keys.getFolderKey(folderId, folder.parent_id ?? null, fence)
 
     // Encrypt the folder key for the recipient (NIP-44 preferred, NIP-04 fallback)
+    Keys.assertAccount(fence)
     const folderKeyHex = Crypto.bytesToHex(folderKey)
     const encryptedFolderKey = await this.encryptForRecipient(recipientPubkey, folderKeyHex)
 
@@ -455,6 +463,7 @@ export const Sharing = {
     })
 
     // Publish to relay
+    Keys.assertAccount(fence)
     await authPort.publishEvent(signedEvent)
 
     void writeShareIndex({
@@ -530,14 +539,19 @@ export const Sharing = {
       throw new Error('Cannot generate link: missing file ID')
     }
 
+    // The account this action is for: the key fetch and any publish below
+    // refuse once it changes (an account switch mid-action).
+    const fence = Keys.accountFence() ?? undefined
     const fileKey = await Keys.getFileKey(folderId, fileId, {
       ownerEnvelope: file.owner_key,
       signer: getSigner(),
+      fence,
     })
 
     // Encode the key for URL fragment; the bytes are not needed after that.
     let keyBase64url: string
     try {
+      Keys.assertAccount(fence)
       keyBase64url = Crypto.bytesToBase64url(fileKey)
     } finally {
       Crypto.wipeKey(fileKey)
@@ -582,7 +596,9 @@ export const Sharing = {
         content: JSON.stringify(shareContent),
       }
 
+      Keys.assertAccount(fence)
       const signedEvent = await authPort.signEvent(event)
+      Keys.assertAccount(fence)
       await authPort.publishEvent(signedEvent)
     }
 
