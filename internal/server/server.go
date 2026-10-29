@@ -119,6 +119,10 @@ func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metad
 	} else {
 		authMiddle = auth.NewAuthMiddleware(whitelist, cfg.Auth.SignerURL, logger)
 	}
+	authMiddle.SetHTTPAuth(cfg.Server.AuthOrigins)
+	if len(cfg.Server.AuthOrigins) == 0 {
+		logger.Warn("DRIVE_AUTH_ORIGINS not set: NIP-98 'u' tags are checked against the request's Host headers")
+	}
 
 	s := &Server{
 		config:         cfg,
@@ -176,20 +180,20 @@ func (s *Server) registerRoutes() {
 
 	// API endpoints - folder operations
 	// List folders is public (filtered by pubkey query param)
-	s.mux.HandleFunc("GET /api/folders", s.handleListFolders)
+	s.mux.HandleFunc("GET /api/folders", s.handleListFolders) // owner only (ownerOnly)
 
 	// Create folder requires whitelist authorization
 	s.mux.Handle("POST /api/folders", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleCreateFolder)))
 
 	// Get folder is public
-	s.mux.HandleFunc("GET /api/folders/{id}", s.handleGetFolder)
+	s.mux.HandleFunc("GET /api/folders/{id}", s.handleGetFolder) // owner only
 
 	// Delete folder requires whitelist authorization
 	s.mux.Handle("DELETE /api/folders/{id}", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleDeleteFolder)))
 
 	// API endpoints - share operations
 	// List shares (both created and received)
-	s.mux.HandleFunc("GET /api/shares", s.handleListShares)
+	s.mux.HandleFunc("GET /api/shares", s.handleListShares) // owner only
 
 	// Create share requires whitelist authorization
 	s.mux.Handle("POST /api/shares", s.authMiddle.RequireWhitelist(http.HandlerFunc(s.handleCreateShare)))
@@ -205,7 +209,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/quota", s.handleGetQuota)
 
 	// Keyring endpoint - get root key event (requires authorization)
-	s.mux.HandleFunc("GET /api/keyring", s.handleGetKeyring)
+	s.mux.HandleFunc("GET /api/keyring", s.handleGetKeyring) // owner only
 
 	// Serve static files (web UI)
 	s.mux.HandleFunc("/", s.handleStatic)
@@ -332,6 +336,26 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filePath)
 }
 
+// ownerOnly authenticates the caller (NIP-98 for this URL, or a signer
+// session) and returns their pubkey. A ?pubkey= naming anyone else is 403.
+// On failure it has written the response and returns ok=false.
+func (s *Server) ownerOnly(w http.ResponseWriter, r *http.Request) (pubkey string, ok bool) {
+	pubkey, err := s.authMiddle.ExtractPubkey(r)
+	if err != nil {
+		http.Error(w, "Invalid authentication", http.StatusUnauthorized)
+		return "", false
+	}
+	if pubkey == "" {
+		http.Error(w, "Authentication required", http.StatusUnauthorized)
+		return "", false
+	}
+	if q := r.URL.Query().Get("pubkey"); q != "" && !strings.EqualFold(q, pubkey) {
+		http.Error(w, "Only visible to its owner", http.StatusForbidden)
+		return "", false
+	}
+	return pubkey, true
+}
+
 // handleListFiles returns all files for a given pubkey from Nostr relay
 // Supports optional folder query param to filter by folder
 //
@@ -340,17 +364,8 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 // to list any ?pubkey= for anyone. (The relay still serves these events to
 // anyone; this closes the endpoint, not that.)
 func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
-	pubkey, err := s.authMiddle.ExtractPubkey(r)
-	if err != nil {
-		http.Error(w, "Invalid authentication", http.StatusUnauthorized)
-		return
-	}
-	if pubkey == "" {
-		http.Error(w, "Authentication required", http.StatusUnauthorized)
-		return
-	}
-	if q := r.URL.Query().Get("pubkey"); q != "" && !strings.EqualFold(q, pubkey) {
-		http.Error(w, "Files are only listed to their owner", http.StatusForbidden)
+	pubkey, ok := s.ownerOnly(w, r)
+	if !ok {
 		return
 	}
 
@@ -365,6 +380,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	// Check if folder filter is specified
 	folderID := r.URL.Query().Get("folder")
 	var files []*metadata.FileMetadata
+	var err error
 
 	if r.URL.Query().Has("folder") {
 		// Filter by folder (empty string = root folder)
@@ -474,7 +490,6 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("failed to upload to blossom",
 			"error", err,
-			"filename", header.Filename,
 			"content_type", contentType,
 			"encryption_mode", encryptionMode,
 		)
@@ -504,7 +519,6 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(fileMeta)
 
 	s.logger.Info("file uploaded",
-		"filename", header.Filename,
 		"sha256", result.SHA256[:16],
 		"size", result.Size,
 		"content_type", contentType,
@@ -715,10 +729,8 @@ func (s *Server) handlePublishMetadata(w http.ResponseWriter, r *http.Request) {
 
 // handleListFolders returns all folders for a given pubkey
 func (s *Server) handleListFolders(w http.ResponseWriter, r *http.Request) {
-	pubkey := r.URL.Query().Get("pubkey")
-	if pubkey == "" {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"folders":[]}`)
+	pubkey, ok := s.ownerOnly(w, r)
+	if !ok {
 		return
 	}
 
@@ -840,9 +852,8 @@ func (s *Server) handleGetFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pubkey := r.URL.Query().Get("pubkey")
-	if pubkey == "" {
-		http.Error(w, "Pubkey required", http.StatusBadRequest)
+	pubkey, ok := s.ownerOnly(w, r)
+	if !ok {
 		return
 	}
 
@@ -930,10 +941,10 @@ func (s *Server) handleDeleteFolder(w http.ResponseWriter, r *http.Request) {
 // handleListShares returns shares for the current user
 // Query params: pubkey (required), type=created|received|all (default: all)
 func (s *Server) handleListShares(w http.ResponseWriter, r *http.Request) {
-	pubkey := r.URL.Query().Get("pubkey")
-	if pubkey == "" {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"shares":[],"received":[]}`)
+	// The caller's own sharing graph only: shares they created, and shares
+	// addressed to them (ListSharedWithMe filters on the recipient p tag).
+	pubkey, ok := s.ownerOnly(w, r)
+	if !ok {
 		return
 	}
 
@@ -1071,15 +1082,13 @@ type KeyringResponse struct {
 
 // handleGetKeyring retrieves the user's encrypted root key from Nostr
 func (s *Server) handleGetKeyring(w http.ResponseWriter, r *http.Request) {
-	pubkey := r.URL.Query().Get("pubkey")
-	if pubkey == "" {
-		http.Error(w, "pubkey parameter required", http.StatusBadRequest)
+	pubkey, ok := s.ownerOnly(w, r)
+	if !ok {
 		return
 	}
 
-	// Validate pubkey format (64 hex chars)
-	if len(pubkey) != 64 {
-		http.Error(w, "Invalid pubkey format", http.StatusBadRequest)
+	if s.metadata == nil {
+		http.Error(w, "Metadata storage not configured", http.StatusServiceUnavailable)
 		return
 	}
 

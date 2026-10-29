@@ -46,6 +46,20 @@ describe('own file listing', () => {
     expect(calls[2].auth).toBe(`Nostr signed:GET:https://stash.example/api/files?pubkey=${ME}&folder=`)
   })
 
+  it('folders, a folder, shares and the keyring go through the same signed read', async () => {
+    const calls = stubFetch([401, 200, 200, 200, 200])
+    await API.listFolders(ME, 'p1')
+    await API.getFolder('f1', ME)
+    await API.listShares(ME, 'received')
+    await API.getKeyring(ME)
+    expect(calls.slice(1).map((c) => c.auth)).toEqual([
+      `Nostr signed:GET:https://stash.example/api/folders?pubkey=${ME}&parent=p1`,
+      `Nostr signed:GET:https://stash.example/api/folders/f1?pubkey=${ME}`,
+      `Nostr signed:GET:https://stash.example/api/shares?pubkey=${ME}&type=received`,
+      `Nostr signed:GET:https://stash.example/api/keyring?pubkey=${ME}`,
+    ])
+  })
+
   it('surfaces the 401 when no signer is wired', async () => {
     API.httpAuth = null
     stubFetch([401])
