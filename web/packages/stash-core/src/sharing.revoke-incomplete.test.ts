@@ -28,7 +28,12 @@ const { ME, OTHER, acct, published, calls, gate, holdAt, relay, drive } = vi.hoi
     n: 0,
     metadata: 'ok' as 'ok' | 'lost' | 'dropped',
   },
-  drive: { sealed: false, added: [] as Array<{ id: string; name: string; folderId: string | null }> },
+  drive: {
+    sealed: false,
+    added: [] as Array<{ id: string; name: string; folderId: string | null }>,
+    // Makes the sealed add throw before it signs anything, as wrapForOwner does on an account switch.
+    failBeforeSign: null as Error | null,
+  },
   holdAt: { step: 'upload' as 'upload' | 'delete' | 'notice' | 'record' },
   // The first Blossom auth signature waits here, as a NIP-46 round trip does.
   gate: {
@@ -121,6 +126,7 @@ vi.mock('./driveWrite', () => ({
     ctx: { publish: (e: unknown) => Promise<unknown> },
     args: { meta: { id: string; name: string; folderId: string | null } },
   ) => {
+    if (drive.failBeforeSign) throw drive.failBeforeSign
     drive.added.push(args.meta)
     await ctx.publish({
       kind: 30078,
@@ -142,7 +148,7 @@ vi.mock('./versioning', () => ({
   Versioning: { getVersionHistory: async () => [] },
 }))
 
-import { Keys } from './keys'
+import { Keys, AccountChangedError } from './keys'
 import type { AuthPort } from './keys'
 import { Crypto } from './crypto'
 import { InMemoryKeyStorage } from './key-storage'
@@ -206,6 +212,7 @@ beforeEach(async () => {
   relay.metadata = 'ok'
   drive.sealed = false
   drive.added.length = 0
+  drive.failBeforeSign = null
   Object.assign(calls, {
     upload: 0,
     del: 0,
@@ -458,6 +465,30 @@ describe('a revoke never unseals a file', () => {
     expect(published.filter((e) => e.kind === 30078)).toHaveLength(0)
     expect(calls.deleted).toEqual([OLD])
     expect(plaintextRecords()).toEqual([])
+    expect(Sharing.pendingRevoke('file-1')).toBeNull()
+  })
+
+  // cloistr-audit on !241: a failure inside the sealed add before its record is
+  // signed was recorded as 'old-copy-remains' with no record, so Retry removed
+  // the old blob while no new copy existed: the file was lost.
+  it('stopped before the sealed record is signed: the old blob is kept, retry re-runs it', async () => {
+    drive.sealed = true
+    drive.failBeforeSign = new AccountChangedError()
+    const out = await Sharing.revokeAndReencryptFile(SEALED).catch((e: unknown) => e)
+    expect(out).toBeInstanceOf(RevokeIncompleteError)
+    expect((out as RevokeIncompleteError).pending.stage).toBe('not-started')
+    expect(calls.del).toBe(0)
+
+    // Still failing on retry: the old blob stays and nothing claims a new copy.
+    const again = await Sharing.retryRevoke(SEALED).catch((e: unknown) => e)
+    expect(again).toBeInstanceOf(RevokeIncompleteError)
+    expect(calls.del).toBe(0)
+    expect(calls.sealedDeleted).toEqual([])
+
+    drive.failBeforeSign = null
+    await Sharing.retryRevoke(SEALED)
+    expect(drive.added).toHaveLength(1)
+    expect(calls.deleted).toEqual([OLD])
     expect(Sharing.pendingRevoke('file-1')).toBeNull()
   })
 })

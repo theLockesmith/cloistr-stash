@@ -806,7 +806,9 @@ export const Sharing = {
         // The file's sealed record is kept as unconfirmed from signing until
         // the relay answers, as below. Its ring entry is not: the owner's
         // drive opens a file outside any ring through its owner envelope.
-        stage = 'old-copy-remains'
+        // The stage moves only once that record is signed: addFile derives and
+        // wraps keys first, and a stop there must not let Retry remove the old
+        // blob while no new copy exists.
         await Sealed.addFile(
           {
             ...ctx,
@@ -815,7 +817,10 @@ export const Sharing = {
               const signed = await authPort.signEvent(ev)
               Keys.assertAccount(fence)
               const fileRecord = signed.kind === SEALED_FILE_KIND
-              if (fileRecord) unconfirmed = signed
+              if (fileRecord) {
+                stage = 'old-copy-remains'
+                unconfirmed = signed
+              }
               await authPort.publishEvent(signed)
               if (fileRecord) unconfirmed = undefined
               return signed
