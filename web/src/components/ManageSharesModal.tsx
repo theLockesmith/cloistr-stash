@@ -1,13 +1,20 @@
 import { useEffect, useState } from 'react'
 import { Modal } from '@cloistr/ui/components'
-import { Sharing } from '@cloistr/stash-core/sharing'
+import { Sharing, RevokeIncompleteError, type PendingRevoke } from '@cloistr/stash-core/sharing'
+import { authPort } from '@cloistr/stash-core/authBridge'
 import type { StashFile } from '../state/types'
+import { revokeStatus } from './revokeStatus'
 
 interface OutgoingShareInfo {
   id: string
   recipientPubkey: string
   permission: string
   expiresAt: number | null
+}
+
+/** The id Sharing keeps an unfinished revoke under (its own lookup order). */
+function revokeIdOf(file: StashFile): string {
+  return (file.file_id ?? file.fileId ?? file.id ?? file.d) as string
 }
 
 function fileIdOf(file: StashFile): string {
@@ -31,14 +38,18 @@ export function ManageSharesModal({
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState<{ text: string; kind: 'info' | 'success' | 'error' } | null>(null)
   const [rekeying, setRekeying] = useState(false)
+  // A revoke that stopped partway, kept by Sharing across reloads and account switches.
+  const [pending, setPending] = useState<PendingRevoke | null>(null)
 
   useEffect(() => {
     let cancelled = false
     if (!file) {
       setShares([])
       setStatus(null)
+      setPending(null)
       return
     }
+    setPending(Sharing.pendingRevoke(revokeIdOf(file)))
 
     const fileId = fileIdOf(file)
     setLoading(true)
@@ -92,12 +103,44 @@ export function ManageSharesModal({
       onRekeyed?.()
       setTimeout(close, 2000)
     } catch (err) {
+      if (err instanceof RevokeIncompleteError) {
+        setStatus(null)
+        setPending(err.pending)
+        // A new copy may already be published; show it.
+        if (err.pending.stage !== 'not-started') onRekeyed?.()
+        return
+      }
       const msg = err instanceof Error ? err.message : String(err)
       setStatus({ text: `Re-encryption failed: ${msg}`, kind: 'error' })
     } finally {
       setRekeying(false)
     }
   }
+
+  const retryRevoke = async () => {
+    setRekeying(true)
+    setStatus({ text: 'Finishing re-encryption…', kind: 'info' })
+    try {
+      await Sharing.retryRevoke(file)
+      setPending(null)
+      setStatus({ text: 'File re-encrypted with new key. All prior shares are invalid.', kind: 'success' })
+      setShares([])
+      onRekeyed?.()
+      setTimeout(close, 2000)
+    } catch (err) {
+      if (err instanceof RevokeIncompleteError) {
+        setStatus(null)
+        setPending(err.pending)
+        return
+      }
+      const msg = err instanceof Error ? err.message : String(err)
+      setStatus({ text: `Retry failed: ${msg}`, kind: 'error' })
+    } finally {
+      setRekeying(false)
+    }
+  }
+
+  const unfinished = pending ? revokeStatus(pending, authPort.pubkey) : null
 
   const footer = (
     <button type="button" className="selection-btn" onClick={close}>
@@ -150,12 +193,23 @@ export function ManageSharesModal({
         <button
           type="button"
           className="selection-btn danger"
-          disabled={rekeying}
+          disabled={rekeying || !!pending}
           onClick={() => void rekeyFile()}
         >
           Re-encrypt File
         </button>
       </div>
+
+      {unfinished && (
+        <div className="share-status error" role="alert">
+          <p>{unfinished.text}</p>
+          {unfinished.canRetry && (
+            <button type="button" className="selection-btn danger" disabled={rekeying} onClick={() => void retryRevoke()}>
+              Retry
+            </button>
+          )}
+        </div>
+      )}
 
       {status && (
         <p className={`share-status${status.kind === 'error' ? ' error' : status.kind === 'success' ? ' success' : ''}`}>
