@@ -21,7 +21,8 @@ import { authPort, getSigner } from './authBridge'
 import { addWrappedKeyToFolder } from './upload'
 import { Events } from './events'
 import * as Sealed from './driveWrite'
-import { writeContext } from './sealedDrive'
+import { writeContext, writesSealed } from './sealedDrive'
+import { SEALED_FILE_KIND } from './sealed'
 import { listSharedFolder, type DriveSnapshot } from './drive'
 import type { UnsignedEvent, SignedEvent } from './relay'
 import type { StashFile, StashFolder } from './types'
@@ -769,9 +770,12 @@ export const Sharing = {
     // wiped on every exit, a failure included.
     const newFileKey = Keys.generateFileKey()
     try {
+      // A sealed file, or any file in a sealed drive, gets its new copy sealed
+      // as upload does: never an old-shape record with the name in the clear.
+      const sealedWrite = file.sealed === true || (await writesSealed())
       const decryptedData = await Crypto.decryptFile(encryptedData, oldFileKey)
       Keys.assertAccount(fence)
-      const ownerEnvelope = await Keys.wrapFileKeyForOwner(newFileKey, newFileId, getSigner())
+      const ownerEnvelope = sealedWrite ? undefined : await Keys.wrapFileKeyForOwner(newFileKey, newFileId, getSigner())
 
       // Step 5: Re-encrypt with new key
       const reencryptedData = await Crypto.encryptFile(decryptedData, newFileKey)
@@ -791,11 +795,65 @@ export const Sharing = {
 
       // The folder's wrapped copy only once the blob exists, as upload does: a
       // failed re-encrypt or upload must not leave a wk for a file that is not there.
-      if (folderId) {
+      if (folderId && !sealedWrite) {
         await addWrappedKeyToFolder(folderId, newFileId, newFileKey, fence)
       }
 
       // Step 8: Publish new metadata event
+      if (sealedWrite) {
+        const ctx = await writeContext()
+        Keys.assertAccount(fence)
+        // The file's sealed record is kept as unconfirmed from signing until
+        // the relay answers, as below. Its ring entry is not: the owner's
+        // drive opens a file outside any ring through its owner envelope.
+        // The stage moves only once that record is signed: addFile derives and
+        // wraps keys first, and a stop there must not let Retry remove the old
+        // blob while no new copy exists.
+        await Sealed.addFile(
+          {
+            ...ctx,
+            publish: async (ev) => {
+              Keys.assertAccount(fence)
+              const signed = await authPort.signEvent(ev)
+              Keys.assertAccount(fence)
+              const fileRecord = signed.kind === SEALED_FILE_KIND
+              if (fileRecord) {
+                stage = 'old-copy-remains'
+                unconfirmed = signed
+              }
+              await authPort.publishEvent(signed)
+              if (fileRecord) unconfirmed = undefined
+              return signed
+            },
+          },
+          {
+            key: newFileKey,
+            meta: {
+              id: newFileId,
+              name: file.name,
+              folderId: folderId || null,
+              sha256: uploadResult.sha256,
+              plaintextHash: await Crypto.hash(decryptedData),
+              size: decryptedData.length,
+              encryptedSize: reencryptedData.length,
+              mimeType: (file.mime_type ?? file.mimeType ?? 'application/octet-stream') as string,
+            },
+          },
+        )
+        return await this.completeRevoke(
+          {
+            stage,
+            pubkey: fence?.pubkey ?? '',
+            fileId,
+            oldSha256: file.sha256,
+            newFileId,
+            newHash: uploadedHash,
+            oldSealed,
+          },
+          fence,
+        )
+      }
+
       const metadataEvent = await createEncryptedFileMetadataEvent({
         fileId: newFileId,
         sha256: uploadResult.sha256,
