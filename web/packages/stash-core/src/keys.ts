@@ -54,6 +54,14 @@ export class FolderKeyUnverifiedError extends Error {
   }
 }
 
+/** A folder-key restore took longer than Keys.restoreTimeoutMs (a hung signer); flags were left as they were. */
+export class RestoreTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`Folder-key check did not finish in ${ms / 1000}s`)
+    this.name = 'RestoreTimeoutError'
+  }
+}
+
 export type OwnFolderKeyStatus = 'ok' | 'restored' | 'repaired' | 'unverified'
 
 /** Order folders so every parent in the list comes before its children. */
@@ -121,6 +129,9 @@ export const Keys = {
   // resolveOwnFolderKeyStatus); new files are not added to them.
   unverifiedFolders: new Set<string>(),
   restoreQueue: Promise.resolve() as Promise<unknown>,
+  // Bumped on sign-out: a restore queued or running for the old account stops.
+  restoreEpoch: 0,
+  restoreTimeoutMs: 30_000,
   userPubkey: null as string | null,
 
   // Injected dependencies (formerly globals Auth / API)
@@ -840,14 +851,32 @@ export const Keys = {
     folders: Array<{ id: string; encrypted_key?: string; parent_id?: string; [k: string]: unknown }>,
   ): Promise<{ restored: number; repaired: number; errors: number; unverified: string[] }> {
     // One at a time: sign-in loads the tree and the file list together, and
-    // two runs repairing the same keys must not interleave (!229 audit).
-    const run = this.restoreQueue.then(() => this.restoreOwnFolderKeysNow(folders))
-    this.restoreQueue = run.catch(() => undefined)
-    return run
+    // two runs repairing the same keys must not interleave (!229 audit). A run
+    // that outlives restoreTimeoutMs (a hung signer) gives up its turn and
+    // stops before its next folder, so it cannot stall later runs (!233 audit).
+    const epoch = this.restoreEpoch
+    const run = { stopped: false }
+    const stillCurrent = () => !run.stopped && this.restoreEpoch === epoch
+    const turn = this.restoreQueue.then(() => {
+      if (!stillCurrent()) return { restored: 0, repaired: 0, errors: 0, unverified: [] as string[] }
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          run.stopped = true
+          reject(new RestoreTimeoutError(this.restoreTimeoutMs))
+        }, this.restoreTimeoutMs)
+      })
+      return Promise.race([this.restoreOwnFolderKeysNow(folders, stillCurrent), timeout]).finally(() =>
+        clearTimeout(timer),
+      )
+    })
+    this.restoreQueue = turn.catch(() => undefined)
+    return turn
   },
 
   async restoreOwnFolderKeysNow(
     folders: Array<{ id: string; encrypted_key?: string; parent_id?: string; [k: string]: unknown }>,
+    stillCurrent: () => boolean = () => true,
   ): Promise<{ restored: number; repaired: number; errors: number; unverified: string[] }> {
     const result = { restored: 0, repaired: 0, errors: 0, unverified: [] as string[] }
     if (!this.auth?.isConnected || !this.userPubkey) return result
@@ -855,6 +884,7 @@ export const Keys = {
     // Each listed folder's flag is recomputed below, on its verdict; an error
     // leaves the flag as it was (refusing writes) rather than lifting it.
     for (const folder of parentsFirst(folders)) {
+      if (!stillCurrent()) break
       try {
         const parentUnverified = !!folder.parent_id && this.unverifiedFolders.has(folder.parent_id)
         if (!folder.encrypted_key && !parentUnverified) {
@@ -974,6 +1004,8 @@ export const Keys = {
     }
     this.keyCache.clear()
     this.unverifiedFolders.clear()
+    this.restoreEpoch++
+    this.restoreQueue = Promise.resolve()
     this.rootKeyRelayAnswer = null
     this.rootKeyConflict = false
     this._rootKeyInFlight = null

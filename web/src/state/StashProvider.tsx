@@ -17,7 +17,7 @@ import {
   type ReactNode,
 } from 'react'
 import { API } from '@cloistr/stash-core/api'
-import { Keys } from '@cloistr/stash-core/keys'
+import { Keys, RestoreTimeoutError } from '@cloistr/stash-core/keys'
 import { Crypto } from '@cloistr/stash-core/crypto'
 import { Events } from '@cloistr/stash-core/events'
 import { authPort } from '@cloistr/stash-core/authBridge'
@@ -199,7 +199,14 @@ function editFailure(err: unknown, fallback: string): string {
  */
 async function restoreFolderKeys(folders: StashFolder[]): Promise<void> {
   if (!authPort.isConnected || !authPort.pubkey || folders.length === 0) return
-  await Keys.restoreOwnFolderKeys(folders)
+  try {
+    await Keys.restoreOwnFolderKeys(folders)
+  } catch (err) {
+    // A hung signer: flags stay as they were (unverified folders still refuse
+    // uploads), and the listing still shows. Any other failure propagates.
+    if (!(err instanceof RestoreTimeoutError)) throw err
+    console.warn('restoreFolderKeys:', err.message)
+  }
 }
 
 const snapshotUnverified = (): ReadonlySet<string> => new Set(Keys.unverifiedFolders)
