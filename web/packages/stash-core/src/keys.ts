@@ -54,6 +54,28 @@ export class FolderKeyUnverifiedError extends Error {
   }
 }
 
+/** A folder-key restore took longer than Keys.restoreTimeoutMs (a hung signer); flags were left as they were. */
+export class RestoreTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`Folder-key check did not finish in ${ms / 1000}s`)
+    this.name = 'RestoreTimeoutError'
+  }
+}
+
+/** The signed-in account changed while key work for the previous one was in flight; nothing more was written. */
+export class AccountChangedError extends Error {
+  constructor() {
+    super('The signed-in account changed; key work for the previous account stopped')
+    this.name = 'AccountChangedError'
+  }
+}
+
+/** Which account a piece of key work began for (Keys.accountFence). */
+export interface AccountFence {
+  pubkey: string
+  epoch: number
+}
+
 export type OwnFolderKeyStatus = 'ok' | 'restored' | 'repaired' | 'unverified'
 
 /** Order folders so every parent in the list comes before its children. */
@@ -121,6 +143,10 @@ export const Keys = {
   // resolveOwnFolderKeyStatus); new files are not added to them.
   unverifiedFolders: new Set<string>(),
   restoreQueue: Promise.resolve() as Promise<unknown>,
+  // Bumped on sign-out and account switch (clearCache). Work that began for
+  // one account checks it before every write (see accountFence).
+  accountEpoch: 0,
+  restoreTimeoutMs: 30_000,
   userPubkey: null as string | null,
 
   // Injected dependencies (formerly globals Auth / API)
@@ -182,6 +208,20 @@ export const Keys = {
 
   setStorage(adapter: KeyStorage | null): void {
     this.storage = adapter
+  },
+
+  /** The account signed in now; pass it to later writes so they refuse once it changes. */
+  accountFence(): AccountFence | null {
+    return this.userPubkey ? { pubkey: this.userPubkey, epoch: this.accountEpoch } : null
+  },
+
+  isAccount(fence: AccountFence): boolean {
+    return this.accountEpoch === fence.epoch && this.userPubkey === fence.pubkey
+  },
+
+  /** Throws AccountChangedError if `fence` is given and the account has changed since. */
+  assertAccount(fence?: AccountFence): void {
+    if (fence && !this.isAccount(fence)) throw new AccountChangedError()
   },
 
   async ensureStorage(): Promise<KeyStorage> {
@@ -424,31 +464,38 @@ export const Keys = {
     return folderKey
   },
 
-  async getFolderKey(folderId: string, parentFolderId: string | null = null): Promise<Uint8Array> {
+  async getFolderKey(
+    folderId: string,
+    parentFolderId: string | null = null,
+    fence?: AccountFence,
+  ): Promise<Uint8Array> {
     const cacheKey = `folder:${folderId}`
 
     if (this.keyCache.has(cacheKey)) {
       return this.keyCache.get(cacheKey)!
     }
 
-    const stored = await this.loadEncryptedKey(cacheKey)
+    const stored = await this.loadEncryptedKey(cacheKey, fence)
+    this.assertAccount(fence)
     if (stored) {
       this.keyCache.set(cacheKey, stored)
       return stored
     }
 
     if (parentFolderId) {
-      const parentKey = await this.getFolderKey(parentFolderId)
+      const parentKey = await this.getFolderKey(parentFolderId, null, fence)
       const derivedKey = await this.deriveKey(parentKey, folderId, this.CONTEXT_FOLDER)
+      this.assertAccount(fence)
       this.keyCache.set(cacheKey, derivedKey)
-      await this.storeEncryptedKey(cacheKey, derivedKey, folderId)
+      await this.storeEncryptedKey(cacheKey, derivedKey, folderId, { fence })
       return derivedKey
     }
 
     const rootKey = await this.getRootKey()
     const derivedKey = await this.deriveKey(rootKey, folderId, this.CONTEXT_FOLDER)
+    this.assertAccount(fence)
     this.keyCache.set(cacheKey, derivedKey)
-    await this.storeEncryptedKey(cacheKey, derivedKey, folderId)
+    await this.storeEncryptedKey(cacheKey, derivedKey, folderId, { fence })
     return derivedKey
   },
 
@@ -494,7 +541,7 @@ export const Keys = {
     keyId: string,
     key: Uint8Array,
     associatedId: string | null,
-    opts?: { replace?: boolean; sharedBy?: string; verifiedTag?: string },
+    opts?: { replace?: boolean; sharedBy?: string; verifiedTag?: string; fence?: AccountFence },
   ): Promise<void> {
     if (!this.auth || !this.auth.isConnected) {
       throw new Error('Cannot store key: signer not connected')
@@ -525,6 +572,7 @@ export const Keys = {
 
     const keyHex = Crypto.bytesToHex(key)
     const encryptedKey = await this.selfEncrypt(this.userPubkey!, keyHex)
+    this.assertAccount(opts?.fence)
 
     const record: KeyRecord = {
       id: `${this.userPubkey}:${keyId}`,
@@ -542,7 +590,7 @@ export const Keys = {
     await storage.put(record)
   },
 
-  async loadEncryptedKey(keyId: string): Promise<Uint8Array | null> {
+  async loadEncryptedKey(keyId: string, fence?: AccountFence): Promise<Uint8Array | null> {
     const storage = await this.ensureStorage()
     const record = await storage.get(`${this.userPubkey}:${keyId}`)
 
@@ -561,7 +609,7 @@ export const Keys = {
         if (raw.length === 32) {
           console.warn('Keys: Found legacy base64 key for', keyId, '— migrating to encrypted storage')
           if (this.auth && this.auth.isConnected) {
-            void this.storeEncryptedKey(keyId, raw, record.associatedId, { sharedBy: record.sharedBy, verifiedTag: record.verifiedTag }).catch(() => {})
+            void this.storeEncryptedKey(keyId, raw, record.associatedId, { sharedBy: record.sharedBy, verifiedTag: record.verifiedTag, fence }).catch(() => {})
           }
           return raw
         }
@@ -584,8 +632,9 @@ export const Keys = {
     }
   },
 
-  async deleteKey(keyId: string): Promise<void> {
+  async deleteKey(keyId: string, fence?: AccountFence): Promise<void> {
     const storage = await this.ensureStorage()
+    this.assertAccount(fence)
     this.keyCache.delete(keyId)
     await storage.delete(`${this.userPubkey}:${keyId}`)
   },
@@ -700,7 +749,11 @@ export const Keys = {
     folderId: string,
     keyTag: string | undefined,
     parentId: string | null,
+    // Every write below checks this, so a check that outlives a sign-out or
+    // account switch never stores one account's key under another (!235 audit).
+    fence?: AccountFence,
   ): Promise<{ key: Uint8Array; status: OwnFolderKeyStatus; replaced?: Uint8Array }> {
+    fence ??= this.accountFence() ?? undefined
     const keyId = `folder:${folderId}`
     const storage = await this.ensureStorage()
     const record = await storage.get(`${this.userPubkey}:${keyId}`)
@@ -708,21 +761,24 @@ export const Keys = {
 
     if (keyTag) {
       if (record && !foreign && record.verifiedTag === keyTag) {
-        const local = await this.loadEncryptedKey(keyId)
+        const local = await this.loadEncryptedKey(keyId, fence)
         if (local) {
+          this.assertAccount(fence)
           this.keyCache.set(keyId, local)
           this.unverifiedFolders.delete(folderId)
           return { key: local, status: 'ok' }
         }
       }
       const real = Crypto.hexToBytes(await this.selfDecrypt(this.userPubkey!, keyTag))
-      const local = record ? await this.loadEncryptedKey(keyId) : null
+      const local = record ? await this.loadEncryptedKey(keyId, fence) : null
       const same = !!local && Crypto.bytesToHex(local) === Crypto.bytesToHex(real)
       await this.storeEncryptedKey(keyId, real, folderId, {
         replace: true,
         sharedBy: this.userPubkey ?? undefined,
         verifiedTag: keyTag,
+        fence,
       })
+      this.assertAccount(fence)
       this.keyCache.set(keyId, real)
       this.unverifiedFolders.delete(folderId)
       if (local && !same) {
@@ -736,17 +792,19 @@ export const Keys = {
     // unverified parent nothing can be vouched for, whatever is stored. The
     // flag changes only on a verdict, never while one is pending (!229 audit).
     if (parentId && this.unverifiedFolders.has(parentId)) {
+      this.assertAccount(fence)
       this.unverifiedFolders.add(folderId)
-      return { key: await this.getFolderKey(folderId, parentId), status: 'unverified' }
+      return { key: await this.getFolderKey(folderId, parentId, fence), status: 'unverified' }
     }
 
     if (foreign) {
-      const local = await this.loadEncryptedKey(keyId)
-      await this.deleteKey(keyId)
+      const local = await this.loadEncryptedKey(keyId, fence)
+      await this.deleteKey(keyId, fence)
+      this.assertAccount(fence)
       this.unverifiedFolders.delete(folderId)
       console.warn('Keys: dropped a shared-in key for own folder', folderId.slice(0, 8) + '...')
-      const derived = await this.getFolderKey(folderId, parentId)
-      await this.storeEncryptedKey(keyId, derived, folderId, { replace: true, sharedBy: this.userPubkey ?? undefined })
+      const derived = await this.getFolderKey(folderId, parentId, fence)
+      await this.storeEncryptedKey(keyId, derived, folderId, { replace: true, sharedBy: this.userPubkey ?? undefined, fence })
       return { key: derived, status: 'repaired', ...(local ? { replaced: local } : {}) }
     }
 
@@ -754,22 +812,25 @@ export const Keys = {
       // Pre-provenance record on an untagged own folder. Untagged own folders
       // are derived (every folder we generate a key for gets a 'key' tag), so
       // the derived key is the only one we can vouch for.
-      const local = await this.loadEncryptedKey(keyId)
+      const local = await this.loadEncryptedKey(keyId, fence)
       const expected = local ? await this.expectedDerivedFolderKey(folderId, parentId) : null
       if (local && expected && Crypto.bytesToHex(local) === Crypto.bytesToHex(expected)) {
-        await this.storeEncryptedKey(keyId, local, folderId, { replace: true, sharedBy: this.userPubkey ?? undefined })
+        await this.storeEncryptedKey(keyId, local, folderId, { replace: true, sharedBy: this.userPubkey ?? undefined, fence })
+        this.assertAccount(fence)
         this.keyCache.set(keyId, local)
         this.unverifiedFolders.delete(folderId)
         return { key: local, status: 'ok' }
       }
       if (local && expected) {
         console.warn('Keys: cannot verify the local key for own folder', folderId.slice(0, 8) + '...', '(no relay copy, not the derived key)')
+        this.assertAccount(fence)
         this.unverifiedFolders.add(folderId)
         this.keyCache.set(keyId, local)
         return { key: local, status: 'unverified' }
       }
     }
-    const key = await this.getFolderKey(folderId, parentId)
+    const key = await this.getFolderKey(folderId, parentId, fence)
+    this.assertAccount(fence)
     this.unverifiedFolders.delete(folderId)
     return { key, status: 'ok' }
   },
@@ -804,6 +865,7 @@ export const Keys = {
     parentId: string,
     replaced: Uint8Array,
     real: Uint8Array,
+    fence?: AccountFence,
     visited: Set<string> = new Set([parentId]),
   ): Promise<number> {
     let count = 0
@@ -811,20 +873,23 @@ export const Keys = {
       if (child.parent_id !== parentId || child.encrypted_key || visited.has(child.id)) continue
       visited.add(child.id)
       const keyId = `folder:${child.id}`
+      this.assertAccount(fence)
       this.keyCache.delete(keyId)
-      const stored = await this.loadEncryptedKey(keyId)
+      const stored = await this.loadEncryptedKey(keyId, fence)
       if (!stored) continue
       const fromReplaced = await this.deriveKey(replaced, child.id, this.CONTEXT_FOLDER)
+      this.assertAccount(fence)
       if (Crypto.bytesToHex(stored) !== Crypto.bytesToHex(fromReplaced)) {
         this.keyCache.set(keyId, stored)
         continue
       }
       const fixed = await this.deriveKey(real, child.id, this.CONTEXT_FOLDER)
-      await this.storeEncryptedKey(keyId, fixed, child.id, { replace: true, sharedBy: this.userPubkey ?? undefined })
+      await this.storeEncryptedKey(keyId, fixed, child.id, { replace: true, sharedBy: this.userPubkey ?? undefined, fence })
+      this.assertAccount(fence)
       this.keyCache.set(keyId, fixed)
       this.unverifiedFolders.delete(child.id)
       console.warn('Keys: re-derived subfolder key for', child.id.slice(0, 8) + '...', '(its parent key was repaired)')
-      count += 1 + (await this.rederiveChildFolderKeys(folders, child.id, stored, fixed, visited))
+      count += 1 + (await this.rederiveChildFolderKeys(folders, child.id, stored, fixed, fence, visited))
     }
     return count
   },
@@ -840,27 +905,49 @@ export const Keys = {
     folders: Array<{ id: string; encrypted_key?: string; parent_id?: string; [k: string]: unknown }>,
   ): Promise<{ restored: number; repaired: number; errors: number; unverified: string[] }> {
     // One at a time: sign-in loads the tree and the file list together, and
-    // two runs repairing the same keys must not interleave (!229 audit).
-    const run = this.restoreQueue.then(() => this.restoreOwnFolderKeysNow(folders))
-    this.restoreQueue = run.catch(() => undefined)
-    return run
+    // two runs repairing the same keys must not interleave (!229 audit). A run
+    // that outlives restoreTimeoutMs (a hung signer) gives up its turn and
+    // stops before its next folder, so it cannot stall later runs (!233 audit).
+    const fence = this.accountFence()
+    const run = { stopped: false }
+    const stillCurrent = () => !run.stopped && !!fence && this.isAccount(fence)
+    const turn = this.restoreQueue.then(() => {
+      if (!stillCurrent()) return { restored: 0, repaired: 0, errors: 0, unverified: [] as string[] }
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          run.stopped = true
+          reject(new RestoreTimeoutError(this.restoreTimeoutMs))
+        }, this.restoreTimeoutMs)
+      })
+      return Promise.race([this.restoreOwnFolderKeysNow(folders, stillCurrent, fence ?? undefined), timeout]).finally(() =>
+        clearTimeout(timer),
+      )
+    })
+    this.restoreQueue = turn.catch(() => undefined)
+    return turn
   },
 
   async restoreOwnFolderKeysNow(
     folders: Array<{ id: string; encrypted_key?: string; parent_id?: string; [k: string]: unknown }>,
+    stillCurrent: () => boolean = () => true,
+    fence?: AccountFence,
   ): Promise<{ restored: number; repaired: number; errors: number; unverified: string[] }> {
+    fence ??= this.accountFence() ?? undefined
     const result = { restored: 0, repaired: 0, errors: 0, unverified: [] as string[] }
     if (!this.auth?.isConnected || !this.userPubkey) return result
     const storage = await this.ensureStorage()
     // Each listed folder's flag is recomputed below, on its verdict; an error
     // leaves the flag as it was (refusing writes) rather than lifting it.
     for (const folder of parentsFirst(folders)) {
+      if (!stillCurrent()) break
       try {
         const parentUnverified = !!folder.parent_id && this.unverifiedFolders.has(folder.parent_id)
         if (!folder.encrypted_key && !parentUnverified) {
           // Untagged: only act on a key that is not already known to be ours.
           const rec = await storage.get(`${this.userPubkey}:folder:${folder.id}`)
           if (!rec || rec.sharedBy === this.userPubkey) {
+            this.assertAccount(fence)
             this.unverifiedFolders.delete(folder.id)
             continue
           }
@@ -869,12 +956,14 @@ export const Keys = {
           folder.id,
           folder.encrypted_key,
           folder.parent_id ?? null,
+          fence,
         )
         if (status === 'restored') result.restored++
         if (status === 'repaired') result.repaired++
         if (status === 'unverified') result.unverified.push(folder.id)
-        if (replaced) result.repaired += await this.rederiveChildFolderKeys(folders, folder.id, replaced, key)
+        if (replaced) result.repaired += await this.rederiveChildFolderKeys(folders, folder.id, replaced, key, fence)
       } catch (err) {
+        if (err instanceof AccountChangedError) break
         console.error('Keys: could not verify folder key for', folder.id, ':', (err as Error).message)
         result.errors++
       }
@@ -974,6 +1063,8 @@ export const Keys = {
     }
     this.keyCache.clear()
     this.unverifiedFolders.clear()
+    this.accountEpoch++
+    this.restoreQueue = Promise.resolve()
     this.rootKeyRelayAnswer = null
     this.rootKeyConflict = false
     this._rootKeyInFlight = null
