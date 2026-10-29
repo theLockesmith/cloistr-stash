@@ -3,10 +3,12 @@ package auth
 import (
 	"sync"
 	"time"
+
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/metrics"
 )
 
 // replayCacheMax bounds the ids held. Legitimate use is far below it; past it
-// new events are refused until old ids expire (at most 2 x MaxAuthClockSkew).
+// the oldest id is forgotten to make room (see Add).
 const replayCacheMax = 200_000
 
 // ReplayCache remembers NIP-98 event ids so a captured Authorization header
@@ -37,8 +39,10 @@ func NewReplayCache() *ReplayCache {
 
 // Add records id and reports true if it was not seen before. Expired ids are
 // pruned from the oldest end, so each call costs the same however many ids
-// are held. A full cache refuses new ids rather than forgetting live ones:
-// forgetting would let a flood push out a captured header's id and replay it.
+// are held. A full cache forgets its oldest id rather than refusing: refusing
+// locked every real user out for as long as a flood kept it full (audit of
+// !232). Replaying a forgotten id still needs its header captured and used
+// inside the window, so each eviction is counted for /metrics.
 func (c *ReplayCache) Add(id string, now time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -57,8 +61,11 @@ func (c *ReplayCache) Add(id string, now time.Time) bool {
 	if _, ok := c.seen[id]; ok {
 		return false
 	}
-	if len(c.seen) >= c.max {
-		return false
+	for len(c.seen) >= c.max && c.head < len(c.order) {
+		delete(c.seen, c.order[c.head].id)
+		c.order[c.head] = replayEntry{}
+		c.head++
+		metrics.ReplayEvictionsTotal.Inc()
 	}
 	until := now.Add(c.ttl)
 	c.seen[id] = until

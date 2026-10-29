@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/metrics"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"strconv"
 	"testing"
 	"time"
@@ -23,28 +25,36 @@ func TestReplayCacheLargeWindowIsLinear(t *testing.T) {
 	}
 }
 
-// A full cache refuses new ids rather than forgetting live ones: forgetting
-// would let a flood push a captured header's id out and then replay it.
-func TestReplayCacheFullRefusesUntilIdsExpire(t *testing.T) {
+// A full cache must not lock real users out (audit of !232: a 200k-id flood
+// refused every fresh request for 121s). It forgets its oldest id instead, so
+// replaying a header still needs it captured inside the window AND pushed out
+// by a flood, and it counts each eviction so a flood shows on /metrics.
+func TestReplayCacheFullEvictsOldestAndAcceptsFreshIDs(t *testing.T) {
 	c := NewReplayCache()
 	c.max = 3
+	before := testutil.ToFloat64(metrics.ReplayEvictionsTotal)
 	t0 := time.Unix(1_700_000_000, 0)
 	for _, id := range []string{"a", "b", "c"} {
 		if !c.Add(id, t0) {
 			t.Fatalf("add %s", id)
 		}
 	}
-	if c.Add("d", t0.Add(time.Second)) {
-		t.Fatal("a full cache accepted a new id")
-	}
-	if c.Add("a", t0.Add(time.Second)) {
-		t.Fatal("a held id was accepted again")
+	if !c.Add("user", t0.Add(time.Second)) {
+		t.Fatal("a full cache refused a real user's fresh id")
 	}
 	if c.Len() != 3 {
 		t.Fatalf("len %d, want 3", c.Len())
 	}
-	// Once the window has passed the old ids go and new ones are accepted.
-	if !c.Add("d", t0.Add(2*MaxAuthClockSkew)) || c.Len() != 1 {
+	for _, id := range []string{"b", "c", "user"} {
+		if c.Add(id, t0.Add(2*time.Second)) {
+			t.Fatalf("held id %s was accepted again", id)
+		}
+	}
+	if got := testutil.ToFloat64(metrics.ReplayEvictionsTotal) - before; got != 1 {
+		t.Fatalf("evictions counted %v, want 1", got)
+	}
+	// Expiry still works alongside eviction.
+	if !c.Add("d", t0.Add(time.Second+2*MaxAuthClockSkew)) || c.Len() != 1 {
 		t.Fatalf("after expiry: len %d", c.Len())
 	}
 }

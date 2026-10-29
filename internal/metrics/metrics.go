@@ -65,6 +65,15 @@ var (
 		[]string{"status"},
 	)
 
+	// ReplayEvictionsTotal counts NIP-98 ids forgotten early because the
+	// replay cache was full; a rise means someone is flooding it.
+	ReplayEvictionsTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "cloistr_drive_replay_evictions_total",
+			Help: "NIP-98 event ids evicted from a full replay cache",
+		},
+	)
+
 	// ActiveConnections tracks current active connections
 	ActiveConnections = promauto.NewGauge(
 		prometheus.GaugeOpts{
