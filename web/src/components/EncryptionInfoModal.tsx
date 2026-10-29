@@ -35,6 +35,7 @@
 //   #encryption-info-done   →  "Done" button in footer
 
 import type { StashFile } from '../state/types'
+import { metadataNotice } from './metadataNotice'
 
 function folderId(file: StashFile): string | null {
   return (
@@ -97,6 +98,7 @@ export interface EncryptionInfoModalProps {
 
 export function EncryptionInfoModal({ file, onClose }: EncryptionInfoModalProps) {
   const isOpen = !!file
+  const notice = metadataNotice(file ?? {})
 
   // The modal is ALWAYS rendered so #encryption-info-modal is always attached
   // to the DOM. Playwright spec checks toBeAttached() + toHaveClass(/hidden/).
@@ -143,14 +145,12 @@ export function EncryptionInfoModal({ file, onClose }: EncryptionInfoModalProps)
             </p>
           </div>
 
-          <div className="encryption-info-section">
-            <h4>Not encrypted yet</h4>
-            <p className="encryption-storage-info">
-              This file's name, size and type, its folder's name, and a hash of its
-              unencrypted contents are stored readable on the Nostr relay. Anyone who
-              looks up your public key can see them.
-            </p>
-          </div>
+          {file && (
+            <div className="encryption-info-section">
+              <h4>{notice.heading}</h4>
+              <p className="encryption-storage-info">{notice.body}</p>
+            </div>
+          )}
         </div>
 
         <div className="modal-footer">

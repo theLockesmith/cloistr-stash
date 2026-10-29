@@ -15,6 +15,7 @@ import { formatDate, formatFileSize, getFileIcon } from './format'
 import { FileInfoModal } from './FileInfoModal'
 import { EditorModal } from './EditorModal'
 import { EncryptionInfoModal } from './EncryptionInfoModal'
+import { e2eBadgeTitle } from './metadataNotice'
 import { PreviewModal } from './PreviewModal'
 import { SelectionToolbar } from './SelectionToolbar'
 import { RenameModal } from './RenameModal'
@@ -867,7 +868,7 @@ function FileRow({
           {name}
         </button>
         {enc && (
-          <span className="fb-e2e" title="Contents end-to-end encrypted (XChaCha20-Poly1305). The name, size and type are not encrypted yet.">
+          <span className="fb-e2e" title={e2eBadgeTitle(file)}>
             E2E
           </span>
         )}
