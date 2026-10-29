@@ -198,8 +198,8 @@ export default function App() {
           console.warn('Feature module init failed:', err)
         }
         if (cancelled) return
-        await loadFolderTree()
-        await loadFiles()
+        // Together, so both share the one relay read for this account.
+        await Promise.all([loadFolderTree(), loadFiles()])
       } else if (!isConnected) {
         Search.clearKey()
       }
