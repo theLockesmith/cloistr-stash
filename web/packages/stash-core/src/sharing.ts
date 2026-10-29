@@ -14,7 +14,7 @@
 //   - UI.toast()                      → dropped (pure UI; callers handle feedback)
 
 import { Crypto } from './crypto'
-import { Keys } from './keys'
+import { Keys, AccountChangedError, type AccountFence } from './keys'
 import { API } from './api'
 import { Relay } from './relay'
 import { authPort, getSigner } from './authBridge'
@@ -84,6 +84,64 @@ export interface ReencryptResult {
   newFileId: string
   oldHash: string
   newHash: string
+}
+
+/** How far a revoke-and-re-encrypt got before it stopped. */
+export type RevokeStage = 'not-started' | 'old-copy-remains' | 'share-notices'
+
+/** A revoke that stopped partway, kept until Sharing.retryRevoke finishes it. */
+export interface PendingRevoke {
+  stage: RevokeStage
+  /** The account that started it: only that account may finish it. */
+  pubkey: string
+  fileId: string
+  oldSha256: string
+  newFileId?: string
+  newHash?: string
+}
+
+/**
+ * A revoke-and-re-encrypt that stopped partway (an account switch, or a failure
+ * after the new copy was published). `pending.stage` says what is still true:
+ *  - 'not-started': nothing visible changed; the old shares still work.
+ *  - 'old-copy-remains': the new copy is published but the old blob is still
+ *    stored, so the people the file was shared with can still open it.
+ *  - 'share-notices': the old blob is gone, but the share records were not withdrawn.
+ * Never report a revoke that threw this as done.
+ */
+export class RevokeIncompleteError extends Error {
+  constructor(
+    readonly pending: PendingRevoke,
+    readonly reason: unknown,
+  ) {
+    super(`Re-encryption did not finish: ${reason instanceof Error ? reason.message : String(reason)}`)
+    this.name = 'RevokeIncompleteError'
+  }
+}
+
+// Unfinished revokes by file id. Kept in localStorage so a reload or an account
+// switch does not forget one; memory only where localStorage is unavailable.
+// Ids and blob hashes only, never a key.
+const PENDING_REVOKES_KEY = 'cloistr-stash-pending-revokes'
+let pendingRevokes: Record<string, PendingRevoke> | null = null
+
+function pendingRevokeStore(): Record<string, PendingRevoke> {
+  if (!pendingRevokes) {
+    try {
+      pendingRevokes = JSON.parse(globalThis.localStorage?.getItem(PENDING_REVOKES_KEY) ?? '{}') ?? {}
+    } catch {
+      pendingRevokes = {}
+    }
+  }
+  return pendingRevokes!
+}
+
+function savePendingRevokes(): void {
+  try {
+    globalThis.localStorage?.setItem(PENDING_REVOKES_KEY, JSON.stringify(pendingRevokeStore()))
+  } catch {
+    // memory only
+  }
 }
 
 /** Shape of an incoming share record returned by the API. */
@@ -666,6 +724,10 @@ export const Sharing = {
     // The account this revoke is for: every key fetch, signature, upload,
     // publish and delete below refuses once it changes.
     const fence = Keys.accountFence() ?? undefined
+    // How far it got, so a stop is reported as unfinished and can be resumed.
+    let stage: RevokeStage = 'not-started'
+    let newFileId: string | undefined
+    let uploadedHash: string | undefined
 
     // UI.toast dropped (pure UI)
 
@@ -682,7 +744,7 @@ export const Sharing = {
     })
 
     // Step 3: Generate new file ID
-    const newFileId = Crypto.generateFileId()
+    newFileId = Crypto.generateFileId()
 
     // Step 4: a new random key, wrapped to the owner and under the folder key.
     // Never derived (architecture/key-model.md): a revoke must not hand back a
@@ -708,6 +770,7 @@ export const Sharing = {
         type: 'application/octet-stream',
       })
       const uploadResult = (await API.uploadFile(encryptedBlob, authHeader)) as { sha256: string }
+      uploadedHash = uploadResult.sha256
 
       // The folder's wrapped copy only once the blob exists, as upload does: a
       // failed re-encrypt or upload must not leave a wk for a file that is not there.
@@ -730,21 +793,66 @@ export const Sharing = {
       })
       Keys.assertAccount(fence)
       await authPort.publishEvent(metadataEvent)
+      stage = 'old-copy-remains'
 
-      // Step 9: Delete old file
-      Keys.assertAccount(fence)
-      const deleteAuth = await createDeleteAuth(file.sha256)
-      Keys.assertAccount(fence)
-      await API.deleteFile(file.sha256, deleteAuth)
+      return await this.completeRevoke(
+        { stage, pubkey: fence?.pubkey ?? '', fileId, oldSha256: file.sha256, newFileId, newHash: uploadedHash },
+        fence,
+      )
+    } catch (err) {
+      if (err instanceof RevokeIncompleteError) throw err
+      // Before the publish a failure changed nothing visible, and only an
+      // account switch is worth offering a retry for; after it, any failure
+      // leaves the old copy readable.
+      if (stage === 'not-started' && !(err instanceof AccountChangedError)) throw err
+      const pending: PendingRevoke = {
+        stage,
+        pubkey: fence?.pubkey ?? '',
+        fileId,
+        oldSha256: file.sha256,
+        newFileId,
+        newHash: uploadedHash,
+      }
+      pendingRevokeStore()[fileId] = pending
+      savePendingRevokes()
+      throw new RevokeIncompleteError(pending, err)
+    } finally {
+      Crypto.wipeKey(oldFileKey)
+      Crypto.wipeKey(newFileKey)
+    }
+  },
 
-      // Best-effort: request deletion of stale share events from the relay.
+  /**
+   * The rest of a revoke once the new copy is published: remove the old blob
+   * (the step that actually stops old shares opening the file), then withdraw
+   * the share records. Throws RevokeIncompleteError, keeping the record, if
+   * either stops; clears the record when both are done.
+   */
+  async completeRevoke(p: PendingRevoke, fence?: AccountFence): Promise<ReencryptResult> {
+    let stage = p.stage
+    try {
+      if (stage === 'old-copy-remains') {
+        Keys.assertAccount(fence)
+        const deleteAuth = await createDeleteAuth(p.oldSha256)
+        Keys.assertAccount(fence)
+        try {
+          await API.deleteFile(p.oldSha256, deleteAuth)
+        } catch (err) {
+          // A retry after a delete whose answer was lost: already gone is done.
+          if (!/\b404\b|not found/i.test((err as Error).message)) throw err
+        }
+        stage = 'share-notices'
+      }
+
+      // Request deletion of stale share events from the relay.
       // These are requests, not guarantees: other relays and local caches retain
       // copies. The real protection is that the old key no longer decrypts anything.
       // Note: a deletion request is itself a public event announcing that a share
       // was withdrawn. It does not name the recipient, but it signals that a
       // revocation happened. Prefer expiry over deletion where both are available.
+      // Best-effort, except that an account switch leaves it unfinished.
       try {
-        const staleShares = await this.listOutgoingSharesForFile(fileId)
+        const staleShares = await this.listOutgoingSharesForFile(p.fileId)
         for (const share of staleShares) {
           const deleteEvent: UnsignedEvent = {
             kind: 5,
@@ -757,22 +865,48 @@ export const Sharing = {
           Keys.assertAccount(fence)
           await authPort.publishEvent(signed)
         }
-      } catch {
-        // Best-effort: failure is expected and documented
+      } catch (err) {
+        if (err instanceof AccountChangedError) throw err
+        // Otherwise best-effort: failure is expected and documented
       }
-
-      console.log('Sharing: File re-encrypted with new key')
-
-      return {
-        oldFileId: fileId,
-        newFileId: newFileId,
-        oldHash: file.sha256,
-        newHash: uploadResult.sha256,
-      }
-    } finally {
-      Crypto.wipeKey(oldFileKey)
-      Crypto.wipeKey(newFileKey)
+    } catch (err) {
+      const pending: PendingRevoke = { ...p, stage }
+      pendingRevokeStore()[p.fileId] = pending
+      savePendingRevokes()
+      throw new RevokeIncompleteError(pending, err)
     }
+
+    this.clearPendingRevoke(p.fileId)
+    console.log('Sharing: File re-encrypted with new key')
+    return { oldFileId: p.fileId, newFileId: p.newFileId ?? '', oldHash: p.oldSha256, newHash: p.newHash ?? '' }
+  },
+
+  /** The unfinished revoke for this file, if one stopped partway. */
+  pendingRevoke(fileId: string): PendingRevoke | null {
+    return pendingRevokeStore()[fileId] ?? null
+  },
+
+  clearPendingRevoke(fileId: string): void {
+    if (!(fileId in pendingRevokeStore())) return
+    delete pendingRevokeStore()[fileId]
+    savePendingRevokes()
+  },
+
+  /**
+   * Finish a revoke that stopped partway, from where it stopped. Only the
+   * account that started it may finish it: another account holds neither the
+   * file's key nor the right to remove its blob.
+   */
+  async retryRevoke(file: StashFile): Promise<ReencryptResult> {
+    const fileId = (file.file_id ?? file.fileId ?? file.id ?? file.d) as string | undefined
+    const pending = fileId ? this.pendingRevoke(fileId) : null
+    if (!pending) throw new Error('No unfinished re-encryption for this file')
+    const fence = Keys.accountFence() ?? undefined
+    if (!fence || fence.pubkey !== pending.pubkey) {
+      throw new Error('Sign in with the account that started this re-encryption to finish it')
+    }
+    if (pending.stage === 'not-started') return this.revokeAndReencryptFile(file)
+    return this.completeRevoke(pending, fence)
   },
 
   // Accept a shared file/folder.

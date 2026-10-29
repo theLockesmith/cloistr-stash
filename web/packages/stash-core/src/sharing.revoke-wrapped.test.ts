@@ -22,6 +22,7 @@ vi.mock('./crypto', () => ({
 }))
 
 vi.mock('./keys', () => ({
+  AccountChangedError: class AccountChangedError extends Error {},
   Keys: {
     wrappedKeyMode: false,
     accountFence: () => null,
