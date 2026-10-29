@@ -67,20 +67,33 @@ export function isSealedItem(item: StashFile | StashFolder): boolean {
 }
 
 /** Write context for the signed-in user, with the folder keys from the last listing. */
+// Bound to the account signed in when it is made: once that account changes,
+// its signing ports refuse, so a write that outlives a switch publishes nothing.
 export async function writeContext(): Promise<WriteContext> {
   const pubkey = authPort.pubkey
   if (!current || !pubkey || current.pubkey !== pubkey) throw new DriveShapeUnknownError()
+  const fence = Keys.accountFence() ?? undefined
+  const { folderKeys } = current.snap
+  const rootKey = await Keys.getRootKey()
+  Keys.assertAccount(fence)
   return {
     pubkey,
     query: (filters) => Relay.query(filters),
     publish: async (ev) => {
+      Keys.assertAccount(fence)
       const signed = await authPort.signEvent(ev)
+      Keys.assertAccount(fence)
       await authPort.publishEvent(signed)
       return signed
     },
-    wrapForOwner: async (key, subject) => (await Keys.wrapFileKeyForOwner(key, subject, getSigner())) as unknown as string,
-    rootKey: await Keys.getRootKey(),
-    folderKeys: current.snap.folderKeys,
+    wrapForOwner: async (key, subject) => {
+      Keys.assertAccount(fence)
+      const envelope = (await Keys.wrapFileKeyForOwner(key, subject, getSigner())) as unknown as string
+      Keys.assertAccount(fence)
+      return envelope
+    },
+    rootKey,
+    folderKeys,
   }
 }
 

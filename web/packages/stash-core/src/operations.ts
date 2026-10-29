@@ -7,7 +7,7 @@ import { Events } from './events'
 import { Versioning } from './versioning'
 import { authPort, getSigner } from './authBridge'
 import { editOwnEvent, setTag } from './editEvent'
-import { Keys } from './keys'
+import { Keys, AccountChangedError, type AccountFence } from './keys'
 import { fileKeyFor } from './fileKey'
 import { Crypto } from './crypto'
 import type { StashFile, StashFolder } from './types'
@@ -87,6 +87,7 @@ export async function softDeleteFile(file: StashFile): Promise<void> {
 /** Delete folders with a single batched kind:5 deletion event. */
 // A sealed folder goes with its whole subtree (driveWrite.deleteFolder).
 export async function deleteFolders(folderIds: string[]): Promise<void> {
+  const fence = Keys.accountFence() ?? undefined
   const sealed = folderIds.filter((id) => sealedFolder(id))
   if (sealed.length) {
     const ctx = await writeContext()
@@ -96,7 +97,9 @@ export async function deleteFolders(folderIds: string[]): Promise<void> {
   }
   folderIds = folderIds.filter((id) => !sealed.includes(id))
   if (folderIds.length === 0) return
+  Keys.assertAccount(fence)
   const event = await Events.createBatchDeleteEvent([], folderIds)
+  Keys.assertAccount(fence)
   await authPort.publishEvent(event)
 }
 
@@ -117,19 +120,21 @@ export async function moveFile(file: StashFile, targetFolderId: string): Promise
   if (file.sealed === true) return editFileEvent(file, { folderId: targetFolderId || null })
   const fileId = fileIdOf(file)
   if (!fileId) throw new Error('Cannot move: file has no ID')
+  const fence = Keys.accountFence() ?? undefined
   await editOwnEvent(30078, fileId, async (draft) => {
     const has = (name: string) => draft.tags.some((t) => t[0] === name && !!t[1])
     const fromFolder = draft.tags.find((t) => t[0] === 'folder')?.[1] || ''
     if (has('encrypted') && !has('owner_key') && (targetFolderId || '') !== fromFolder) {
-      const key = await fileKeyFor({ id: fileId, folder: fromFolder || undefined })
+      const key = await fileKeyFor({ id: fileId, folder: fromFolder || undefined }, fence)
       try {
+        Keys.assertAccount(fence)
         setTag(draft, 'owner_key', (await Keys.wrapFileKeyForOwner(key, fileId, getSigner())) as unknown as string)
       } finally {
         Crypto.wipeKey(key)
       }
     }
     setTag(draft, 'folder', targetFolderId || null)
-  })
+  }, fence)
 }
 
 /**
@@ -177,15 +182,17 @@ async function localVersionBlobs(file: StashFile): Promise<string[]> {
  * history names. Tries every blob, then throws BlobDeleteError naming the ones
  * that would not go. Call it only after the records are gone.
  */
-export async function deleteFileBlobs(files: StashFile[]): Promise<void> {
+export async function deleteFileBlobs(files: StashFile[], fence?: AccountFence): Promise<void> {
   const failed: string[] = []
   const local = await Promise.all(files.map(localVersionBlobs))
   for (const sha256 of new Set([...files.flatMap(blobsOf), ...local.flat()])) {
     try {
+      Keys.assertAccount(fence)
       await API.deleteFile(sha256, await authPort.createDeleteAuth(sha256))
     } catch (err) {
       console.warn('deleteFileBlobs: could not delete blob', sha256.slice(0, 12), err)
       failed.push(sha256)
+      if (err instanceof AccountChangedError) throw err
     }
   }
   if (failed.length > 0) throw new BlobDeleteError(failed)
@@ -197,15 +204,17 @@ export async function deleteFileBlobs(files: StashFile[]): Promise<void> {
  * record leaves a listed file that can never open.
  */
 export async function permanentDeleteFile(file: StashFile): Promise<void> {
+  const fence = Keys.accountFence() ?? undefined
   if (file.sealed === true) {
     await Sealed.deleteFile(await writeContext(), fileRef(file), (file.folder_id as string) || null)
   } else {
     const fileId = fileIdOf(file)
     if (!fileId) throw new Error('Cannot permanently delete: file has no ID')
     const event = await Events.createBatchDeleteEvent([fileId], [])
+    Keys.assertAccount(fence)
     await authPort.publishEvent(event)
   }
-  await deleteFileBlobs([file])
+  await deleteFileBlobs([file], fence)
 }
 
 /**
@@ -215,12 +224,15 @@ export async function permanentDeleteFile(file: StashFile): Promise<void> {
  * went. A record that will not delete keeps its blob, and its error wins.
  */
 export async function permanentDeleteFiles(files: StashFile[]): Promise<void> {
+  const fence = Keys.accountFence() ?? undefined
   const plain = files.filter((f) => f.sealed !== true && fileIdOf(f))
   const gone: StashFile[] = []
   let recordErr: unknown
   try {
     if (plain.length > 0) {
-      await authPort.publishEvent(await Events.createBatchDeleteEvent(plain.map(fileIdOf), []))
+      const event = await Events.createBatchDeleteEvent(plain.map(fileIdOf), [])
+      Keys.assertAccount(fence)
+      await authPort.publishEvent(event)
       gone.push(...plain)
     }
     for (const file of files.filter((f) => f.sealed === true)) {
@@ -231,7 +243,7 @@ export async function permanentDeleteFiles(files: StashFile[]): Promise<void> {
     recordErr = err
   }
   try {
-    await deleteFileBlobs(gone)
+    await deleteFileBlobs(gone, fence)
   } catch (err) {
     if (recordErr === undefined) throw err
   }
@@ -271,18 +283,22 @@ export async function createFolder(name: string, parentId: string | null): Promi
   const pubkey = authPort.pubkey
   if (!authPort.isConnected || !pubkey) throw new Error('Not connected')
   const folderId = Events.generateFolderId()
+  const fence = Keys.accountFence() ?? undefined
   if (await writesSealed()) {
     await Sealed.createFolder(await writeContext(), { id: folderId, name: name.trim(), parentId: parentId || null })
     return folderId
   }
-  const folderKey = await Keys.generateFolderKey(folderId)
+  Keys.assertAccount(fence)
+  const folderKey = await Keys.generateFolderKey(folderId, fence)
   const encryptedFolderKey = await Keys.selfEncrypt(pubkey, Crypto.bytesToHex(folderKey))
+  Keys.assertAccount(fence)
   const signedEvent = await Events.createEncryptedFolderEvent({
     id: folderId,
     name: name.trim(),
     parentId: parentId || undefined,
     encryptedFolderKey,
   })
+  Keys.assertAccount(fence)
   await authPort.publishEvent(signedEvent)
   return folderId
 }
