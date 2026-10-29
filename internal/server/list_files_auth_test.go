@@ -49,6 +49,7 @@ func TestListFilesOtherPubkeyIs403(t *testing.T) {
 
 func TestListFilesOwnPubkeyIs200(t *testing.T) {
 	s := setupTestServer(t)
+	s.metadata = storeFor(t, newRelayStub(t, "none").URL, true)
 	sk := nostr.GeneratePrivateKey()
 	me := pub(sk)
 	for _, target := range []string{"/api/files?pubkey=" + me, "/api/files?pubkey=" + me + "&folder=", "/api/files"} {

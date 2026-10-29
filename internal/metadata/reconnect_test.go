@@ -2,11 +2,130 @@ package metadata
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
+
+// A store whose first connect failed must reconnect on its own once the relay
+// is back (2026-10-15: main set the store to nil and nothing retried).
+func TestKeepConnectedRecovers(t *testing.T) {
+	// Point the store at a port with nothing listening, then start a relay there.
+	ln := httptest.NewUnstartedServer(nil)
+	addr := ln.Listener.Addr().String()
+	url := "ws://" + addr
+	ln.Close() // free the port; the first connect fails
+
+	s := NewStore(url, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := s.Connect(ctx); err == nil {
+		t.Fatal("connect to a closed port succeeded")
+	}
+	if s.IsConnected() {
+		t.Fatal("IsConnected after a failed connect")
+	}
+	if _, err := s.ListFiles(context.Background(), strings.Repeat("a", 64)); err == nil {
+		t.Fatal("listing with no relay must be an error, not an empty list")
+	}
+
+	go s.KeepConnected(ctx, 100*time.Millisecond)
+	startRelayAt(t, addr)
+
+	deadline := time.Now().Add(10 * time.Second)
+	for !s.IsConnected() {
+		if time.Now().After(deadline) {
+			t.Fatal("KeepConnected did not reconnect within 10s")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	files, err := s.ListFiles(context.Background(), strings.Repeat("a", 64))
+	if err != nil || len(files) != 0 {
+		t.Fatalf("after reconnect: %v, %v", files, err)
+	}
+}
+
+// Lists tell "the relay has nothing" from "the relay did not answer".
+func TestListsDistinguishNothingFromNoAnswer(t *testing.T) {
+	pk := strings.Repeat("a", 64)
+	ctx := func() context.Context {
+		c, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		t.Cleanup(cancel)
+		return c
+	}
+	none := connectedStore(t, fakeRelay(t, "none"))
+	if f, err := none.ListFiles(ctx(), pk); err != nil || len(f) != 0 {
+		t.Fatalf("none: ListFiles %v %v", f, err)
+	}
+	if f, err := none.ListFolders(ctx(), pk); err != nil || len(f) != 0 {
+		t.Fatalf("none: ListFolders %v %v", f, err)
+	}
+	if _, err := none.GetFolder(ctx(), pk, "x"); !errors.Is(err, ErrFolderNotFound) {
+		t.Fatalf("none: GetFolder err = %v, want ErrFolderNotFound", err)
+	}
+
+	silent := connectedStore(t, fakeRelay(t, "silent"))
+	for name, call := range map[string]func() error{
+		"ListFiles":         func() error { _, err := silent.ListFiles(ctx(), pk); return err },
+		"ListFilesInFolder": func() error { _, err := silent.ListFilesInFolder(ctx(), pk, ""); return err },
+		"ListFolders":       func() error { _, err := silent.ListFolders(ctx(), pk); return err },
+		"ListMyShares":      func() error { _, err := silent.ListMyShares(ctx(), pk); return err },
+		"ListSharedWithMe":  func() error { _, err := silent.ListSharedWithMe(ctx(), pk); return err },
+	} {
+		if err := call(); !errors.Is(err, ErrRelayNoAnswer) {
+			t.Errorf("silent: %s err = %v, want ErrRelayNoAnswer", name, err)
+		}
+	}
+	if _, err := silent.GetFolder(ctx(), pk, "x"); err == nil || errors.Is(err, ErrFolderNotFound) {
+		t.Fatalf("silent: GetFolder err = %v, want an error that is not 'not found'", err)
+	}
+}
+
+// startRelayAt serves an always-empty relay (EOSE, no events) on addr.
+func startRelayAt(t *testing.T, addr string) {
+	t.Helper()
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		t.Fatalf("listen %s: %v", addr, err)
+	}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.CloseNow() }()
+		for {
+			_, data, err := c.Read(r.Context())
+			if err != nil {
+				return
+			}
+			var msg []json.RawMessage
+			if json.Unmarshal(data, &msg) != nil || len(msg) < 2 {
+				continue
+			}
+			var typ, sub string
+			_ = json.Unmarshal(msg[0], &typ)
+			_ = json.Unmarshal(msg[1], &sub)
+			if typ == "REQ" {
+				b, _ := json.Marshal([]any{"EOSE", sub})
+				_ = c.Write(r.Context(), websocket.MessageText, b)
+			}
+		}
+	}))
+	_ = srv.Listener.Close()
+	srv.Listener = l
+	srv.Start()
+	t.Cleanup(srv.Close)
+}
 
 // Found live 2026-10-27: main hands Connect a 10s startup timeout, and Connect
 // kept it as the base for every reconnect. Once it expired, a pod whose relay
@@ -34,5 +153,38 @@ func TestReconnectOutlivesTheStartupContext(t *testing.T) {
 	}
 	if _, err := s.GetRootKey(context.Background(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); err != nil {
 		t.Fatalf("root key read after reconnect: %v", err)
+	}
+}
+
+// cloistr-audit on !192: a store marked unhealthy stayed so after the relay
+// came back until a data request arrived, which an unready pod never gets.
+// A background reconnect alone must clear it.
+func TestBackgroundReconnectClearsUnhealthy(t *testing.T) {
+	ln := httptest.NewUnstartedServer(nil)
+	addr := ln.Listener.Addr().String()
+	ln.Close()
+
+	s := NewStore("ws://"+addr, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	_ = s.Connect(ctx)
+	for i := 0; i < maxConsecutiveFailures; i++ {
+		_ = s.ensureConnected()
+	}
+	if s.IsHealthy() {
+		t.Fatal("not unhealthy after the failure limit")
+	}
+
+	startRelayAt(t, addr)
+	go s.KeepConnected(ctx, 50*time.Millisecond)
+	deadline := time.Now().Add(10 * time.Second)
+	for !s.IsConnected() {
+		if time.Now().After(deadline) {
+			t.Fatal("KeepConnected did not reconnect within 10s")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !s.IsHealthy() {
+		t.Fatal("still unhealthy after the relay came back, with no data request")
 	}
 }

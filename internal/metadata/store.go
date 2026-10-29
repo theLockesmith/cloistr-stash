@@ -86,6 +86,9 @@ func (s *Store) Connect(ctx context.Context) error {
 
 // connectLocked performs the actual connection (must hold connMu)
 func (s *Store) connectLocked(dialCtx context.Context) error {
+	if dialCtx == nil {
+		return ErrNotConnected // Connect was never called
+	}
 	// Use a timeout to prevent indefinite hangs on connection failures
 	ctx, cancel := context.WithTimeout(dialCtx, 15*time.Second)
 	defer cancel()
@@ -131,18 +134,56 @@ func (s *Store) ensureConnected() error {
 		s.consecutiveFailures++
 		if s.consecutiveFailures >= maxConsecutiveFailures {
 			s.unhealthy = true
-			s.logger.Error("relay connection unhealthy, marking for restart",
+			s.logger.Error("relay connection unhealthy, still retrying",
 				"consecutive_failures", s.consecutiveFailures,
 				"url", s.relayURL)
 		}
 		return fmt.Errorf("failed to reconnect to relay: %w", err)
 	}
 
-	// Success - reset failure count
+	// Success - reset failure count; a background reconnect counts too
 	s.consecutiveFailures = 0
+	s.unhealthy = false
 	s.lastSuccessTime = time.Now()
 	s.logger.Info("reconnected to relay", "url", s.relayURL)
 	return nil
+}
+
+// IsConnected reports whether the store has a live relay connection now.
+func (s *Store) IsConnected() bool {
+	if s == nil {
+		return false
+	}
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	return s.relay != nil && s.relay.IsConnected()
+}
+
+// KeepConnected reconnects in the background until ctx ends: with backoff
+// (1s doubling to 1 min) while the relay is unreachable, a check every
+// `every` while it is up. A pod that started during a relay outage therefore
+// recovers on its own instead of serving "no files" until it is restarted
+// (found 2026-10-15). Connect must have been called first, even if it failed.
+func (s *Store) KeepConnected(ctx context.Context, every time.Duration) {
+	backoff := time.Second
+	for {
+		wait := every
+		if !s.IsConnected() {
+			if err := s.ensureConnected(); err != nil {
+				s.logger.Warn("relay still unreachable", "url", s.relayURL, "retry_in", backoff.String(), "error", err)
+				wait = backoff
+				backoff = min(backoff*2, time.Minute)
+			} else {
+				s.logger.Info("relay connected", "url", s.relayURL)
+				backoff = time.Second
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+	}
 }
 
 // IsHealthy returns false if the store has exceeded max consecutive connection failures
@@ -322,7 +363,7 @@ func (s *Store) ListFiles(ctx context.Context, pubkey string) ([]*FileMetadata, 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	events, err := s.relay.QuerySync(ctx, filter)
+	events, err := s.queryUntilEOSE(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query events: %w", err)
 	}
@@ -566,7 +607,7 @@ func (s *Store) ListFolders(ctx context.Context, pubkey string) ([]*FolderMetada
 		Limit:   500,
 	}
 
-	events, err := s.relay.QuerySync(ctx, folderFilter)
+	events, err := s.queryUntilEOSE(ctx, folderFilter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query folder events: %w", err)
 	}
@@ -579,12 +620,10 @@ func (s *Store) ListFolders(ctx context.Context, pubkey string) ([]*FolderMetada
 		Limit:   500,
 	}
 
-	deletionEvents, err := s.relay.QuerySync(ctx, deletionFilter)
+	// Unanswered is an error: listing without it would show deleted folders.
+	deletionEvents, err := s.queryUntilEOSE(ctx, deletionFilter)
 	if err != nil {
-		s.logger.Warn("failed to query deletion events, proceeding without filtering",
-			"error", err,
-		)
-		deletionEvents = nil
+		return nil, fmt.Errorf("failed to query folder deletions: %w", err)
 	}
 
 	// Build set of deleted folder IDs from kind:5 events
@@ -657,13 +696,13 @@ func (s *Store) GetFolder(ctx context.Context, pubkey, identifier string) (*Fold
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	events, err := s.relay.QuerySync(ctx, filter)
+	events, err := s.queryUntilEOSE(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query folder event: %w", err)
 	}
 
 	if len(events) == 0 {
-		return nil, fmt.Errorf("folder not found: %s", identifier)
+		return nil, fmt.Errorf("%w: %s", ErrFolderNotFound, identifier)
 	}
 
 	return ParseFolderEvent(events[0])
@@ -699,7 +738,7 @@ func (s *Store) ListFilesInFolder(ctx context.Context, pubkey, folderID string) 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	events, err := s.relay.QuerySync(ctx, filter)
+	events, err := s.queryUntilEOSE(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query file events: %w", err)
 	}
@@ -859,7 +898,7 @@ func (s *Store) ListSharedWithMe(ctx context.Context, recipientPubkey string) ([
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	events, err := s.relay.QuerySync(ctx, filter)
+	events, err := s.queryUntilEOSE(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query share events: %w", err)
 	}
@@ -918,7 +957,7 @@ func (s *Store) ListMyShares(ctx context.Context, ownerPubkey string) ([]*FileSh
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	events, err := s.relay.QuerySync(ctx, filter)
+	events, err := s.queryUntilEOSE(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query share events: %w", err)
 	}
@@ -982,10 +1021,22 @@ func (s *Store) CalculateStorageUsage(ctx context.Context, pubkey string) (int64
 // CLOSED, or dropped connection). It is never the same as "no events".
 var ErrRelayNoAnswer = errors.New("relay did not answer")
 
+// ErrNotConnected: the store has no relay connection right now.
+var ErrNotConnected = errors.New("metadata store not connected to the relay")
+
+// ErrFolderNotFound: the relay answered and holds no such folder.
+var ErrFolderNotFound = errors.New("folder not found")
+
 // queryUntilEOSE returns the stored events matching filter, or an error unless
 // the relay positively ended the stored set with EOSE.
 func (s *Store) queryUntilEOSE(ctx context.Context, filter nostr.Filter) ([]*nostr.Event, error) {
-	sub, err := s.relay.Subscribe(ctx, nostr.Filters{filter})
+	s.connMu.Lock()
+	relay := s.relay
+	s.connMu.Unlock()
+	if relay == nil {
+		return nil, ErrNotConnected
+	}
+	sub, err := relay.Subscribe(ctx, nostr.Filters{filter})
 	if err != nil {
 		return nil, err
 	}

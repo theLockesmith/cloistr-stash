@@ -8,8 +8,8 @@ import (
 )
 
 // Every read route that takes a pubkey answers only its owner (2026-10-15
-// audit): anonymous 401, someone else's pubkey 403, own pubkey passes the
-// gate (200 for lists; 503 here for the two that need a metadata store).
+// audit): anonymous 401, someone else's pubkey 403, own pubkey answered from
+// the relay (here an empty one: 200, and 404 for a folder it does not hold).
 func TestReadRoutesAreOwnerOnly(t *testing.T) {
 	routes := []struct {
 		path      string // pubkey appended as ?pubkey= / &pubkey=
@@ -19,12 +19,13 @@ func TestReadRoutesAreOwnerOnly(t *testing.T) {
 		{"/api/files?folder=&", http.StatusOK},
 		{"/api/folders?", http.StatusOK},
 		{"/api/folders?parent=x&", http.StatusOK},
-		{"/api/folders/some-folder?", http.StatusServiceUnavailable},
+		{"/api/folders/some-folder?", http.StatusNotFound},
 		{"/api/shares?", http.StatusOK},
 		{"/api/shares?type=received&", http.StatusOK},
-		{"/api/keyring?", http.StatusServiceUnavailable},
+		{"/api/keyring?", http.StatusOK},
 	}
 	s := setupTestServer(t)
+	s.metadata = storeFor(t, newRelayStub(t, "none").URL, true)
 	sk := nostr.GeneratePrivateKey()
 	me := pub(sk)
 	other := pub(nostr.GeneratePrivateKey())

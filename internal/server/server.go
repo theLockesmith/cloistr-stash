@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/auth"
 	"git.aegis-hq.xyz/coldforge/cloistr-stash/internal/blossom"
@@ -32,6 +36,7 @@ type Server struct {
 	authMiddle     *auth.AuthMiddleware
 	quota          *quota.Manager
 	rateLimiter    *ratelimit.Limiter
+	blossomUp      atomic.Bool
 	corsOrigins    map[string]bool
 	mux            *http.ServeMux
 	webDir         string
@@ -102,14 +107,6 @@ type PublicLinkResponse struct {
 	CreatedAt    int64  `json:"created_at"`
 }
 
-// truncateForLog safely truncates a string for logging, avoiding panics on short strings
-func truncateForLog(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen]
-}
-
 // New creates a new HTTP server
 func New(cfg *config.Config, blossomClient *blossom.Client, metadataStore *metadata.Store, whitelist *auth.Whitelist, platformClient *platform.Client, quotaManager *quota.Manager, rateLimiter *ratelimit.Limiter, webDir string, logger *slog.Logger) *Server {
 	// Create auth middleware with appropriate mode
@@ -150,11 +147,16 @@ func (s *Server) registerRoutes() {
 	// Health check
 	s.mux.HandleFunc("GET /health", s.handleHealth)
 
+	// Readiness: 503 until the metadata store reaches the relay, so a pod
+	// that cannot serve file lists takes no traffic.
+	s.mux.HandleFunc("GET /ready", s.handleReady)
+
 	// Runtime service configuration for the web app (outranks the "/" static route)
 	s.mux.HandleFunc("GET /config.js", s.handleConfigJS)
 
-	// Metrics endpoint
+	// Metrics endpoint; the relay and Blossom gauges read this server's state
 	s.mux.Handle("GET /metrics", metrics.Handler())
+	metrics.SetDependencyState(func() bool { return s.metadata.IsConnected() }, s.blossomUp.Load)
 
 	// Auth status endpoint (public)
 	s.mux.HandleFunc("GET /api/auth/status", s.authMiddle.HandleAuthStatus)
@@ -250,7 +252,7 @@ func (s *Server) Handler() http.Handler {
 // isProbePath reports whether path is a health or metrics endpoint that
 // must never be rate limited.
 func isProbePath(path string) bool {
-	return path == "/health" || path == "/metrics"
+	return path == "/health" || path == "/ready" || path == "/metrics"
 }
 
 // ListenAndServe starts the HTTP server
@@ -258,19 +260,67 @@ func (s *Server) ListenAndServe(addr string) error {
 	return http.ListenAndServe(addr, s.Handler())
 }
 
-// handleHealth is the health check endpoint
+// handleHealth is the liveness probe: the process answers. It never depends
+// on the relay: KeepConnected recovers a lost relay, and a 503 here restarted
+// every pod in a loop during a relay outage (cloistr-audit on !192).
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-
-	// Check metadata store health (relay connection)
-	if s.metadata != nil && !s.metadata.IsHealthy() {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = fmt.Fprint(w, `{"status":"unhealthy","reason":"relay connection failed"}`)
-		return
-	}
-
 	w.WriteHeader(http.StatusOK)
 	_, _ = fmt.Fprint(w, `{"status":"healthy"}`)
+}
+
+// handleReady reports process health: 200 once the HTTP server is up, with the
+// relay and Blossom connection state in the body. It never fails on a
+// dependency: with the readiness probe on it, a relay outage would take every
+// pod out of the Service and turn a partial outage (data routes answer 503,
+// downloads and the UI still work) into a total one (cloistr-pr on !192).
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	relay := "connected"
+	switch {
+	case s.metadata == nil:
+		relay = "not_configured"
+	case !s.metadata.IsConnected():
+		relay = "reconnecting"
+	}
+	blossom := "up"
+	if !s.blossomUp.Load() {
+		blossom = "down"
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ready": true, "relay": relay, "blossom": blossom})
+}
+
+// WatchBlossom checks Blossom until ctx ends, with backoff (5s doubling to
+// 1 min) while it is down and every `every` while it is up, logging changes.
+func (s *Server) WatchBlossom(ctx context.Context, every time.Duration) {
+	if s.blossom == nil {
+		return
+	}
+	backoff := 5 * time.Second
+	for {
+		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := s.blossom.Health(cctx)
+		cancel()
+		was := s.blossomUp.Swap(err == nil)
+		wait := every
+		if err != nil {
+			if was {
+				s.logger.Warn("Blossom unreachable; uploads will fail", "error", err)
+			}
+			wait = backoff
+			backoff = min(backoff*2, time.Minute)
+		} else {
+			if !was {
+				s.logger.Info("Blossom reachable")
+			}
+			backoff = 5 * time.Second
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+	}
 }
 
 // handleStatic serves the web UI files
@@ -356,6 +406,19 @@ func (s *Server) ownerOnly(w http.ResponseWriter, r *http.Request) (pubkey strin
 	return pubkey, true
 }
 
+// storeUnavailable answers 503 when the metadata store is missing or the relay
+// did not answer. Never an empty list: the client would show "you have no
+// files" (2026-10-15: a pod that started during a relay outage did that for
+// 3 hours).
+func (s *Server) storeUnavailable(w http.ResponseWriter, what string, err error) {
+	if err != nil {
+		s.logger.Error("relay unavailable", "op", what, "error", err)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_, _ = fmt.Fprint(w, `{"error":"metadata_unavailable","message":"The file index is unreachable right now. Try again shortly."}`)
+}
+
 // handleListFiles returns all files for a given pubkey from Nostr relay
 // Supports optional folder query param to filter by folder
 //
@@ -371,9 +434,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 
 	// Query metadata from relay
 	if s.metadata == nil {
-		s.logger.Warn("metadata store not configured")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"files":[]}`)
+		s.storeUnavailable(w, "list files", nil)
 		return
 	}
 
@@ -391,13 +452,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		s.logger.Error("failed to list files from relay",
-			"error", err,
-			"pubkey", truncateForLog(pubkey, 16),
-		)
-		// Return empty list on error rather than failing
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"files":[]}`)
+		s.storeUnavailable(w, "list files", err)
 		return
 	}
 
@@ -735,9 +790,7 @@ func (s *Server) handleListFolders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.metadata == nil {
-		s.logger.Warn("metadata store not configured")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"folders":[]}`)
+		s.storeUnavailable(w, "list folders", nil)
 		return
 	}
 
@@ -746,12 +799,7 @@ func (s *Server) handleListFolders(w http.ResponseWriter, r *http.Request) {
 
 	folders, err := s.metadata.ListFolders(r.Context(), pubkey)
 	if err != nil {
-		s.logger.Error("failed to list folders from relay",
-			"error", err,
-			"pubkey", truncateForLog(pubkey, 16),
-		)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"folders":[]}`)
+		s.storeUnavailable(w, "list folders", err)
 		return
 	}
 
@@ -858,18 +906,17 @@ func (s *Server) handleGetFolder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.metadata == nil {
-		http.Error(w, "Metadata storage not configured", http.StatusServiceUnavailable)
+		s.storeUnavailable(w, "get folder", nil)
 		return
 	}
 
 	folder, err := s.metadata.GetFolder(r.Context(), pubkey, folderID)
-	if err != nil {
-		s.logger.Warn("folder not found",
-			"folder_id", folderID,
-			"pubkey", truncateForLog(pubkey, 16),
-			"error", err,
-		)
+	if errors.Is(err, metadata.ErrFolderNotFound) {
 		http.Error(w, "Folder not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		s.storeUnavailable(w, "get folder", err)
 		return
 	}
 
@@ -949,9 +996,7 @@ func (s *Server) handleListShares(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.metadata == nil {
-		s.logger.Warn("metadata store not configured")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"shares":[],"received":[]}`)
+		s.storeUnavailable(w, "list shares", nil)
 		return
 	}
 
@@ -972,7 +1017,8 @@ func (s *Server) handleListShares(w http.ResponseWriter, r *http.Request) {
 	if shareType == "all" || shareType == "created" {
 		shares, err := s.metadata.ListMyShares(r.Context(), pubkey)
 		if err != nil {
-			s.logger.Error("failed to list created shares", "error", err)
+			s.storeUnavailable(w, "list created shares", err)
+			return
 		} else {
 			for _, share := range shares {
 				response.Shares = append(response.Shares, ShareResponse{
@@ -992,7 +1038,8 @@ func (s *Server) handleListShares(w http.ResponseWriter, r *http.Request) {
 	if shareType == "all" || shareType == "received" {
 		received, err := s.metadata.ListSharedWithMe(r.Context(), pubkey)
 		if err != nil {
-			s.logger.Error("failed to list received shares", "error", err)
+			s.storeUnavailable(w, "list received shares", err)
+			return
 		} else {
 			for _, share := range received {
 				response.Received = append(response.Received, ShareResponse{
@@ -1088,17 +1135,13 @@ func (s *Server) handleGetKeyring(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.metadata == nil {
-		http.Error(w, "Metadata storage not configured", http.StatusServiceUnavailable)
+		s.storeUnavailable(w, "get root key", nil)
 		return
 	}
 
 	encryptedKey, err := s.metadata.GetRootKey(r.Context(), pubkey)
 	if err != nil {
-		s.logger.Error("failed to get root key",
-			"error", err,
-			"pubkey", truncateForLog(pubkey, 16),
-		)
-		http.Error(w, "Failed to get root key", http.StatusInternalServerError)
+		s.storeUnavailable(w, "get root key", err)
 		return
 	}
 
