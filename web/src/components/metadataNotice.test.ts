@@ -25,6 +25,8 @@ describe('metadataNotice', () => {
     const n = metadataNotice({ sealed: true })
     expect(n.body).toMatch(/size of the encrypted file/)
     expect(n.body).toMatch(/when/)
+    expect(n.body).toMatch(/which items share a folder/)
+    expect(n.body).toMatch(/how many items and folders/)
   })
 })
 

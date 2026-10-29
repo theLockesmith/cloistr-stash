@@ -1,8 +1,9 @@
 // What a file's metadata gives away, in the user's terms. Two shapes exist
 // (stash-core drive.ts): old-shape events carry name, size, type and a hash of
 // the unencrypted file in the clear; sealed events keep all of that inside the
-// seal (stash-core sealed.ts), leaving only the event's timestamps on the relay
-// and the encrypted blob's size on Blossom.
+// seal (stash-core sealed.ts), leaving the event's timestamps and its folder's
+// opaque q tag (which groups items by folder) on the relay, and the encrypted
+// blob's size on Blossom.
 
 export interface MetadataNotice {
   heading: string
@@ -15,9 +16,10 @@ export function metadataNotice(file: Record<string, unknown>): MetadataNotice {
       heading: 'Still visible',
       body:
         "This file's name, size, type and tags, and its folder's name, are encrypted " +
-        'too. Anyone who looks up your public key can still see how many items you ' +
-        'store, when they changed, and the size of the encrypted file on the storage ' +
-        'server, which is close to the original size.',
+        'too. Anyone who looks up your public key can still see how many items and ' +
+        'folders you store, which items share a folder (each folder has its own ' +
+        'opaque tag), when they changed, and the size of the encrypted file on the ' +
+        'storage server, which is close to the original size.',
     }
   }
   return {
