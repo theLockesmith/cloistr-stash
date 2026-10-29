@@ -124,4 +124,59 @@ describe('folder-key restore on load', () => {
     expect(spy).toHaveBeenCalledTimes(1)
     expect(Keys.unverifiedFolders.size).toBe(0) // the run cut short by sign-out flagged nothing
   })
+
+  // !235 audit: a check in flight when the account switches must not write the
+  // old account's key under the new one.
+  const OTHER = 'b'.repeat(64)
+  async function switchAccount() {
+    Keys.clearCache()
+    Keys.userPubkey = OTHER
+  }
+  async function storedUnder(pubkey: string) {
+    return (await Keys.storage!.list(pubkey)).map((r) => r.keyId)
+  }
+
+  it('a tagged-folder check cut short by an account switch writes nothing for the new account', async () => {
+    const real = Crypto.generateKey()
+    const tag = `nip44:${Crypto.bytesToHex(real)}`
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const decrypt = Keys.selfDecrypt.bind(Keys)
+    vi.spyOn(Keys, 'selfDecrypt').mockImplementation(async (...args) => {
+      await gate
+      return decrypt(...args)
+    })
+    const run = Keys.restoreOwnFolderKeys([{ id: 'f-tag', encrypted_key: tag }])
+    await settle()
+    await switchAccount()
+    release()
+    await run.catch(() => undefined)
+    await settle()
+    expect(await storedUnder(OTHER)).toEqual([])
+    expect(Keys.keyCache.has('folder:f-tag')).toBe(false)
+    expect(Keys.unverifiedFolders.size).toBe(0)
+  })
+
+  it('a foreign-key repair cut short by an account switch writes nothing for the new account', async () => {
+    await Keys.storeEncryptedKey('folder:f-for', Crypto.generateKey(), 'f-for', { sharedBy: 'c'.repeat(64) })
+    // The new account has its own root key, as any real account does.
+    Keys.userPubkey = OTHER
+    await Keys.storeEncryptedKey('root', Crypto.generateKey(), null)
+    Keys.userPubkey = ME
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const load = Keys.loadEncryptedKey.bind(Keys)
+    vi.spyOn(Keys, 'loadEncryptedKey').mockImplementation(async (...args) => {
+      await gate
+      return load(...args)
+    })
+    const run = Keys.restoreOwnFolderKeys([{ id: 'f-for' }])
+    await settle()
+    await switchAccount()
+    release()
+    await run.catch(() => undefined)
+    await settle()
+    expect(await storedUnder(OTHER)).toEqual(['root'])
+    expect([...Keys.keyCache.keys()].filter((k) => k.startsWith('folder:'))).toEqual([])
+  })
 })
