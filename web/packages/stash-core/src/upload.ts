@@ -129,6 +129,7 @@ export async function uploadFiles(fileList: File[], opts: UploadOptions): Promis
         if (authPort.isConnected) {
           Keys.assertAccount(fence)
           authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
+          Keys.assertAccount(fence)
         }
 
         const encryptedFile = new Blob([encryptedData as BlobPart], { type: 'application/octet-stream' })
@@ -255,6 +256,7 @@ export async function uploadEncryptedBytes(
     if (authPort.isConnected) {
       Keys.assertAccount(fence)
       authHeader = await authPort.createUploadAuth(encryptedHash, encryptedData.length)
+      Keys.assertAccount(fence)
     }
 
     const encryptedFile = new Blob([encryptedData as BlobPart], { type: 'application/octet-stream' })
