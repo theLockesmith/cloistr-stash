@@ -19,8 +19,9 @@
 //
 // A full read never shrinks the stored set on its own word: an event it lacks
 // is dropped only when a second full read, CONFIRM_SECONDS later, lacks it
-// too. An empty full read is never kept, and the first index on a device is
-// read in full once more before loads go incremental.
+// too. An empty full read is never kept, and loads on a device read in full
+// until a full read CONFIRM_SECONDS after its first confirms the index (one
+// page load lists the drive several times, seconds apart).
 //
 // Events are kept only once their signature checks out and they are by the
 // owner (eventVerify): a forged kind 5 must not persist on the device.
@@ -113,7 +114,9 @@ interface IndexState {
   cursor: number
   /** Local clock (seconds) of the last full read. */
   fullAt: number
-  /** False until a second full read has been compared with the first. */
+  /** Local clock of the first full read; absent in indexes written before this field. */
+  firstAt?: number
+  /** False until a full read CONFIRM_SECONDS after the first has been merged. */
   confirmed: boolean
   /** Ids the last full read lacked: dropped if the next full read lacks them too. */
   missing: string[]
@@ -199,6 +202,8 @@ export interface IndexedDriveOptions extends OwnDriveOptions {
   pageSize?: number
   /** Local clock in seconds (tests). */
   now?: () => number
+  /** driveIndexGeneration when the caller's read began, if before this call. */
+  generation?: number
 }
 
 /**
@@ -217,7 +222,7 @@ export async function loadOwnDriveIndexed(
   if (!rootKey) return buildOwnDrive(await fetchAll(query, filter, opts.pageSize), pubkey, null, opts)
 
   const now = (opts.now ?? (() => Math.floor(Date.now() / 1000)))()
-  const generation = generations.get(pubkey) ?? 0
+  const generation = opts.generation ?? generations.get(pubkey) ?? 0
   const key = await indexKey(rootKey, pubkey)
   const had = await readIndex(opts.store, pubkey, key)
   // The stored index, when this load may build on it rather than read in full.
@@ -240,9 +245,11 @@ export async function loadOwnDriveIndexed(
   let events = prune([...(had?.events ?? []), ...fresh])
   const got = new Set(fresh.map((ev) => ev.id))
   let missing = had?.missing.filter((id) => !got.has(id)) ?? []
+  // Full reads less than CONFIRM_SECONDS apart drop nothing; what they lack stays missing.
+  const apart = had !== null && now - had.fullAt >= CONFIRM_SECONDS
   if (fullDue && had) {
     const lacking = new Set(events.filter((ev) => !got.has(ev.id)).map((ev) => ev.id))
-    const twice = new Set(had.missing.filter((id) => lacking.has(id)))
+    const twice = new Set(apart ? had.missing.filter((id) => lacking.has(id)) : [])
     events = events.filter((ev) => !twice.has(ev.id))
     missing = [...lacking].filter((id) => !twice.has(id))
   }
@@ -288,11 +295,13 @@ export async function loadOwnDriveIndexed(
   const kept: Record<string, unknown> = {}
   for (const k of used) if (k in memo) kept[k] = memo[k]
   const newest = events.reduce((m, ev) => Math.max(m, ev.created_at), 0)
+  const firstAt = had ? (had.firstAt ?? had.fullAt) : now
   await writeIndex(opts.store, pubkey, key, {
     v: INDEX_VERSION,
     cursor: events.length ? Math.min(now, newest) : now,
     fullAt: base ? base.fullAt : now,
-    confirmed: base ? base.confirmed : had !== null,
+    firstAt,
+    confirmed: base ? base.confirmed : had !== null && (had.confirmed || now - firstAt >= CONFIRM_SECONDS),
     missing,
     events,
     memo: kept,
@@ -305,6 +314,11 @@ const chunks = <T>(xs: T[], n: number): T[][] => Array.from({ length: Math.ceil(
 
 // Bumped by forgetDriveIndex, so a load already running does not write back.
 const generations = new Map<string, number>()
+
+/** Changes when the account's index is forgotten: a read begun before belongs to the old session. */
+export function driveIndexGeneration(pubkey: string): number {
+  return generations.get(pubkey) ?? 0
+}
 
 /** Remove an account's index from the device (sign-out, account switch). */
 export async function forgetDriveIndex(pubkey: string, store: DriveIndexStore = defaultDriveIndexStore()): Promise<void> {

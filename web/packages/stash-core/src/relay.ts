@@ -74,6 +74,8 @@ export const Relay = {
   authenticated: false,
 
   pendingPublishes: new Map<string, PendingPublish>(),
+  /** Bumped when a publish starts and when it settles; a read begun before either may be stale (driveSource). */
+  published: 0,
   pendingAuthRetry: new Map<string, PendingPublish>(),
   pendingSubscriptions: new Map<string, PendingSubscription>(),
 
@@ -302,6 +304,7 @@ export const Relay = {
   },
 
   async publish(signedEvent: SignedEvent): Promise<{ success: boolean; message?: string }> {
+    this.published++
     if (!this.connected || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
       console.log(
         'Relay: Reconnecting before publish (connected:',
@@ -313,7 +316,7 @@ export const Relay = {
       await this.connect()
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise<{ success: boolean; message?: string }>((resolve, reject) => {
       const pending: PendingPublish = {
         event: signedEvent,
         timeout: undefined,
@@ -336,7 +339,8 @@ export const Relay = {
         this.pendingPublishes.delete(signedEvent.id)
         reject(err as Error)
       }
-    })
+      // Counted again once settled: a read begun while it was out may lack it.
+    }).finally(() => this.published++)
   },
 
   /** (Re)start the round trip for one send of a pending publish. */

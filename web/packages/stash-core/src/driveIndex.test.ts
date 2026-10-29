@@ -3,7 +3,7 @@
 // gives, including deletes and edits made on other devices.
 import { beforeAll, describe, it, expect } from 'vitest'
 import { loadOwnDrive, type DriveOpener, type QueryFn } from './drive'
-import { forgetDriveIndex, loadOwnDriveIndexed, MemoryDriveIndexStore, SYNC_SKEW_SECONDS } from './driveIndex'
+import { CONFIRM_SECONDS, forgetDriveIndex, loadOwnDriveIndexed, MemoryDriveIndexStore, SYNC_SKEW_SECONDS } from './driveIndex'
 import {
   folderQ,
   openFileEvent,
@@ -134,7 +134,7 @@ describe('loadOwnDriveIndexed', () => {
     const s = await sampleDrive()
     const relay = fakeRelay(s.events)
     const store = new MemoryDriveIndexStore()
-    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 - CONFIRM_SECONDS })
     // The second load reads in full once more, to confirm the first.
     await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 150 })
     relay.filters.length = 0
@@ -224,7 +224,7 @@ describe('loadOwnDriveIndexed', () => {
     const relay = fakeRelay(s.events)
     const store = new MemoryDriveIndexStore()
     await store.put(OWNER, new Uint8Array([1, 2, 3, 4, 5]))
-    const drive = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    const drive = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 - CONFIRM_SECONDS })
     expect(names(drive)).toEqual(['alpha.txt', 'root.txt'])
     expect(relay.filters.every((f) => f.since === undefined)).toBe(true)
     await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 150 })
@@ -283,7 +283,7 @@ describe('loadOwnDriveIndexed at the edges', () => {
     const relay = fakeRelay(s.events)
     const store = new MemoryDriveIndexStore()
     const fast = 1800
-    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 + fast })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 + fast - CONFIRM_SECONDS })
     await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 + fast })
     relay.events.push(await s.r1Event('renamed.txt', T0 + 400))
     const drive = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 1000 + fast })
@@ -296,7 +296,7 @@ describe('loadOwnDriveIndexed at the edges', () => {
     const s = await sampleDrive(T0 - 3600)
     const relay = fakeRelay(s.events)
     const store = new MemoryDriveIndexStore()
-    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 - CONFIRM_SECONDS })
     await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 })
     const late = T0 + 500 - 1200
     relay.events.push(await s.aRing([{ d: s.a1.d, deletedAt: late }], late))
@@ -311,7 +311,7 @@ describe('loadOwnDriveIndexed at the edges', () => {
     const s = await sampleDrive(T0 - 10 * 86_400)
     const relay = fakeRelay(s.events)
     const store = new MemoryDriveIndexStore()
-    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 - CONFIRM_SECONDS })
     await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 })
     const past = T0 - 5 * 86_400
     relay.events.push(await s.aRing([{ d: s.a1.d, deletedAt: past }], past))
@@ -324,7 +324,7 @@ describe('loadOwnDriveIndexed at the edges', () => {
     const s = await sampleDrive(T0 - 7200)
     const relay = fakeRelay([...s.events, legacyFile('new1', 'new.txt', T0 + 50)])
     const store = new MemoryDriveIndexStore()
-    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 - CONFIRM_SECONDS })
     await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 })
     // Signed on a slow device (or through a signer that waited on the user).
     relay.events.push(await s.r1Event('slow.txt', T0 + 50 - 3000))
@@ -339,7 +339,7 @@ describe('loadOwnDriveIndexed at the edges', () => {
     // A device two hours fast writes a file.
     const legacyAhead = legacyFile('ahead', 'ahead.txt', T0 + 7200)
     relay.events.push(legacyAhead)
-    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 - CONFIRM_SECONDS })
     await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 })
     relay.events.push(await s.r1Event('renamed.txt', T0 + 300))
     const drive = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 400 })
@@ -372,7 +372,7 @@ describe('loadOwnDriveIndexed at the edges', () => {
   it('a full read that comes back short does not shrink the drive; a second one, an hour on, does', async () => {
     const relay = fakeRelay([legacyFile('old1', 'old.txt'), legacyFile('old2', 'keep.txt')])
     const store = new MemoryDriveIndexStore()
-    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 - CONFIRM_SECONDS })
     await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 })
     const saved = relay.events.splice(0)
     // The relay answers the daily full read with nothing (restarting).
@@ -420,7 +420,7 @@ describe('loadOwnDriveIndexed at the edges', () => {
   it('when two full reads an hour apart both find nothing, the empty drive is kept and loads go incremental', async () => {
     const relay = fakeRelay([legacyFile('old1', 'old.txt')])
     const store = new MemoryDriveIndexStore()
-    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 - CONFIRM_SECONDS })
     await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 })
     relay.events.splice(0)
     expect(names(await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 + 86_400 }))).toEqual(['old.txt'])
@@ -438,7 +438,7 @@ describe('loadOwnDriveIndexed at the edges', () => {
     const s = await sampleDrive(T0 - 3 * 86_400)
     const relay = fakeRelay([...s.events, legacyFile('now1', 'now.txt', T0)])
     const store = new MemoryDriveIndexStore()
-    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 - CONFIRM_SECONDS })
     await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 })
     const rootCK = await rootContainerKey(ROOT)
     const up = { id: 'f7'.padEnd(32, '0'), key: k(7), d: randomD() }
@@ -464,7 +464,7 @@ describe('loadOwnDriveIndexed at the edges', () => {
     // The file was written on another device and then moved, both on its slow clock; this device never stored it.
     const relay = fakeRelay([...s.events, legacyFile('now1', 'now.txt', T0)])
     const store = new MemoryDriveIndexStore()
-    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 - CONFIRM_SECONDS })
     await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 })
     const mv = { id: 'f8'.padEnd(32, '0'), key: k(8), d: randomD() }
     const slow = T0 + 300 - 7200
@@ -481,7 +481,7 @@ describe('loadOwnDriveIndexed at the edges', () => {
     const s = await sampleDrive()
     const relay = fakeRelay(s.events)
     const store = new MemoryDriveIndexStore()
-    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 - CONFIRM_SECONDS })
     await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 200 })
     const rootCK = await rootContainerKey(ROOT)
     const ghost = { id: 'f6'.padEnd(32, '0'), key: k(6), d: randomD() }
@@ -490,6 +490,50 @@ describe('loadOwnDriveIndexed at the edges', () => {
     const drive = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 400 })
     expect(names(drive)).toEqual(['alpha.txt', 'root.txt'])
     expect(relay.filters.filter((f) => '#d' in f)).toEqual([expect.objectContaining({ '#d': [ghost.d] })])
+  })
+
+  // Live proof of !225: one page load lists the drive several times, so a
+  // second full read seconds after the first must not confirm it.
+  it('two short full reads seconds apart do not become the base: the next load reads in full and heals', async () => {
+    const s = await sampleDrive(T0 - 3 * 86_400)
+    const recent = legacyFile('now1', 'now.txt', T0)
+    // The relay answers short: rings and one recent file, no folder or file events.
+    const relay = fakeRelay([...s.events.slice(0, 2), recent])
+    const store = new MemoryDriveIndexStore()
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 105 })
+    relay.events.push(...s.events.slice(2))
+    relay.filters.length = 0
+    const healed = await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 110 })
+    expect(relay.filters.every((f) => f.since === undefined)).toBe(true)
+    expect(names(healed)).toEqual(['alpha.txt', 'now.txt', 'root.txt'])
+  })
+
+  it('a full read an hour after the first confirms the index; loads then go incremental', async () => {
+    const s = await sampleDrive()
+    const relay = fakeRelay(s.events)
+    const store = new MemoryDriveIndexStore()
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    for (const t of [T0 + 200, T0 + 1000, T0 + 3000]) {
+      relay.filters.length = 0
+      await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => t })
+      expect(relay.filters.every((f) => f.since === undefined)).toBe(true)
+    }
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 + 3600 })
+    relay.filters.length = 0
+    expect(names(await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 3800 }))).toEqual(['alpha.txt', 'root.txt'])
+    expect(relay.filters.some((f) => typeof f.since === 'number')).toBe(true)
+  })
+
+  it('before confirmation, full reads seconds apart that lack an event do not drop it', async () => {
+    const relay = fakeRelay([legacyFile('old1', 'old.txt'), legacyFile('old2', 'keep.txt')])
+    const store = new MemoryDriveIndexStore()
+    await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => T0 + 100 })
+    // The relay loses old1 (no kind 5) for a few seconds.
+    relay.events.splice(0, 1)
+    for (const t of [T0 + 105, T0 + 110, T0 + 115]) {
+      expect(names(await loadOwnDriveIndexed(relay.query, OWNER, ROOT, { store, now: () => t }))).toEqual(['keep.txt', 'old.txt'])
+    }
   })
 
   it('a load still running when the index is forgotten does not write it back', async () => {
