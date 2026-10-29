@@ -888,7 +888,6 @@ func (s *Server) handleCreateFolder(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("folder created",
 		"event_id", event.ID[:16],
 		"pubkey", event.PubKey[:16],
-		"name", folder.Name,
 	)
 }
 
