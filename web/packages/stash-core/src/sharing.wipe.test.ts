@@ -28,6 +28,8 @@ vi.mock('./keys', () => ({
       return 'enc'
     },
     encryptForRecipient: async () => 'enc',
+    accountFence: () => null,
+    assertAccount: () => {},
   },
 }))
 

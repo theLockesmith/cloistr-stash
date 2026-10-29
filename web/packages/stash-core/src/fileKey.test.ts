@@ -84,7 +84,7 @@ describe('fileKeyFor (the one resolver)', () => {
   it('derives HKDF for a legacy file, in a folder or at root', async () => {
     expect(await fileKeyFor(legacy)).toEqual(HKDF_KEY)
     expect(await fileKeyFor(legacyRoot)).toEqual(HKDF_KEY)
-    expect(Keys.deriveFileKey).toHaveBeenCalledWith('folder-1', 'file-l')
+    expect(Keys.deriveFileKey).toHaveBeenCalledWith('folder-1', 'file-l', undefined)
     expect(Keys.deriveRootFileKey).toHaveBeenCalledWith('file-r')
   })
   it('accepts the legacy field aliases', async () => {
@@ -93,7 +93,7 @@ describe('fileKeyFor (the one resolver)', () => {
   })
   it('prefers the canonical id, the one the migration wrapped the key under', async () => {
     await fileKeyFor({ sha256: 'x', id: 'file-l', d: 'other', file_id: 'other', folder: 'folder-1' })
-    expect(Keys.deriveFileKey).toHaveBeenCalledWith('folder-1', 'file-l')
+    expect(Keys.deriveFileKey).toHaveBeenCalledWith('folder-1', 'file-l', undefined)
   })
   it('ignores a non-string owner_key (no signer call for a malformed field)', async () => {
     await fileKeyFor({ ...legacy, owner_key: { bogus: true } })

@@ -499,8 +499,8 @@ export const Keys = {
     return derivedKey
   },
 
-  async deriveFileKey(folderId: string, fileId: string): Promise<Uint8Array> {
-    const folderKey = await this.getFolderKey(folderId)
+  async deriveFileKey(folderId: string, fileId: string, fence?: AccountFence): Promise<Uint8Array> {
+    const folderKey = await this.getFolderKey(folderId, null, fence)
     return this.deriveKey(folderKey, fileId, this.CONTEXT_FILE)
   },
 
@@ -739,8 +739,9 @@ export const Keys = {
     folderId: string,
     keyTag: string | undefined,
     parentId: string | null,
+    fence?: AccountFence,
   ): Promise<Uint8Array> {
-    const { key, status } = await this.resolveOwnFolderKeyStatus(folderId, keyTag, parentId)
+    const { key, status } = await this.resolveOwnFolderKeyStatus(folderId, keyTag, parentId, fence)
     if (status === 'unverified') throw new FolderKeyUnverifiedError(folderId)
     return key
   },
@@ -1019,7 +1020,12 @@ export const Keys = {
   async getFileKey(
     folderId: string | null,
     fileId: string,
-    opts?: { ownerEnvelope?: string; folderWrappedKeys?: Array<{ subject: string; envelope: string }>; signer?: unknown },
+    opts?: {
+      ownerEnvelope?: string
+      folderWrappedKeys?: Array<{ subject: string; envelope: string }>
+      signer?: unknown
+      fence?: AccountFence
+    },
   ): Promise<Uint8Array> {
     // 1. Owner envelope present → file was encrypted with a wrapped key.
     //    HKDF derivation will NOT produce the right key, so always throw on failure.
@@ -1036,7 +1042,7 @@ export const Keys = {
       const entry = opts.folderWrappedKeys.find((wk) => wk.subject === fileId)
       if (entry) {
         try {
-          const folderKey = await this.getFolderKey(folderId)
+          const folderKey = await this.getFolderKey(folderId, null, opts.fence)
           return this.unwrapFileKeyFromFolder(entry.envelope, fileId, folderKey)
         } catch (err) {
           throw new Error(`Failed to unwrap folder key for ${fileId}: ${(err as Error).message}`)
@@ -1045,7 +1051,7 @@ export const Keys = {
     }
 
     // 3. No wrapped key on this file → HKDF derivation (pre-migration)
-    return folderId ? this.deriveFileKey(folderId, fileId) : this.deriveRootFileKey(fileId)
+    return folderId ? this.deriveFileKey(folderId, fileId, opts?.fence) : this.deriveRootFileKey(fileId)
   },
 
   async getPublicLinkKey(folderId: string | null, fileId: string): Promise<string> {
