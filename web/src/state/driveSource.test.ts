@@ -104,6 +104,20 @@ describe('fetchDrive shares one read', () => {
     expect(query).toHaveBeenCalledTimes(4)
   })
 
+  it('a read begun while a publish is still out is not joined once it settles', async () => {
+    const { query, release } = heldRelay()
+    Object.assign(Relay, { connected: true, socket: { readyState: WebSocket.OPEN }, send: vi.fn() })
+    const ev = { ...legacyFile('f9', 'new.txt') }
+    const publishing = Relay.publish(ev)
+    const during = fetchDrive(OWNER)
+    Relay.pendingPublishes.get(ev.id)!.resolve({ success: true })
+    await publishing
+    const after = fetchDrive(OWNER) // the refresh after an upload
+    release()
+    await Promise.all([during, after])
+    expect(query).toHaveBeenCalledTimes(4)
+  })
+
   it('after sign-out, a read started before it is neither joined nor remembered', async () => {
     const { query, release } = heldRelay()
     const old = fetchDrive(OWNER)
