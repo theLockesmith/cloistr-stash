@@ -43,3 +43,24 @@ describe('loading files across an account switch', () => {
     expect(special.slice(special.indexOf('} catch'))).toMatch(/authPort\.pubkey !== pubkey[\s\S]*setError\(/)
   })
 })
+
+describe('the folder tree across an account switch', () => {
+  // The sidebar draws folderTreeData; a tree that lands after a switch, or one
+  // left over from the previous account, shows that account's folder names.
+  const body = callback('loadFolderTree')
+
+  it('drops a tree that arrives after the account changed', () => {
+    const fetched = body.indexOf('await fetchDrive(')
+    const check = body.indexOf('authPort.pubkey !== pubkey', fetched)
+    expect(fetched).toBeGreaterThan(-1)
+    expect(check, 'no account check after the drive read').toBeGreaterThan(-1)
+    expect(check).toBeLessThan(body.indexOf('treeRef.current = tree'))
+    expect(check).toBeLessThan(body.indexOf('setFolderTreeData(tree)'))
+  })
+
+  it("clears the previous account's tree before it reads the new one", () => {
+    const clear = body.search(/treeOwnerRef\.current !== pubkey\)\s*\{[\s\S]*?treeRef\.current = \[\][\s\S]*?setFolderTreeData\(\[\]\)/)
+    expect(clear, 'no clear of a tree owned by another account').toBeGreaterThan(-1)
+    expect(clear).toBeLessThan(body.indexOf('await fetchDrive('))
+  })
+})

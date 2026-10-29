@@ -286,6 +286,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
   // The view on screen now; an action that finishes later reloads this one.
   const viewRef = useRef<StashView>('my-files')
   const treeRef = useRef<StashFolder[]>([])
+  const treeOwnerRef = useRef<string | null>(null) // account treeRef was loaded for
   const recentRef = useRef<RecentEntry[]>(loadRecent())
   const starredRef = useRef<ReadonlySet<string>>(starredFiles)
   starredRef.current = starredFiles
@@ -399,8 +400,15 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const loadFolderTree = useCallback(async () => {
     const pubkey = authPort.pubkey
     if (!authPort.isConnected || !pubkey) return
+    // Another account's tree must not stay in the sidebar while this one loads.
+    if (treeOwnerRef.current !== pubkey) {
+      treeOwnerRef.current = pubkey
+      treeRef.current = []
+      setFolderTreeData([])
+    }
     try {
       const tree = (await fetchDrive(pubkey)).folders
+      if (authPort.pubkey !== pubkey) return // switched account while this loaded
       treeRef.current = tree
       setFolderTreeData(tree)
       await restoreFolderKeys(tree)
