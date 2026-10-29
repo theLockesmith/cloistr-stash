@@ -194,7 +194,7 @@ export function withNewVersion(
 }
 
 /** Delete a file for good: kind 5 of its event, and a tombstone in its container's ring. */
-export async function deleteFile(ctx: WriteContext, ref: ItemRef, folderId: string | null): Promise<void> {
+export async function deleteFile(ctx: WriteContext, ref: Pick<ItemRef, 'd'>, folderId: string | null): Promise<void> {
   await ctx.publish(deletion(ctx.pubkey, [`${SEALED_FILE_KIND}:${ref.d}`]))
   await updateRing(ctx, folderId || null, (r) => ({
     ...r,

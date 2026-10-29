@@ -33,6 +33,24 @@ describe('an unfinished revoke never reads as done', () => {
     expect(s.canRetry).toBe(true)
   })
 
+  it('old record still listed: says old shares no longer open it and the old entry is still listed, offers Retry', () => {
+    const s = revokeStatus({ ...base, stage: 'old-record' }, ME)
+    expect(s.text).toMatch(/did not finish/i)
+    expect(s.text).toMatch(/no longer open/i)
+    expect(s.text).toMatch(/old entry/i)
+    expect(s.canRetry).toBe(true)
+  })
+
+  it('new copy possibly not saved: never claims it is saved, says old shares still open it', () => {
+    const newEvent = { id: 'e', kind: 30078 } as never
+    const s = revokeStatus({ ...base, stage: 'old-copy-remains', newEvent }, ME)
+    expect(s.text).toMatch(/did not finish/i)
+    expect(s.text).not.toMatch(/new copy is saved/i)
+    expect(s.text).toMatch(/may not have been saved/i)
+    expect(s.text).toMatch(/can still open/i)
+    expect(s.canRetry).toBe(true)
+  })
+
   it('signed in as another account: says which account to sign back in with, no Retry', () => {
     const s = revokeStatus({ ...base, stage: 'old-copy-remains' }, 'c'.repeat(64))
     expect(s.text).toMatch(/did not finish/i)

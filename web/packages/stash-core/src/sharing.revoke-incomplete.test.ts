@@ -7,15 +7,34 @@
 // that started it.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-const { ME, OTHER, acct, published, calls, gate, holdAt } = vi.hoisted(() => ({
+const { ME, OTHER, acct, published, calls, gate, holdAt, relay } = vi.hoisted(() => ({
   ME: '4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766',
   OTHER: 'b'.repeat(64),
-  acct: { pubkey: '4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766' },
-  published: [] as Array<{ kind: number; by: string }>,
-  calls: { upload: 0, del: 0, notices: 0, deleted: [] as string[] },
-  holdAt: { step: 'upload' as 'upload' | 'delete' | 'notice' },
+  acct: {
+    pubkey: '4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766',
+  },
+  published: [] as Array<{ kind: number; by: string; a: string[] }>,
+  calls: {
+    upload: 0,
+    del: 0,
+    notices: 0,
+    deleted: [] as string[],
+    sealedDeleted: [] as string[],
+  },
+  // What the relay holds, by event id; `metadata` makes the new record's publish
+  // fail after landing ('lost') or without landing ('dropped').
+  relay: {
+    events: new Map<string, { id: string; kind: number }>(),
+    n: 0,
+    metadata: 'ok' as 'ok' | 'lost' | 'dropped',
+  },
+  holdAt: { step: 'upload' as 'upload' | 'delete' | 'notice' | 'record' },
   // The first Blossom auth signature waits here, as a NIP-46 round trip does.
-  gate: { held: null as Promise<void> | null, release: () => {}, signed: false },
+  gate: {
+    held: null as Promise<void> | null,
+    release: () => {},
+    signed: false,
+  },
 }))
 
 async function signBlossom() {
@@ -32,7 +51,13 @@ const signer = {
   nip44Decrypt: async (_pk: string, ct: string) => ct.replace('nip44:', ''),
 }
 
-vi.mock('./relay', () => ({ Relay: { subscribe: async () => [], query: async () => [] } }))
+vi.mock('./relay', () => ({
+  Relay: {
+    subscribe: async () => [],
+    query: async (filters: Array<{ ids?: string[] }>) =>
+      filters.flatMap((f) => (f.ids ?? []).flatMap((id) => (relay.events.has(id) ? [relay.events.get(id)] : []))),
+  },
+}))
 vi.mock('./authBridge', () => ({
   authPort: {
     isConnected: true,
@@ -41,14 +66,25 @@ vi.mock('./authBridge', () => ({
     },
     createUploadAuth: async () => (holdAt.step === 'upload' ? signBlossom() : 'Nostr x'),
     createDeleteAuth: async () => 'Nostr x',
-    signEvent: async (e: Record<string, unknown>) => {
-      // The revoke signs its blob removal (24242) here, then the share-record removals (5).
-      if ((holdAt.step === 'delete' && e.kind === 24242) || (holdAt.step === 'notice' && e.kind === 5)) await signBlossom()
-      return { ...e, id: 'id', sig: 'sig', pubkey: acct.pubkey }
+    signEvent: async (e: { kind: number; tags?: string[][] }) => {
+      // The revoke signs its blob removal (24242) here, then the share-record
+      // removals (5 naming 30080), then the old file record's removal (5 naming 30078).
+      const names = (k: string) => (e.tags ?? []).some((t) => t[0] === 'a' && t[1].startsWith(k))
+      if (
+        (holdAt.step === 'delete' && e.kind === 24242) ||
+        (holdAt.step === 'notice' && e.kind === 5 && names('30080:')) ||
+        (holdAt.step === 'record' && e.kind === 5 && names('30078:'))
+      )
+        await signBlossom()
+      return { ...e, id: `id-${++relay.n}`, sig: 'sig', pubkey: acct.pubkey }
     },
-    publishEvent: async (e: { kind: number }) => {
-      if (e.kind === 5) calls.notices++
-      published.push({ kind: e.kind, by: acct.pubkey })
+    publishEvent: async (e: { id: string; kind: number; tags?: string[][] }) => {
+      if (e.kind === 30078 && relay.metadata === 'dropped') throw new Error('publish timed out')
+      relay.events.set(e.id, e)
+      if (e.kind === 30078 && relay.metadata === 'lost') throw new Error('publish timed out')
+      const a = (e.tags ?? []).filter((t) => t[0] === 'a').map((t) => t[1])
+      if (e.kind === 5 && a.some((x) => x.startsWith('30080:'))) calls.notices++
+      published.push({ kind: e.kind, by: acct.pubkey, a })
     },
   },
   getSigner: () => signer,
@@ -68,8 +104,18 @@ vi.mock('./api', () => ({
   },
 }))
 vi.mock('./search', () => ({ Search: { indexFile: async () => {} } }))
-vi.mock('./sealedDrive', () => ({ writesSealed: async () => false, writeContext: async () => ({}) }))
-vi.mock('./versioning', () => ({ Versioning: { getVersionHistory: async () => [] } }))
+vi.mock('./sealedDrive', () => ({
+  writesSealed: async () => false,
+  writeContext: async () => ({}),
+}))
+vi.mock('./driveWrite', () => ({
+  deleteFile: async (_ctx: unknown, ref: { d: string }) => {
+    calls.sealedDeleted.push(ref.d)
+  },
+}))
+vi.mock('./versioning', () => ({
+  Versioning: { getVersionHistory: async () => [] },
+}))
 
 import { Keys } from './keys'
 import type { AuthPort } from './keys'
@@ -79,7 +125,12 @@ import { Sharing, RevokeIncompleteError } from './sharing'
 
 const settle = () => new Promise((r) => setTimeout(r, 20))
 const OLD = 'a'.repeat(64)
-const FILE = { id: 'file-1', file_id: 'file-1', sha256: OLD, name: 'r.txt' } as never
+const FILE = {
+  id: 'file-1',
+  file_id: 'file-1',
+  sha256: OLD,
+  name: 'r.txt',
+} as never
 
 function setAccount(pk: string) {
   Keys.clearCache()
@@ -88,11 +139,11 @@ function setAccount(pk: string) {
 }
 
 /** Start a revoke, switch account at `step`, then let that signature return. */
-async function revokeSwitchingAt(step: 'upload' | 'delete' | 'notice'): Promise<unknown> {
+async function revokeSwitchingAt(step: 'upload' | 'delete' | 'notice' | 'record', file = FILE): Promise<unknown> {
   holdAt.step = step
   gate.held = new Promise<void>((r) => (gate.release = r))
   gate.signed = false
-  const run = Sharing.revokeAndReencryptFile(FILE).catch((e: unknown) => e)
+  const run = Sharing.revokeAndReencryptFile(file).catch((e: unknown) => e)
   for (let i = 0; i < 50 && !gate.signed; i++) await settle()
   expect(gate.signed).toBe(true)
   setAccount(OTHER)
@@ -126,7 +177,15 @@ beforeEach(async () => {
   vi.stubGlobal('fetch', async () => new Response(blob as BodyInit))
   vi.spyOn(Sharing, 'listOutgoingSharesForFile').mockResolvedValue([{ id: 'share-1' }] as never)
   published.length = 0
-  Object.assign(calls, { upload: 0, del: 0, notices: 0, deleted: [] })
+  relay.events.clear()
+  relay.metadata = 'ok'
+  Object.assign(calls, {
+    upload: 0,
+    del: 0,
+    notices: 0,
+    deleted: [],
+    sealedDeleted: [],
+  })
   gate.held = null
   gate.signed = false
   Sharing.clearPendingRevoke('file-1')
@@ -157,7 +216,12 @@ describe('a revoke stopped by an account switch is reported, kept, and finished 
     const out = await revokeSwitchingAt('delete')
     expect(out).toBeInstanceOf(RevokeIncompleteError)
     const pending = (out as RevokeIncompleteError).pending
-    expect(pending).toMatchObject({ stage: 'old-copy-remains', pubkey: ME, fileId: 'file-1', oldSha256: OLD })
+    expect(pending).toMatchObject({
+      stage: 'old-copy-remains',
+      pubkey: ME,
+      fileId: 'file-1',
+      oldSha256: OLD,
+    })
     expect(calls.del).toBe(0)
     expect(Sharing.pendingRevoke('file-1')).toEqual(pending)
 
@@ -191,6 +255,125 @@ describe('a revoke stopped by an account switch is reported, kept, and finished 
     await expect(Sharing.retryRevoke(FILE)).rejects.toThrow(/account/i)
     expect(calls.del).toBe(sent.del)
     expect(calls.upload).toBe(sent.upload)
+    expect(Sharing.pendingRevoke('file-1')?.stage).toBe('old-copy-remains')
+  })
+})
+
+// Orchestrator ruling on !239: a finished revoke left the OLD file's metadata
+// record (kind 30078 under the old file id) listed beside the new copy, naming
+// a blob that is gone. Withdrawing it is now the last stage of the revoke, so a
+// stop there is reported and retried like the others.
+const RECORD = `30078:${ME}:file-1`
+const recordDeletions = () => published.filter((e) => e.kind === 5 && e.a.includes(RECORD))
+
+describe('a finished revoke withdraws the old file record', () => {
+  it('a completed revoke publishes a deletion of the old record, under the starting account', async () => {
+    await Sharing.revokeAndReencryptFile(FILE)
+    expect(recordDeletions()).toEqual([{ kind: 5, by: ME, a: [RECORD] }])
+    expect(Sharing.pendingRevoke('file-1')).toBeNull()
+  })
+
+  it('the new copy is never named in the deletion', async () => {
+    const result = await Sharing.revokeAndReencryptFile(FILE)
+    expect(published.some((e) => e.kind === 5 && e.a.some((a) => a.endsWith(`:${result.newFileId}`)))).toBe(false)
+  })
+
+  it('a sealed old file is removed through the sealed delete, by its d', async () => {
+    const sealed = {
+      ...(FILE as object),
+      sealed: true,
+      d: 'sealed-d-1',
+      folder_id: null,
+    } as never
+    await Sharing.revokeAndReencryptFile(sealed)
+    expect(calls.sealedDeleted).toEqual(['sealed-d-1'])
+    expect(recordDeletions()).toEqual([])
+  })
+
+  it('stopped while withdrawing the old record: reported, kept, and finished on retry', async () => {
+    const out = await revokeSwitchingAt('record')
+    expect(out).toBeInstanceOf(RevokeIncompleteError)
+    expect((out as RevokeIncompleteError).pending.stage).toBe('old-record')
+    expect(calls.deleted).toEqual([OLD])
+    expect(calls.notices).toBe(1)
+    expect(recordDeletions()).toEqual([])
+    expect(Sharing.pendingRevoke('file-1')?.stage).toBe('old-record')
+
+    setAccount(ME)
+    await Sharing.retryRevoke(FILE)
+    expect(recordDeletions()).toEqual([{ kind: 5, by: ME, a: [RECORD] }])
+    expect(calls.notices).toBe(1)
+    expect(Sharing.pendingRevoke('file-1')).toBeNull()
+  })
+
+  it('a relay failure on the old record is reported and retryable, not swallowed', async () => {
+    const real = (await import('./authBridge')).authPort.publishEvent
+    const spy = vi
+      .spyOn((await import('./authBridge')).authPort, 'publishEvent')
+      .mockImplementation(async (event: unknown) => {
+        const e = event as { kind: number; tags?: string[][] }
+        if (e.kind === 5 && (e.tags ?? []).some((t) => t[1] === RECORD)) throw new Error('relay rejected')
+        return real(e as never)
+      })
+    await expect(Sharing.revokeAndReencryptFile(FILE)).rejects.toBeInstanceOf(RevokeIncompleteError)
+    expect(Sharing.pendingRevoke('file-1')?.stage).toBe('old-record')
+    spy.mockRestore()
+
+    await Sharing.retryRevoke(FILE)
+    expect(recordDeletions()).toEqual([{ kind: 5, by: ME, a: [RECORD] }])
+    expect(Sharing.pendingRevoke('file-1')).toBeNull()
+  })
+})
+
+// cloistr-audit on !239: a publish of the new copy's record that lands but whose
+// answer is lost threw with no record kept, so the owner's next revoke made a
+// second copy. Now it is kept as 'old-copy-remains' with the signed record, and
+// a retry asks the relay for that record before publishing it again. The old
+// blob is never removed until the new record is known to be on the relay.
+const newRecords = () => published.filter((e) => e.kind === 30078)
+
+describe('a lost answer on the new record publish', () => {
+  it('landed: kept as unfinished, retry finds it and does not publish a second copy', async () => {
+    relay.metadata = 'lost'
+    const out = await Sharing.revokeAndReencryptFile(FILE).catch((e: unknown) => e)
+    expect(out).toBeInstanceOf(RevokeIncompleteError)
+    const pending = (out as RevokeIncompleteError).pending
+    expect(pending.stage).toBe('old-copy-remains')
+    expect(pending.newEvent?.kind).toBe(30078)
+    expect(relay.events.has(pending.newEvent!.id)).toBe(true)
+    expect(calls.del).toBe(0)
+
+    relay.metadata = 'ok'
+    const uploads = calls.upload
+    const result = await Sharing.retryRevoke(FILE)
+    expect(newRecords()).toHaveLength(0)
+    expect(calls.upload).toBe(uploads)
+    expect(calls.deleted).toEqual([OLD])
+    expect(result.newFileId).toBe(pending.newFileId)
+    expect(Sharing.pendingRevoke('file-1')).toBeNull()
+  })
+
+  it('never landed: retry publishes that same record once, then finishes', async () => {
+    relay.metadata = 'dropped'
+    const out = await Sharing.revokeAndReencryptFile(FILE).catch((e: unknown) => e)
+    expect(out).toBeInstanceOf(RevokeIncompleteError)
+    const id = (out as RevokeIncompleteError).pending.newEvent!.id
+    expect(relay.events.has(id)).toBe(false)
+    expect(calls.del).toBe(0)
+
+    relay.metadata = 'ok'
+    await Sharing.retryRevoke(FILE)
+    expect(newRecords()).toHaveLength(1)
+    expect(relay.events.has(id)).toBe(true)
+    expect(calls.deleted).toEqual([OLD])
+    expect(Sharing.pendingRevoke('file-1')).toBeNull()
+  })
+
+  it('still not on the relay and the publish fails again: the old blob stays and it stays unfinished', async () => {
+    relay.metadata = 'dropped'
+    await Sharing.revokeAndReencryptFile(FILE).catch(() => {})
+    await expect(Sharing.retryRevoke(FILE)).rejects.toBeInstanceOf(RevokeIncompleteError)
+    expect(calls.del).toBe(0)
     expect(Sharing.pendingRevoke('file-1')?.stage).toBe('old-copy-remains')
   })
 })
