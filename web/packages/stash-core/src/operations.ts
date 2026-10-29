@@ -188,7 +188,9 @@ export async function deleteFileBlobs(files: StashFile[], fence?: AccountFence):
   for (const sha256 of new Set([...files.flatMap(blobsOf), ...local.flat()])) {
     try {
       Keys.assertAccount(fence)
-      await API.deleteFile(sha256, await authPort.createDeleteAuth(sha256))
+      const authHeader = await authPort.createDeleteAuth(sha256)
+      Keys.assertAccount(fence)
+      await API.deleteFile(sha256, authHeader)
     } catch (err) {
       console.warn('deleteFileBlobs: could not delete blob', sha256.slice(0, 12), err)
       failed.push(sha256)

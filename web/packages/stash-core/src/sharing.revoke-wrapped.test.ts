@@ -24,6 +24,8 @@ vi.mock('./crypto', () => ({
 vi.mock('./keys', () => ({
   Keys: {
     wrappedKeyMode: false,
+    accountFence: () => null,
+    assertAccount: () => {},
     generateFileKey: () => {
       generateFileKeyCalled = true
       return RANDOM_KEY
@@ -160,6 +162,7 @@ describe('revokeAndReencryptFile: wrapped key mode', () => {
       'folder-1',
       'new-file-id-after-revoke',
       RANDOM_KEY,
+      undefined, // the account fence; this stub reports no account
     )
   })
 

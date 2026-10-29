@@ -30,6 +30,7 @@
 
 import { API } from './api'
 import { authPort } from './authBridge'
+import { Keys } from './keys'
 import { readFileBytes, type FileRef } from './fileKey'
 import { Relay } from './relay'
 import { BLOB_HOST, DISCOVERY_URL, RELAY_URL } from './serviceConfig'
@@ -91,6 +92,8 @@ export async function publishPublicly(
   file: StashFile,
   getPlaintext: (file: StashFile) => Promise<Uint8Array>,
 ): Promise<PublishResult> {
+  // The account this copy is for: it must not land under another account's quota.
+  const fence = Keys.accountFence() ?? undefined
   const bytes = await getPlaintext(file)
   const contentType = file.mime_type || 'application/octet-stream'
   const blob = new Blob([bytes.buffer as ArrayBuffer], { type: contentType })
@@ -98,7 +101,9 @@ export async function publishPublicly(
   // Blossom auth binds to the hash of the bytes being uploaded, so it must be
   // computed over the PLAINTEXT copy — not the encrypted original's sha256.
   const hash = await sha256Hex(bytes)
+  Keys.assertAccount(fence)
   const authHeader = await authPort.createUploadAuth(hash, bytes.byteLength)
+  Keys.assertAccount(fence)
 
   // encryptionMode 'none' is what makes this readable by other clients. Every
   // other upload path in stash uses 'e2e'.
@@ -115,7 +120,9 @@ export async function publishPublicly(
  * the honest thing: our copy is gone, already-cached copies elsewhere are not.
  */
 export async function unpublish(sha256: string): Promise<void> {
+  const fence = Keys.accountFence() ?? undefined
   const authHeader = await authPort.createDeleteAuth(sha256)
+  Keys.assertAccount(fence)
   // Same endpoint any file removal uses; the published copy is an ordinary
   // blob, distinguished only by having been stored unencrypted.
   await API.deleteFile(sha256, authHeader)

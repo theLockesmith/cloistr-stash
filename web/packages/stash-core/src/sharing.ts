@@ -663,6 +663,9 @@ export const Sharing = {
     if (!fileId) {
       throw new Error('Cannot revoke: missing file ID')
     }
+    // The account this revoke is for: every key fetch, signature, upload,
+    // publish and delete below refuses once it changes.
+    const fence = Keys.accountFence() ?? undefined
 
     // UI.toast dropped (pure UI)
 
@@ -675,6 +678,7 @@ export const Sharing = {
     const oldFileKey = await Keys.getFileKey(folderId, fileId, {
       ownerEnvelope: file.owner_key,
       signer: getSigner(),
+      fence,
     })
 
     // Step 3: Generate new file ID
@@ -687,6 +691,7 @@ export const Sharing = {
     const newFileKey = Keys.generateFileKey()
     try {
       const decryptedData = await Crypto.decryptFile(encryptedData, oldFileKey)
+      Keys.assertAccount(fence)
       const ownerEnvelope = await Keys.wrapFileKeyForOwner(newFileKey, newFileId, getSigner())
 
       // Step 5: Re-encrypt with new key
@@ -696,7 +701,9 @@ export const Sharing = {
       const newHash = await Crypto.hash(reencryptedData)
 
       // Step 7: Upload new encrypted blob
+      Keys.assertAccount(fence)
       const authHeader = await authPort.createUploadAuth(newHash, reencryptedData.length)
+      Keys.assertAccount(fence)
       const encryptedBlob = new Blob([reencryptedData as BlobPart], {
         type: 'application/octet-stream',
       })
@@ -705,7 +712,7 @@ export const Sharing = {
       // The folder's wrapped copy only once the blob exists, as upload does: a
       // failed re-encrypt or upload must not leave a wk for a file that is not there.
       if (folderId) {
-        await addWrappedKeyToFolder(folderId, newFileId, newFileKey)
+        await addWrappedKeyToFolder(folderId, newFileId, newFileKey, fence)
       }
 
       // Step 8: Publish new metadata event
@@ -721,10 +728,13 @@ export const Sharing = {
         encrypted: true,
         ownerEnvelope,
       })
+      Keys.assertAccount(fence)
       await authPort.publishEvent(metadataEvent)
 
       // Step 9: Delete old file
+      Keys.assertAccount(fence)
       const deleteAuth = await createDeleteAuth(file.sha256)
+      Keys.assertAccount(fence)
       await API.deleteFile(file.sha256, deleteAuth)
 
       // Best-effort: request deletion of stale share events from the relay.
@@ -742,7 +752,9 @@ export const Sharing = {
             tags: [['a', `30080:${authPort.pubkey}:${share.id}`]],
             content: '',
           }
+          Keys.assertAccount(fence)
           const signed = await authPort.signEvent(deleteEvent)
+          Keys.assertAccount(fence)
           await authPort.publishEvent(signed)
         }
       } catch {
