@@ -70,9 +70,9 @@ describe('own folder keys come from the relay copy', () => {
   })
 
   it('folder sharing uses the relay copy for own folders, untagged ones included', () => {
-    expect(readFileSync(join(coreSrc, 'sharing.ts'), 'utf8')).toMatch(
-      /folder\.encrypted_key \|\| !\(await Keys\.folderKeySharer\(folderId\)\)\s*\?\s*await Keys\.resolveOwnFolderKey\(/,
-    )
+    const src = readFileSync(join(coreSrc, 'sharing.ts'), 'utf8')
+    expect(src).toMatch(/if \(folder\.encrypted_key\) \{\s*folderKey = await Keys\.resolveOwnFolderKey\(/)
+    expect(src).toMatch(/\} else \{\s*folderKey = await Keys\.resolveOwnFolderKey\(folderId, undefined,/)
   })
 
   // Residual (d): a folder whose key cannot be verified is refused for new

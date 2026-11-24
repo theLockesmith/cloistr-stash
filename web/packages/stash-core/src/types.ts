@@ -31,6 +31,8 @@ export interface StashFolder {
   name: string
   parent_id?: string
   description?: string
+  /** Author of the folder's event: who owns it. Absent when not known. */
+  pubkey?: string
   /** Folder key, encrypted to the owner's pubkey (self-encryption). */
   encrypted_key?: string
   /** Member file keys wrapped under the folder key. Present after wrapped-key migration. */

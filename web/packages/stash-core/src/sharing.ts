@@ -503,16 +503,28 @@ export const Sharing = {
     }
 
     // Own folders carry their self-encrypted key tag, which is authoritative;
-    // never hand a recipient a key that disagrees with it. An untagged own
-    // folder must be verifiable, as for an upload. A key someone shared to us
-    // (a re-share) is used as stored: the own-folder check would drop it.
+    // never hand a recipient a key that disagrees with it. Untagged, whose
+    // folder it is comes from its event's author, never from the stored key's
+    // sharedBy (a crafted share sets that):
+    //  - someone else's (a re-share): the key is used as stored; the own-folder
+    //    check would drop it;
+    //  - ours: it must be verifiable, as for an upload, and a key someone else
+    //    gave us is refused until the next drive load repairs it;
+    //  - unknown author: refused.
     const fence = Keys.accountFence() ?? undefined
+    const own = !!folder.pubkey && folder.pubkey === Keys.userPubkey
+    const received = !!folder.pubkey && !own
     let folderKey: Uint8Array
     try {
-      folderKey =
-        folder.encrypted_key || !(await Keys.folderKeySharer(folderId))
-          ? await Keys.resolveOwnFolderKey(folderId, folder.encrypted_key, folder.parent_id ?? null, fence)
-          : await Keys.getFolderKey(folderId, folder.parent_id ?? null, fence)
+      if (folder.encrypted_key) {
+        folderKey = await Keys.resolveOwnFolderKey(folderId, folder.encrypted_key, folder.parent_id ?? null, fence)
+      } else if (received) {
+        folderKey = await Keys.getFolderKey(folderId, folder.parent_id ?? null, fence)
+      } else if (!own || (await Keys.folderKeySharer(folderId))) {
+        throw new FolderKeyUnverifiedError(folderId, 'share')
+      } else {
+        folderKey = await Keys.resolveOwnFolderKey(folderId, undefined, folder.parent_id ?? null, fence)
+      }
     } catch (err) {
       if (err instanceof FolderKeyUnverifiedError) throw new FolderKeyUnverifiedError(folderId, 'share')
       throw err

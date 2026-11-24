@@ -100,6 +100,8 @@ describe('buildOwnDrive', () => {
     const legacy = drive.files.filter((f) => !f.sealed)
     expect(legacy.map((f) => [f.name, f.folder_id, f.mime_type, f.size])).toEqual([['new-name.png', 'oldfolder', 'image/png', 42]])
     expect(drive.folders.map((f) => f.name).sort()).toEqual(['Alpha', 'Beta', 'Old'])
+    // Each folder names its event's author: folder sharing decides ownership on it.
+    expect(drive.folders.map((f) => f.pubkey)).toEqual([OWNER, OWNER, OWNER])
   })
 
   it('does not mistake the root-key event or other apps\' kind 30078 events for lost sealed files', async () => {
@@ -235,6 +237,7 @@ describe('listSharedFolder', () => {
     ])
     expect(list.files.map((f) => f.name)).toEqual(['alpha.txt'])
     expect(list.folders.map((f) => f.name)).toEqual(['Beta'])
+    expect(list.folders.map((f) => f.pubkey)).toEqual([OWNER])
     expect(list.folderKeys.get(s.B.id)).toEqual(s.B.key)
   })
 

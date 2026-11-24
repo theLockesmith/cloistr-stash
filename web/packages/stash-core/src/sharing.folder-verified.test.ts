@@ -4,6 +4,8 @@
 // handing the recipient the planted key. Own untagged folders now go through
 // Keys.resolveOwnFolderKey; a folder whose key was shared to us (a re-share)
 // is left as it was, because the resolver drops a key someone else gave us.
+// Which one a folder is comes from its event's author (folder.pubkey), never
+// from the stored key's sharedBy: a crafted share can set that (!244 audit).
 // Real Keys + Crypto; relay and signer are stubbed.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
@@ -83,7 +85,7 @@ describe('sharing an untagged folder', () => {
     await Keys.storeEncryptedKey('folder:f-mine', planted, 'f-mine') // pre-provenance, not the derived key
     const encrypt = vi.spyOn(Sharing, 'encryptForRecipient')
 
-    const out = await Sharing.shareFolder({ id: 'f-mine', name: 'mine' } as never, RECIPIENT).catch((e: unknown) => e)
+    const out = await Sharing.shareFolder({ id: 'f-mine', name: 'mine', pubkey: ME } as never, RECIPIENT).catch((e: unknown) => e)
 
     expect(out).toBeInstanceOf(FolderKeyUnverifiedError)
     expect((out as Error).message).toMatch(/cannot be shared/)
@@ -98,7 +100,7 @@ describe('sharing an untagged folder', () => {
   it('an own derived folder still shares, with its derived key', async () => {
     const derived = await Keys.getFolderKey('f-derived', null)
 
-    await Sharing.shareFolder({ id: 'f-derived', name: 'derived' } as never, RECIPIENT)
+    await Sharing.shareFolder({ id: 'f-derived', name: 'derived', pubkey: ME } as never, RECIPIENT)
 
     expect(shares()).toHaveLength(1)
     const sent = vi.mocked(Keys.auth!.nip44Encrypt!).mock.calls.find(([pk]) => pk === RECIPIENT)
@@ -109,7 +111,7 @@ describe('sharing an untagged folder', () => {
     const theirs = Crypto.generateKey()
     await Keys.storeEncryptedKey('folder:f-theirs', theirs, 'f-theirs', { sharedBy: MALLORY })
 
-    await Sharing.shareFolder({ id: 'f-theirs', name: 'theirs' } as never, RECIPIENT)
+    await Sharing.shareFolder({ id: 'f-theirs', name: 'theirs', pubkey: MALLORY } as never, RECIPIENT)
 
     Keys.keyCache.clear()
     const kept = await Keys.storage!.get(`${ME}:folder:f-theirs`)
@@ -118,5 +120,30 @@ describe('sharing an untagged folder', () => {
     expect(shares()).toHaveLength(1)
     const sent = vi.mocked(Keys.auth!.nip44Encrypt!).mock.calls.find(([pk]) => pk === RECIPIENT)
     expect(sent?.[1]).toBe(hex(theirs))
+  })
+
+  it('an own folder holding a key a crafted share planted (no local key before) is refused; nothing is published', async () => {
+    // What accepting the crafted share stores: the attacker's key, sharedBy the attacker.
+    const planted = Crypto.generateKey()
+    await Keys.storeEncryptedKey('folder:f-mine', planted, 'f-mine', { sharedBy: MALLORY })
+    const encrypt = vi.spyOn(Sharing, 'encryptForRecipient')
+
+    const out = await Sharing.shareFolder({ id: 'f-mine', name: 'mine', pubkey: ME } as never, RECIPIENT).catch((e: unknown) => e)
+
+    expect(out).toBeInstanceOf(FolderKeyUnverifiedError)
+    expect((out as Error).message).toMatch(/cannot be shared/)
+    expect(encrypt).not.toHaveBeenCalled()
+    expect(shares()).toEqual([])
+  })
+
+  it('a folder whose author is unknown is refused, in plain words, and nothing is published', async () => {
+    const encrypt = vi.spyOn(Sharing, 'encryptForRecipient')
+
+    const out = await Sharing.shareFolder({ id: 'f-anon', name: 'anon' } as never, RECIPIENT).catch((e: unknown) => e)
+
+    expect(out).toBeInstanceOf(FolderKeyUnverifiedError)
+    expect((out as Error).message).toMatch(/cannot be shared/)
+    expect(encrypt).not.toHaveBeenCalled()
+    expect(shares()).toEqual([])
   })
 })

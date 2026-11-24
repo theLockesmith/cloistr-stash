@@ -149,6 +149,7 @@ function legacyFolder(ev: SignedEvent): StashFolder | null {
     parent_id: tag(ev, 'parent'),
     encrypted_key: tag(ev, 'key'),
     wrapped_keys: ev.tags.filter((t) => t[0] === 'wk' && t.length >= 3).map((t) => ({ subject: t[1], envelope: t[2] })),
+    pubkey: ev.pubkey,
     created_at: ev.created_at,
     sealed: false,
   }
@@ -220,6 +221,7 @@ async function walkRings(
           name: meta.name,
           description: meta.description,
           parent_id: meta.parentId ?? undefined,
+          pubkey: ev.pubkey,
           created_at: ev.created_at,
           d: f.d,
           sealed: true,
