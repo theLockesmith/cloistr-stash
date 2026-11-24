@@ -96,7 +96,11 @@ func TestAuthStatusEndpointNoAuth(t *testing.T) {
 func TestCORSHeaders(t *testing.T) {
 	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"https://space.cloistr.xyz"}}}
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	h := New(cfg, nil, nil, auth.NewWhitelist(nil), nil, nil, nil, "", logger).Handler()
+	srv, err := New(cfg, nil, nil, auth.NewWhitelist(nil), nil, nil, nil, "", logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Handler()
 
 	r := httptest.NewRequest(http.MethodOptions, "/api/files", nil)
 	r.Header.Set("Origin", "https://space.cloistr.xyz")
