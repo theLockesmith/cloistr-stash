@@ -38,42 +38,26 @@ import {
   RELAY_THROTTLE_MS,
   softDeleteFile,
 } from '@cloistr/stash-core/operations'
+import { useNostrAuth } from '@cloistr/auth'
 import { busyWhileRunning } from '../pwaUpdate'
 import { fetchDrive, filesIn, foldersIn } from './driveSource'
 import { uploadFiles as libUploadFiles, copyFile as libCopyFile, type UploadItem } from '@cloistr/stash-core/upload'
 import { Search, type SearchResult } from '@cloistr/stash-core/search'
 import { Sharing, type DecryptedIncomingShare, type IncomingShare } from '@cloistr/stash-core/sharing'
 import { withAccess, type RecentEntry } from './recent'
+import { findNewShareNotifications, loadNotifications, saveNotifications, type ShareSummary } from './notificationStore'
 import { logActivity } from '@cloistr/stash-core/activity'
 import type { FolderPathItem, StashFile, StashFolder, StashNotification, StashView, SortField, SortDir, SortPrefs } from './types'
 
 
 const STARRED_KEY = 'cloistr-starred'
 const RECENT_KEY = 'cloistr-recent'
-const NOTIFICATIONS_KEY = 'cloistr-notifications'
 /** The records went, but a blob would not: the file is gone, its stored copy is not. */
 const BLOB_LEFT = 'Deleted, but its encrypted data could not be removed from storage'
 /** Poll for new received shares every 30 s (mirrors legacy startNotificationPolling). */
 const NOTIFICATION_POLL_MS = 30_000
 /** First check is deferred 5 s after auth, so the initial file load completes first. */
 const NOTIFICATION_INITIAL_DELAY_MS = 5_000
-
-function loadStoredNotifications(): StashNotification[] {
-  try {
-    const raw = localStorage.getItem(NOTIFICATIONS_KEY)
-    return raw ? (JSON.parse(raw) as StashNotification[]) : []
-  } catch {
-    return []
-  }
-}
-
-function saveStoredNotifications(list: StashNotification[]): void {
-  try {
-    localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(list))
-  } catch (err) {
-    console.warn('Failed to save notifications:', err)
-  }
-}
 
 export interface StashContextValue {
   // Data
@@ -262,7 +246,9 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const [migrationFiles, setMigrationFiles] = useState<StashFile[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [notifications, setNotifications] = useState<StashNotification[]>(() => loadStoredNotifications())
+  const [notifications, setNotifications] = useState<StashNotification[]>([])
+  // The account whose notifications are loaded; saves go under it only.
+  const notificationOwnerRef = useRef<string | null>(null)
   const [quota, setQuota] = useState<StashContextValue['quota']>(null)
   const [activeTagFilter, setTagFilterState] = useState<string>('')
   const [sortPrefs, setSortPrefsState] = useState<SortPrefs>(() => {
@@ -376,13 +362,17 @@ export function StashProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const loadShared = useCallback(async () => {
+    const pubkey = authPort.pubkey
     if (!authPort.isConnected) return
     setLoading(true)
     setError(null)
     try {
-      setSharedItems(await Sharing.listIncomingShares())
+      const items = await Sharing.listIncomingShares()
+      if (authPort.pubkey !== pubkey) return // switched account while this loaded
+      setSharedItems(items)
     } catch (err) {
       console.error('loadShared failed', err)
+      if (authPort.pubkey !== pubkey) return
       setError('Failed to load shares')
     } finally {
       setLoading(false)
@@ -938,7 +928,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
   // Persist and update state in one call.
   const applyNotifications = useCallback((next: StashNotification[]) => {
-    saveStoredNotifications(next)
+    saveNotifications(notificationOwnerRef.current, next)
     setNotifications(next)
   }, [])
 
@@ -946,7 +936,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       setNotifications((prev) => {
         const next = prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-        saveStoredNotifications(next)
+        saveNotifications(notificationOwnerRef.current, next)
         return next
       })
     },
@@ -956,7 +946,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const markAllNotificationsRead = useCallback(() => {
     setNotifications((prev) => {
       const next = prev.map((n) => ({ ...n, read: true }))
-      saveStoredNotifications(next)
+      saveNotifications(notificationOwnerRef.current, next)
       return next
     })
   }, [])
@@ -966,19 +956,22 @@ export function StashProvider({ children }: { children: ReactNode }) {
       // Same accept path as the Shared view: the share's key is stored, and
       // only then is the notification marked accepted.
       const shareId = notificationsRef.current.find((n) => n.id === id)?.data.shareId
+      const owner = notificationOwnerRef.current
       let share: DecryptedIncomingShare | undefined
       try {
         share = (await Sharing.listIncomingShares()).find((s) => s.id === shareId)
       } catch (err) {
         console.error('acceptNotification: listing shares failed', err)
       }
+      if (notificationOwnerRef.current !== owner) return false // switched account meanwhile
       if (!share || !share.decrypted) return false
       if (!(await acceptShare(share))) return false
+      if (notificationOwnerRef.current !== owner) return false
       setNotifications((prev) => {
         const next = prev.map((n) =>
           n.id === id ? { ...n, read: true, accepted: true } : n,
         )
-        saveStoredNotifications(next)
+        saveNotifications(notificationOwnerRef.current, next)
         return next
       })
       return true
@@ -992,7 +985,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
         const next = prev.map((n) =>
           n.id === id ? { ...n, read: true, declined: true } : n,
         )
-        saveStoredNotifications(next)
+        saveNotifications(notificationOwnerRef.current, next)
         return next
       })
     },
@@ -1004,74 +997,67 @@ export function StashProvider({ children }: { children: ReactNode }) {
   const notificationsRef = useRef<StashNotification[]>(notifications)
   notificationsRef.current = notifications
 
+  // Notifications belong to one account: load them for whoever is signed in,
+  // and drop the previous account's, and its Shared listing, on a switch or sign-out.
+  const { authState } = useNostrAuth()
+  const account = authState?.isConnected ? (authState.pubkey ?? null) : null
+  useEffect(() => {
+    notificationOwnerRef.current = account
+    const list = loadNotifications(account)
+    notificationsRef.current = list
+    setNotifications(list)
+    setSharedItems([])
+  }, [account])
+
   const checkForNewShares = useCallback(async () => {
     const pubkey = authPort.pubkey
     if (!authPort.isConnected || !pubkey) return
 
     try {
-      // Relay is the source of truth; API is the fallback.
-      let shares: Array<{ id: string; owner_pubkey: string; encrypted_content?: string; name?: string; isFolder?: boolean }>
-      try {
-        const relayShares = await Sharing.queryIncomingSharesFromRelay(pubkey)
-        shares = relayShares.map((s: IncomingShare) => ({
-          id: s.id,
-          owner_pubkey: s.owner_pubkey,
-          encrypted_content: s.encrypted_content,
-        }))
-      } catch {
-        const response = (await API.listShares(pubkey, 'received')) as unknown as {
-          received?: Array<{ id: string; owner_pubkey: string; name?: string; isFolder?: boolean }>
-          shares?: Array<{ id: string; owner_pubkey: string; name?: string; isFolder?: boolean }>
-        }
-        shares = response.received ?? response.shares ?? []
-      }
+      const found = await findNewShareNotifications({
+        pubkey,
+        existingShareIds: new Set(
+          notificationsRef.current
+            .filter((n) => n.type === 'share_received' || n.type === 'share_folder')
+            .map((n) => n.data.shareId),
+        ),
+        isCurrent: () => authPort.pubkey === pubkey,
+        // Relay is the source of truth; API is the fallback.
+        listShares: async (pk): Promise<ShareSummary[]> => {
+          try {
+            const relayShares = await Sharing.queryIncomingSharesFromRelay(pk)
+            return relayShares.map((s: IncomingShare) => ({
+              id: s.id,
+              owner_pubkey: s.owner_pubkey,
+              encrypted_content: s.encrypted_content,
+            }))
+          } catch {
+            const response = (await API.listShares(pk, 'received')) as unknown as {
+              received?: ShareSummary[]
+              shares?: ShareSummary[]
+            }
+            return response.received ?? response.shares ?? []
+          }
+        },
+        describe: (share) => Sharing.describeIncomingShare(share),
+      })
+      // Checked for an account that is no longer signed in, or whose list is not loaded.
+      if (!found || notificationOwnerRef.current !== pubkey) return
 
-      const existingIds = new Set(
-        notificationsRef.current
-          .filter((n) => n.type === 'share_received' || n.type === 'share_folder')
-          .map((n) => n.data.shareId),
-      )
-
-      const newNotifications: StashNotification[] = []
-      for (const share of shares) {
-        if (existingIds.has(share.id)) continue
-        // The name is inside the encrypted content. Only new shares get here,
-        // so the signer is not asked again on every poll.
-        if (!share.name && share.encrypted_content) {
-          const described = await Sharing.describeIncomingShare(share as IncomingShare)
-          share.name = described.name ?? undefined
-          share.isFolder = share.isFolder ?? described.isFolder
-        }
-        const from =
-          share.owner_pubkey && share.owner_pubkey.length > 8
-            ? `${share.owner_pubkey.slice(0, 8)}…`
-            : share.owner_pubkey || 'Someone'
-        const notif: StashNotification = {
-          id: Date.now().toString() + Math.random().toString(36).slice(2),
-          type: share.isFolder ? 'share_folder' : 'share_received',
-          data: {
-            shareId: share.id,
-            name: share.name || 'Unknown',
-            from,
-          },
-          timestamp: Date.now(),
-          read: false,
-        }
-        newNotifications.push(notif)
-
-        // Fire a Web Notifications API toast if permitted.
-        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      // Fire a Web Notifications API toast if permitted.
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        for (const notif of found) {
           const body =
             notif.type === 'share_folder'
-              ? `${from} shared folder "${notif.data.name}" with you`
-              : `${from} shared "${notif.data.name}" with you`
+              ? `${notif.data.from} shared folder "${notif.data.name}" with you`
+              : `${notif.data.from} shared "${notif.data.name}" with you`
           // eslint-disable-next-line no-new
           new Notification('Cloistr Stash', { body, icon: '/favicon.svg' })
         }
       }
 
-      if (newNotifications.length > 0) {
-        applyNotifications([...newNotifications, ...notificationsRef.current])
+      if (found.length > 0) {
+        applyNotifications([...found, ...notificationsRef.current])
       }
     } catch (err) {
       console.warn('checkForNewShares failed:', err)
