@@ -45,9 +45,15 @@ describe('the notification poller uses it', () => {
   it('names each new share from its content', async () => {
     const { readFileSync } = await import('node:fs')
     const { join } = await import('node:path')
-    const provider = readFileSync(join(__dirname, '../../../src/state/StashProvider.tsx'), 'utf8')
-    const poll = provider.slice(provider.indexOf('const checkForNewShares'), provider.indexOf('applyNotifications([...newNotifications'))
+    const state = join(__dirname, '../../../src/state')
+    // The poll's dedupe and naming live in notificationStore.ts (behaviour
+    // tested in notifications-account.test.ts); the provider supplies the
+    // encrypted content and the real describe.
+    const store = readFileSync(join(state, 'notificationStore.ts'), 'utf8')
+    expect(store).toMatch(/if \(opts\.existingShareIds\.has\(share\.id\)\) continue[\s\S]{0,300}opts\.describe\(/)
+    const provider = readFileSync(join(state, 'StashProvider.tsx'), 'utf8')
+    const poll = provider.slice(provider.indexOf('const checkForNewShares'), provider.indexOf('applyNotifications([...found'))
     expect(poll).toContain('encrypted_content: s.encrypted_content')
-    expect(poll).toMatch(/if \(existingIds\.has\(share\.id\)\) continue[\s\S]{0,300}Sharing\.describeIncomingShare\(/)
+    expect(poll).toMatch(/describe: \(share\) => Sharing\.describeIncomingShare\(share\)/)
   })
 })
