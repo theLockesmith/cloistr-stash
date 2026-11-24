@@ -310,6 +310,8 @@ export function StashProvider({ children }: { children: ReactNode }) {
 
       await restoreFolderKeys(loadedFolders)
       setUnverifiedFolders(snapshotUnverified())
+      // Switched account while this loaded: the new account's load fills the screen.
+      if (authPort.pubkey !== pubkey) return
 
       setFolders(loadedFolders)
       setFiles(visibleFiles)
@@ -324,6 +326,7 @@ export function StashProvider({ children }: { children: ReactNode }) {
       }
     } catch (err) {
       console.error('loadFiles: Failed -', err)
+      if (authPort.pubkey !== pubkey) return
       setError('Failed to load files')
     } finally {
       setLoading(false)
@@ -360,9 +363,11 @@ export function StashProvider({ children }: { children: ReactNode }) {
           .sort((a, b) => (order.get(b.sha256) || 0) - (order.get(a.sha256) || 0))
           .slice(0, 50)
       }
+      if (authPort.pubkey !== pubkey) return // switched account while this loaded
       setSpecialFiles(result)
     } catch (err) {
       console.error(`load ${which}: Failed -`, err)
+      if (authPort.pubkey !== pubkey) return
       setError(`Failed to load ${which}`)
     } finally {
       setLoading(false)
