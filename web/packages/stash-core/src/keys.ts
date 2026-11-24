@@ -45,10 +45,16 @@ export class KeyOverwriteRefusedError extends Error {
  * by a folder share accepted before 2026-10-09.
  */
 export class FolderKeyUnverifiedError extends Error {
-  constructor(public readonly folderId: string) {
+  constructor(
+    public readonly folderId: string,
+    action: 'upload' | 'share' = 'upload',
+  ) {
     super(
-      `This folder's key on this device cannot be verified, so new files are not ` +
-        `being added to it. Existing files still open. Upload into a different folder.`,
+      action === 'share'
+        ? `This folder's key on this device cannot be verified, so it cannot be shared from here. ` +
+            `Its files still open.`
+        : `This folder's key on this device cannot be verified, so new files are not ` +
+            `being added to it. Existing files still open. Upload into a different folder.`,
     )
     this.name = 'FolderKeyUnverifiedError'
   }
@@ -736,6 +742,12 @@ export const Keys = {
   // For WRITES into an own folder (wrap, share, migrate): throws
   // FolderKeyUnverifiedError rather than hand out an unverifiable key. Reads
   // use getFolderKey / fileKeyFor.
+  /** Who shared this folder's stored key to us; null when it is ours or its source is unknown. */
+  async folderKeySharer(folderId: string): Promise<string | null> {
+    const record = await (await this.ensureStorage()).get(`${this.userPubkey}:folder:${folderId}`)
+    return record?.sharedBy && record.sharedBy !== this.userPubkey ? record.sharedBy : null
+  },
+
   async resolveOwnFolderKey(
     folderId: string,
     keyTag: string | undefined,

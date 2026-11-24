@@ -14,7 +14,7 @@
 //   - UI.toast()                      → dropped (pure UI; callers handle feedback)
 
 import { Crypto } from './crypto'
-import { Keys, AccountChangedError, type AccountFence } from './keys'
+import { Keys, AccountChangedError, FolderKeyUnverifiedError, type AccountFence } from './keys'
 import { API } from './api'
 import { Relay } from './relay'
 import { authPort, getSigner } from './authBridge'
@@ -503,11 +503,20 @@ export const Sharing = {
     }
 
     // Own folders carry their self-encrypted key tag, which is authoritative;
-    // never hand a recipient a key that disagrees with it.
+    // never hand a recipient a key that disagrees with it. An untagged own
+    // folder must be verifiable, as for an upload. A key someone shared to us
+    // (a re-share) is used as stored: the own-folder check would drop it.
     const fence = Keys.accountFence() ?? undefined
-    const folderKey = folder.encrypted_key
-      ? await Keys.resolveOwnFolderKey(folderId, folder.encrypted_key, folder.parent_id ?? null, fence)
-      : await Keys.getFolderKey(folderId, folder.parent_id ?? null, fence)
+    let folderKey: Uint8Array
+    try {
+      folderKey =
+        folder.encrypted_key || !(await Keys.folderKeySharer(folderId))
+          ? await Keys.resolveOwnFolderKey(folderId, folder.encrypted_key, folder.parent_id ?? null, fence)
+          : await Keys.getFolderKey(folderId, folder.parent_id ?? null, fence)
+    } catch (err) {
+      if (err instanceof FolderKeyUnverifiedError) throw new FolderKeyUnverifiedError(folderId, 'share')
+      throw err
+    }
 
     // Encrypt the folder key for the recipient (NIP-44 preferred, NIP-04 fallback)
     Keys.assertAccount(fence)
